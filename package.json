@@ -1,0 +1,103 @@
+{
+  "name": "@tsdevstack/cli-infra",
+  "version": "0.0.1",
+  "description": "Infrastructure deployment tools for tsdevstack framework",
+  "author": "tsdevstack",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tsdevstack/cli-infra.git"
+  },
+  "homepage": "https://github.com/tsdevstack/cli-infra",
+  "bugs": {
+    "url": "https://github.com/tsdevstack/cli-infra/issues"
+  },
+  "keywords": [
+    "tsdevstack",
+    "cli",
+    "infrastructure",
+    "terraform",
+    "gcp",
+    "aws",
+    "azure",
+    "devops"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "NODE_OPTIONS='--max-old-space-size=4096' rslib build",
+    "dev": "rslib build --watch",
+    "format": "prettier --write .",
+    "lint": "NODE_OPTIONS='--max-old-space-size=4096' eslint .",
+    "tsc": "tsc --noEmit",
+    "test": "rstest run",
+    "test:watch": "rstest"
+  },
+  "peerDependencies": {
+    "@tsdevstack/cli": "0.0.1",
+    "commander": "^12.0.0"
+  },
+  "dependencies": {
+    "@tsdevstack/infra-core": "*",
+    "@aws-sdk/client-apprunner": "^3.984.0",
+    "@aws-sdk/client-cloudfront": "^3.984.0",
+    "@aws-sdk/client-cloudwatch-logs": "^3.984.0",
+    "@aws-sdk/client-dynamodb": "^3.984.0",
+    "@aws-sdk/client-ecr": "^3.984.0",
+    "@aws-sdk/client-ecs": "^3.984.0",
+    "@aws-sdk/client-iam": "^3.984.0",
+    "@aws-sdk/client-s3": "^3.984.0",
+    "@aws-sdk/client-scheduler": "^3.984.0",
+    "@aws-sdk/client-servicediscovery": "^3.984.0",
+    "@aws-sdk/client-sts": "^3.984.0",
+    "@azure/arm-appcontainers": "^3.0.0",
+    "@azure/arm-appservice": "^18.0.0",
+    "@azure/arm-postgresql-flexible": "^9.0.0",
+    "@azure/arm-resources": "^7.0.0",
+    "@azure/arm-storage": "^19.1.0",
+    "@azure/identity": "^4.13.0",
+    "@azure/keyvault-secrets": "^4.10.0",
+    "@azure/storage-blob": "^12.31.0",
+    "@google-cloud/logging": "^11.0.0",
+    "@google-cloud/resource-manager": "^5.0.0",
+    "@google-cloud/run": "^3.0.1",
+    "@google-cloud/scheduler": "^4.0.0",
+    "@google-cloud/secret-manager": "^6.1.1",
+    "@google-cloud/service-usage": "^4.0.0",
+    "@google-cloud/storage": "^7.18.0",
+    "google-auth-library": "^10.5.0",
+    "googleapis": "^169.0.0",
+    "inquirer": "^12.10.0",
+    "js-yaml": "^4.1.1",
+    "p-map": "^4.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.0",
+    "@rslib/core": "^0.18.2",
+    "@rstest/adapter-rslib": "^0.2.0",
+    "@rstest/core": "^0.8.5",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^24.10.1",
+    "eslint": "^9.39.0",
+    "globals": "^16.4.0",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.2"
+  },
+  "private": false,
+  "publishConfig": {
+    "access": "restricted"
+  }
+}

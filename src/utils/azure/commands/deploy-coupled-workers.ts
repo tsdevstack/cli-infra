@@ -1,0 +1,123 @@
+/**
+ * Deploy workers coupled to deployed services.
+ *
+ * Finds workers whose baseService is in the list of deployed services,
+ * then deploys each one to Azure Container Apps.
+ */
+
+import { getContext } from '../../../context';
+import { azureDeployWorker } from './deploy-worker';
+import { buildAzureBackendEnv } from './build-azure-backend-env';
+import {
+  calculatePoolSize,
+  getTotalWorkerMaxInstances,
+} from '@tsdevstack/infra-core';
+import { getTotalServiceMaxInstances } from '../../deploy/get-total-service-max-instances';
+import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
+import { getServiceConfig } from '../../infrastructure/get-service-config';
+import type { EnvironmentOverrides } from '../../infrastructure/types';
+import { getGitSha } from '../../docker';
+import type { AzureCommandContext } from './types';
+
+export async function deployCoupledWorkers(
+  ctx: AzureCommandContext,
+  config: ReturnType<ReturnType<typeof getContext>['loadFrameworkConfig']>,
+  deployedServiceNames: string[],
+  tag?: string,
+): Promise<void> {
+  const { logger, CliError, DEFAULT_AZURE_DATABASE_TIER } = getContext();
+
+  const coupledWorkers = config.services.filter(
+    (s) =>
+      s.type === 'worker' &&
+      s.baseService &&
+      deployedServiceNames.includes(s.baseService),
+  );
+
+  if (coupledWorkers.length === 0) return;
+
+  logger.newline();
+  logger.info('════════════════════════════════════════════');
+  logger.info(
+    `Deploying ${coupledWorkers.length} worker(s) to Container Apps...`,
+  );
+  logger.info('════════════════════════════════════════════');
+
+  const infraConfig = loadInfrastructureConfig();
+  const envConfig = infraConfig?.[ctx.targetEnv] as
+    | EnvironmentOverrides
+    | undefined;
+  const dbTier = envConfig?.database?.tier ?? DEFAULT_AZURE_DATABASE_TIER;
+  const totalServiceMax = getTotalServiceMaxInstances(
+    config.services,
+    infraConfig,
+    ctx.targetEnv,
+    'azure',
+  );
+  const totalWorkerMax = getTotalWorkerMaxInstances(config.services);
+  const imageTag = tag ?? getGitSha();
+
+  const { poolMax: workerPoolMax } = calculatePoolSize({
+    dbTier,
+    provider: 'azure',
+    totalServiceMaxInstances: totalServiceMax,
+    totalWorkerMaxInstances: totalWorkerMax,
+  });
+
+  const workerFailures: Array<{ worker: string; error?: string }> = [];
+
+  for (const worker of coupledWorkers) {
+    const baseService = config.services.find(
+      (s) => s.name === worker.baseService,
+    );
+    if (!baseService) continue;
+
+    const backendEnv = buildAzureBackendEnv({
+      projectName: ctx.projectName,
+      targetEnv: ctx.targetEnv,
+      credentials: ctx.credentials,
+      serviceName: baseService.name,
+      hasDatabase: baseService.hasDatabase ?? false,
+      poolMax: workerPoolMax,
+    });
+
+    const workerConfig = getServiceConfig(
+      infraConfig,
+      worker.name,
+      ctx.targetEnv,
+      'azure',
+    );
+
+    try {
+      await azureDeployWorker({
+        projectRoot: ctx.projectRoot,
+        projectName: ctx.projectName,
+        targetEnv: ctx.targetEnv,
+        credentials: ctx.credentials,
+        worker,
+        baseService,
+        imageTag,
+        envVars: backendEnv.envVars,
+        secrets: backendEnv.secrets,
+        secretEnvVars: backendEnv.secretEnvVars,
+        minReplicas: Math.max(1, workerConfig.minInstances),
+        maxReplicas: workerConfig.maxInstances,
+        cpu: parseFloat(workerConfig.cpu),
+        memory: workerConfig.memory,
+      });
+      logger.success(`  ${worker.name} deployed`);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      workerFailures.push({ worker: worker.name, error: errorMsg });
+      logger.error(`  ${worker.name}: ${errorMsg}`);
+    }
+  }
+
+  if (workerFailures.length > 0) {
+    throw new CliError(
+      `Failed to deploy ${workerFailures.length} worker(s)`,
+      'infra:deploy-services',
+      workerFailures.map((f) => `${f.worker}: ${f.error}`).join('\n'),
+    );
+  }
+}
