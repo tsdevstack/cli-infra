@@ -6,7 +6,7 @@
  * Locally, uses explicit credentials from the credentials file.
  */
 
-import type { AWSCredentials } from '@tsdevstack/cli/plugin';
+import type { AWSCredentials } from 'tsdevstack/plugin';
 import { getContext } from '../../context';
 
 export interface AWSClientConfig {

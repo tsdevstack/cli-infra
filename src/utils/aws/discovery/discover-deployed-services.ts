@@ -11,7 +11,7 @@
 import { listEcsServices } from './list-ecs-services';
 import { listAppRunnerServices } from './list-apprunner-services';
 import { listSpaBuckets } from './list-spa-buckets';
-import type { AWSCredentials } from '@tsdevstack/cli/plugin';
+import type { AWSCredentials } from 'tsdevstack/plugin';
 import type {
   DeployedServiceInfo,
   DeployedServiceType,

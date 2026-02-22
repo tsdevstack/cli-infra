@@ -22,7 +22,7 @@ import {
 import { getTotalServiceMaxInstances } from '../../deploy/get-total-service-max-instances';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
 import type { EnvironmentOverrides } from '../../infrastructure/types';
-import type { GCPCredentials, FrameworkService } from '@tsdevstack/cli/plugin';
+import type { GCPCredentials, FrameworkService } from 'tsdevstack/plugin';
 
 interface GcpDeployWorkerParams {
   projectRoot: string;

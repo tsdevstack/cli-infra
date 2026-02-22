@@ -13,10 +13,7 @@ import { executeContainerJob } from './execute-container-job';
 import { fetchSecret } from '../../credentials/fetch-secret';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
 import { getMigrationJobConfig } from '../../infrastructure/merge-with-defaults';
-import type {
-  AzureCredentials,
-  FrameworkService,
-} from '@tsdevstack/cli/plugin';
+import type { AzureCredentials, FrameworkService } from 'tsdevstack/plugin';
 
 interface AzureDbMigrateRunParams {
   projectRoot: string;

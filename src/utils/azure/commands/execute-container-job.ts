@@ -12,7 +12,7 @@ import {
   createAzureCredential,
   getAcrRefreshToken,
 } from '@tsdevstack/infra-core';
-import type { AzureCredentials } from '@tsdevstack/cli/plugin';
+import type { AzureCredentials } from 'tsdevstack/plugin';
 
 export interface ExecuteContainerJobOptions {
   credentials: AzureCredentials;

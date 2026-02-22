@@ -6,7 +6,7 @@
  */
 
 import { google } from 'googleapis';
-import type { GCPCredentials } from '@tsdevstack/cli/plugin';
+import type { GCPCredentials } from 'tsdevstack/plugin';
 
 export interface DeleteDatabaseOptions {
   databaseName: string;
@@ -31,7 +31,7 @@ export interface DeleteDatabaseResult {
  * @returns Result indicating success/failure
  */
 export async function deleteDatabase(
-  options: DeleteDatabaseOptions
+  options: DeleteDatabaseOptions,
 ): Promise<DeleteDatabaseResult> {
   const auth = new google.auth.GoogleAuth({
     projectId: options.projectId,

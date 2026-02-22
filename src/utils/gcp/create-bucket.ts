@@ -5,7 +5,7 @@
  */
 
 import { Storage } from '@google-cloud/storage';
-import type { GCPCredentials } from '@tsdevstack/cli/plugin';
+import type { GCPCredentials } from 'tsdevstack/plugin';
 import { getContext } from '../../context';
 
 export interface CreateBucketOptions {
@@ -35,7 +35,7 @@ export interface CreateBucketResult {
  * @returns Result indicating success/failure and whether bucket was created
  */
 export async function createBucket(
-  options: CreateBucketOptions
+  options: CreateBucketOptions,
 ): Promise<CreateBucketResult> {
   const {
     bucketName,

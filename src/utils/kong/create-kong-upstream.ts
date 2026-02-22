@@ -10,7 +10,7 @@
  * See: docs/in-dev/phase-21-aws-architecture.md
  */
 
-import type { KongUpstream } from '@tsdevstack/cli/plugin';
+import type { KongUpstream } from 'tsdevstack/plugin';
 
 interface CreateKongUpstreamOptions {
   serviceName: string;

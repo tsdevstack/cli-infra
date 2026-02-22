@@ -9,7 +9,7 @@
  * See: docs/in-dev/phase-21-aws-service-discovery-fix.md (Phase 21.11d)
  */
 
-import type { KongPlugin } from '@tsdevstack/cli/plugin';
+import type { KongPlugin } from 'tsdevstack/plugin';
 
 export function createWakeupPostFunction(): KongPlugin {
   // Lua code for post-function header_filter phase

@@ -5,7 +5,7 @@
  */
 
 import { google } from 'googleapis';
-import type { GCPCredentials } from '@tsdevstack/cli/plugin';
+import type { GCPCredentials } from 'tsdevstack/plugin';
 
 export interface ServiceAccountExistsOptions {
   serviceAccountEmail: string;
@@ -25,7 +25,7 @@ export interface ServiceAccountExistsResult {
  * @returns Result indicating if the service account exists
  */
 export async function serviceAccountExists(
-  options: ServiceAccountExistsOptions
+  options: ServiceAccountExistsOptions,
 ): Promise<ServiceAccountExistsResult> {
   const auth = new google.auth.GoogleAuth({
     projectId: options.projectId,

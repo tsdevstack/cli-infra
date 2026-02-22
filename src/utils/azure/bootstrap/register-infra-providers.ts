@@ -6,7 +6,7 @@
  */
 
 import { ResourceManagementClient } from '@azure/arm-resources';
-import type { AzureCredentials } from '@tsdevstack/cli/plugin';
+import type { AzureCredentials } from 'tsdevstack/plugin';
 import { createAzureCredential } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
 

@@ -8,7 +8,7 @@
  * config.json is out of sync with actual deployments.
  */
 
-import type { GCPCredentials } from '@tsdevstack/cli/plugin';
+import type { GCPCredentials } from 'tsdevstack/plugin';
 import type {
   DeployedServiceInfo,
   DiscoverDeployedServicesResult,

@@ -13,7 +13,7 @@ import {
 } from '@tsdevstack/infra-core';
 import { getTerraformOutput } from '../terraform';
 import { buildRuntime } from '../../build-runtime';
-import type { GCPCredentials } from '@tsdevstack/cli/plugin';
+import type { GCPCredentials } from 'tsdevstack/plugin';
 
 interface GcpKongRegistryInfo {
   registryUrl: string;

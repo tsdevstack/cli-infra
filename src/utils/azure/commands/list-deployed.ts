@@ -8,7 +8,7 @@ import { getContext } from '../../../context';
 import { discoverDeployedServices } from '../discovery';
 import { padRight } from '../../display/pad-right';
 import { parseImageTag } from '../../display/parse-image-tag';
-import type { AzureCredentials } from '@tsdevstack/cli/plugin';
+import type { AzureCredentials } from 'tsdevstack/plugin';
 import type { DeployedServiceInfo } from '../discovery';
 
 interface AzureListDeployedParams {

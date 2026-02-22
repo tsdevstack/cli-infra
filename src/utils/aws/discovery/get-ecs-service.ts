@@ -6,7 +6,7 @@
 
 import { ECSClient, DescribeServicesCommand } from '@aws-sdk/client-ecs';
 import { buildAWSClientConfig } from '../build-aws-client-config';
-import type { AWSCredentials } from '@tsdevstack/cli/plugin';
+import type { AWSCredentials } from 'tsdevstack/plugin';
 
 export interface GetEcsServiceOptions {
   clusterName: string;

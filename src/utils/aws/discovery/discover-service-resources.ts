@@ -8,7 +8,7 @@
  * has already been removed from config.json.
  */
 
-import type { AWSCredentials } from '@tsdevstack/cli/plugin';
+import type { AWSCredentials } from 'tsdevstack/plugin';
 import { getEcsService } from './get-ecs-service';
 import { getAppRunnerService } from './get-apprunner-service';
 import { bucketExists } from './bucket-exists';

@@ -58,7 +58,7 @@ describe('getServiceWorkspaceDeps', () => {
           return JSON.stringify({ name: '@tsdevstack/nest-common' });
         }
         if (pathStr.includes('packages/cli-core/package.json')) {
-          return JSON.stringify({ name: '@tsdevstack/cli' });
+          return JSON.stringify({ name: 'tsdevstack' });
         }
         if (pathStr.includes('packages/auth-service-client/package.json')) {
           return JSON.stringify({ name: '@tsdevstack/auth-service-client' });
@@ -126,7 +126,7 @@ describe('getServiceWorkspaceDeps', () => {
           });
         }
         if (pathStr.includes('packages/cli-core/package.json')) {
-          return JSON.stringify({ name: '@tsdevstack/cli' });
+          return JSON.stringify({ name: 'tsdevstack' });
         }
         return '{}';
       });

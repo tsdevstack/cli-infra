@@ -18,7 +18,7 @@
 import { getContext } from '../../../context';
 import { createAzureCredential } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
-import type { AzureCredentials } from '@tsdevstack/cli/plugin';
+import type { AzureCredentials } from 'tsdevstack/plugin';
 
 const POLL_INTERVAL_MS = 15_000;
 const MAX_POLL_ATTEMPTS = 40; // 10 minutes

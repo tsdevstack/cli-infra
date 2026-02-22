@@ -11,7 +11,7 @@ import {
   ResourceNotFoundException,
 } from '@aws-sdk/client-cloudwatch-logs';
 import { buildAWSClientConfig } from '../build-aws-client-config';
-import type { AWSCredentials } from '@tsdevstack/cli/plugin';
+import type { AWSCredentials } from 'tsdevstack/plugin';
 
 export interface DeleteCloudWatchLogGroupOptions {
   logGroupName: string;

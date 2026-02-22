@@ -9,7 +9,7 @@ import { discoverDeployedServices } from '../discovery';
 import { padRight } from '../../display/pad-right';
 import { parseImageTag } from '../../display/parse-image-tag';
 import { formatResources } from '../../display/format-resources';
-import type { GCPCredentials } from '@tsdevstack/cli/plugin';
+import type { GCPCredentials } from 'tsdevstack/plugin';
 
 interface GcpListDeployedParams {
   projectName: string;

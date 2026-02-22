@@ -9,7 +9,7 @@
  * the secret name using the standard naming convention.
  */
 
-import type { AWSCredentials } from '@tsdevstack/cli/plugin';
+import type { AWSCredentials } from 'tsdevstack/plugin';
 import { listSecretsByPrefix } from '../discovery/list-secrets-by-prefix';
 
 export interface BuildAppRunnerSecretsMapOptions {

@@ -8,7 +8,7 @@
  * has already been removed from config.json.
  */
 
-import type { AzureCredentials } from '@tsdevstack/cli/plugin';
+import type { AzureCredentials } from 'tsdevstack/plugin';
 import { getContainerApp } from './get-container-app';
 import { storageAccountExists } from './storage-account-exists';
 import { listKeyVaultSecretsByPrefix } from './list-keyvault-secrets-by-prefix';

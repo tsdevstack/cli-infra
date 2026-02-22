@@ -1,6 +1,6 @@
 import { describe, it, expect } from '@rstest/core';
 import { addAzureHealthToKongConfig } from './add-azure-health-to-kong-config';
-import type { KongTemplate } from '@tsdevstack/cli/plugin';
+import type { KongTemplate } from 'tsdevstack/plugin';
 
 describe('addAzureHealthToKongConfig', () => {
   const baseConfig: KongTemplate = {

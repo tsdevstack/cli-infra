@@ -6,7 +6,7 @@
  */
 
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
-import type { GCPCredentials } from '@tsdevstack/cli/plugin';
+import type { GCPCredentials } from 'tsdevstack/plugin';
 import { getContext } from '../../../context';
 
 export interface DeleteSecretsByPrefixOptions {
@@ -40,12 +40,12 @@ export interface DeleteSecretsByPrefixResult {
  * @returns Result with details of each deleted secret
  */
 export async function deleteSecretsByPrefix(
-  options: DeleteSecretsByPrefixOptions
+  options: DeleteSecretsByPrefixOptions,
 ): Promise<DeleteSecretsByPrefixResult> {
   const { buildGCPClientOptions } = getContext();
 
   const client = new SecretManagerServiceClient(
-    buildGCPClientOptions(options.credentials)
+    buildGCPClientOptions(options.credentials),
   );
 
   const deletedSecrets: DeletedSecretInfo[] = [];
@@ -79,7 +79,11 @@ export async function deleteSecretsByPrefix(
       } catch (error: unknown) {
         // NOT_FOUND means already deleted - this is success
         if (error instanceof Error && error.message.includes('NOT_FOUND')) {
-          deletedSecrets.push({ name: secretId, deleted: false, alreadyGone: true });
+          deletedSecrets.push({
+            name: secretId,
+            deleted: false,
+            alreadyGone: true,
+          });
           totalAlreadyGone++;
         } else {
           deletedSecrets.push({

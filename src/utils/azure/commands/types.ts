@@ -2,7 +2,7 @@
  * Azure Command Types
  */
 
-import type { AzureCredentials } from '@tsdevstack/cli/plugin';
+import type { AzureCredentials } from 'tsdevstack/plugin';
 
 export interface AzureCommandContext {
   projectRoot: string;

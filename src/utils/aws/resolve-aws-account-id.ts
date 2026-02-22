@@ -6,7 +6,7 @@
  */
 
 import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts';
-import type { AWSCredentials } from '@tsdevstack/cli/plugin';
+import type { AWSCredentials } from 'tsdevstack/plugin';
 import { buildAWSClientConfig } from './build-aws-client-config';
 
 /**

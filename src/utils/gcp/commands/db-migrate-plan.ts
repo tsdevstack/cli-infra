@@ -12,7 +12,7 @@ import {
 } from '@tsdevstack/infra-core';
 import { getTerraformOutput, getTerraformOutputJson } from '../terraform';
 import { buildRuntime } from '../../build-runtime';
-import type { GCPCredentials, FrameworkService } from '@tsdevstack/cli/plugin';
+import type { GCPCredentials, FrameworkService } from 'tsdevstack/plugin';
 
 interface GcpDbMigratePlanParams {
   projectRoot: string;

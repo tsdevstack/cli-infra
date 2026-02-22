@@ -10,7 +10,7 @@
  */
 
 import { google } from 'googleapis';
-import type { GCPCredentials } from '@tsdevstack/cli/plugin';
+import type { GCPCredentials } from 'tsdevstack/plugin';
 
 export interface DeleteServiceAccountOptions {
   serviceAccountEmail: string;
@@ -34,7 +34,7 @@ export interface DeleteServiceAccountResult {
  * @returns Result indicating success/failure
  */
 export async function deleteServiceAccount(
-  options: DeleteServiceAccountOptions
+  options: DeleteServiceAccountOptions,
 ): Promise<DeleteServiceAccountResult> {
   const auth = new google.auth.GoogleAuth({
     projectId: options.projectId,

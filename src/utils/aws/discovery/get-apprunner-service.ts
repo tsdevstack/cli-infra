@@ -10,7 +10,7 @@ import {
   DescribeServiceCommand,
 } from '@aws-sdk/client-apprunner';
 import { buildAWSClientConfig } from '../build-aws-client-config';
-import type { AWSCredentials } from '@tsdevstack/cli/plugin';
+import type { AWSCredentials } from 'tsdevstack/plugin';
 
 export interface GetAppRunnerServiceOptions {
   projectName: string;

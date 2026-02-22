@@ -9,7 +9,7 @@
  * Same pattern as AWS health check in add-aws-upstreams-to-kong-config.ts.
  */
 
-import type { KongTemplate } from '@tsdevstack/cli/plugin';
+import type { KongTemplate } from 'tsdevstack/plugin';
 
 export function addAzureHealthToKongConfig(config: KongTemplate): KongTemplate {
   return {

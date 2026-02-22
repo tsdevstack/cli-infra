@@ -6,7 +6,7 @@
  */
 
 import { Storage } from '@google-cloud/storage';
-import type { GCPCredentials } from '@tsdevstack/cli/plugin';
+import type { GCPCredentials } from 'tsdevstack/plugin';
 import { getContext } from '../../context';
 
 export interface UploadToGCSOptions {
@@ -34,7 +34,9 @@ export interface UploadToGCSResult {
  *
  * Bucket must already exist (created by Terraform).
  */
-export async function uploadToGCS(options: UploadToGCSOptions): Promise<UploadToGCSResult> {
+export async function uploadToGCS(
+  options: UploadToGCSOptions,
+): Promise<UploadToGCSResult> {
   const { bucketName, objectName, filePath, credentials } = options;
   const { buildGCPClientOptions, CliError } = getContext();
 
@@ -58,7 +60,12 @@ export async function uploadToGCS(options: UploadToGCSOptions): Promise<UploadTo
       objectName,
     };
   } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    throw new CliError('Failed to upload to Cloud Storage', 'uploadToGCS', errorMessage);
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error';
+    throw new CliError(
+      'Failed to upload to Cloud Storage',
+      'uploadToGCS',
+      errorMessage,
+    );
   }
 }

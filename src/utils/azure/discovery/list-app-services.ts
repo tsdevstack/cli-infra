@@ -8,7 +8,7 @@
 import { WebSiteManagementClient } from '@azure/arm-appservice';
 import { createAzureCredential } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
-import type { AzureCredentials } from '@tsdevstack/cli/plugin';
+import type { AzureCredentials } from 'tsdevstack/plugin';
 
 export interface ListAppServicesOptions {
   credentials: AzureCredentials;

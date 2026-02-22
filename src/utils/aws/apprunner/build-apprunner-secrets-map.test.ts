@@ -1,6 +1,6 @@
 import { describe, it, expect, rs, beforeEach } from '@rstest/core';
 import { buildAppRunnerSecretsMap } from './build-apprunner-secrets-map';
-import type { AWSCredentials } from '@tsdevstack/cli/plugin';
+import type { AWSCredentials } from 'tsdevstack/plugin';
 
 // Mock listSecretsByPrefix
 rs.mock('../discovery/list-secrets-by-prefix', () => ({

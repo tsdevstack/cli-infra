@@ -15,7 +15,7 @@ import {
   DeregisterInstanceCommand,
 } from '@aws-sdk/client-servicediscovery';
 import { buildAWSClientConfig } from '../build-aws-client-config';
-import type { AWSCredentials } from '@tsdevstack/cli/plugin';
+import type { AWSCredentials } from 'tsdevstack/plugin';
 
 export interface DeleteCloudMapServiceOptions {
   projectName: string;

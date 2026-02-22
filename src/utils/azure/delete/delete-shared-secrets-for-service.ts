@@ -15,7 +15,7 @@
 
 import { SecretClient } from '@azure/keyvault-secrets';
 import { createAzureCredential, toEnvVarPrefix } from '@tsdevstack/infra-core';
-import type { AzureCredentials } from '@tsdevstack/cli/plugin';
+import type { AzureCredentials } from 'tsdevstack/plugin';
 import { getContext } from '../../../context';
 import { buildRuntime } from '../../build-runtime';
 import { toScreamingSnakeCase } from '../../string/to-screaming-snake-case';

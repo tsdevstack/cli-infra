@@ -1,5 +1,5 @@
 import { describe, it, expect, rs } from '@rstest/core';
-import type { MockContext } from '@tsdevstack/cli/test-utils';
+import type { MockContext } from 'tsdevstack/test-utils';
 
 rs.mock('../../context', () => ({
   initContext: rs.fn(),

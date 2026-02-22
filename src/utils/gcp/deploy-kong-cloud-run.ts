@@ -8,7 +8,7 @@
  */
 
 import { ServicesClient } from '@google-cloud/run';
-import type { GCPCredentials } from '@tsdevstack/cli/plugin';
+import type { GCPCredentials } from 'tsdevstack/plugin';
 import { getContext } from '../../context';
 
 export interface KongDeployOptions {
@@ -17,8 +17,8 @@ export interface KongDeployOptions {
   region: string;
   imageUri: string;
   // Direct VPC Egress - Kong gets IP directly in subnet
-  vpcNetwork: string;  // e.g., "projects/xxx/global/networks/tsdevstack-vpc"
-  vpcSubnet: string;   // e.g., "projects/xxx/regions/us-central1/subnetworks/tsdevstack-subnet"
+  vpcNetwork: string; // e.g., "projects/xxx/global/networks/tsdevstack-vpc"
+  vpcSubnet: string; // e.g., "projects/xxx/regions/us-central1/subnetworks/tsdevstack-subnet"
   serviceAccount: string;
   credentials: GCPCredentials;
   minInstances: number;
@@ -36,10 +36,14 @@ export interface KongDeployResult {
 /**
  * Deploy Kong Gateway to Cloud Run
  */
-export async function deployKongCloudRun(options: KongDeployOptions): Promise<KongDeployResult> {
+export async function deployKongCloudRun(
+  options: KongDeployOptions,
+): Promise<KongDeployResult> {
   const { logger, CliError, buildGCPClientOptions } = getContext();
 
-  const servicesClient = new ServicesClient(buildGCPClientOptions(options.credentials));
+  const servicesClient = new ServicesClient(
+    buildGCPClientOptions(options.credentials),
+  );
 
   const parent = `projects/${options.projectId}/locations/${options.region}`;
   const serviceName = `${parent}/services/${options.projectName}-kong`;
@@ -159,11 +163,12 @@ export async function deployKongCloudRun(options: KongDeployOptions): Promise<Ko
       serviceUrl: service.uri ?? undefined,
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error';
     throw new CliError(
       `Failed to deploy Kong to Cloud Run`,
       'infra:deploy-kong',
-      errorMessage
+      errorMessage,
     );
   }
 }

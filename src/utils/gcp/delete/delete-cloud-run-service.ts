@@ -6,7 +6,7 @@
  */
 
 import { ServicesClient } from '@google-cloud/run';
-import type { GCPCredentials } from '@tsdevstack/cli/plugin';
+import type { GCPCredentials } from 'tsdevstack/plugin';
 import { getContext } from '../../../context';
 
 export interface DeleteCloudRunServiceOptions {
@@ -32,7 +32,7 @@ export interface DeleteResult {
  * @returns Result indicating success/failure
  */
 export async function deleteCloudRunService(
-  options: DeleteCloudRunServiceOptions
+  options: DeleteCloudRunServiceOptions,
 ): Promise<DeleteResult> {
   const { buildGCPClientOptions } = getContext();
 

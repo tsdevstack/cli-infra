@@ -6,7 +6,7 @@
 
 import { S3Client, HeadBucketCommand } from '@aws-sdk/client-s3';
 import { buildAWSClientConfig } from '../build-aws-client-config';
-import type { AWSCredentials } from '@tsdevstack/cli/plugin';
+import type { AWSCredentials } from 'tsdevstack/plugin';
 
 export interface BucketExistsOptions {
   bucketName: string;

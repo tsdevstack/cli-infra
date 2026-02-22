@@ -10,7 +10,7 @@ import {
   discoverServiceResources,
   discoverDeployedServices,
 } from '../discovery';
-import type { GCPCredentials } from '@tsdevstack/cli/plugin';
+import type { GCPCredentials } from 'tsdevstack/plugin';
 
 interface GcpServiceStatusParams {
   serviceName: string;

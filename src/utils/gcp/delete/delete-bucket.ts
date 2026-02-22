@@ -6,7 +6,7 @@
  */
 
 import { Storage } from '@google-cloud/storage';
-import type { GCPCredentials } from '@tsdevstack/cli/plugin';
+import type { GCPCredentials } from 'tsdevstack/plugin';
 import { getContext } from '../../../context';
 
 export interface DeleteBucketOptions {
@@ -31,7 +31,7 @@ export interface DeleteBucketResult {
  * @returns Result indicating success/failure
  */
 export async function deleteBucket(
-  options: DeleteBucketOptions
+  options: DeleteBucketOptions,
 ): Promise<DeleteBucketResult> {
   const { buildGCPClientOptions } = getContext();
 

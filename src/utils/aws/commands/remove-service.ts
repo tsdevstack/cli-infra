@@ -18,7 +18,7 @@ import {
   getOtherEnvironments,
   selectServiceInteractive,
 } from '../remove-service';
-import type { AWSCredentials } from '@tsdevstack/cli/plugin';
+import type { AWSCredentials } from 'tsdevstack/plugin';
 import type { AWSCommandContext } from './types';
 
 export interface AwsRemoveServiceParams {

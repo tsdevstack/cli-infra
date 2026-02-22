@@ -22,7 +22,7 @@ import {
   getOtherEnvironments,
   selectServiceInteractive,
 } from '../remove-service';
-import type { GCPCredentials } from '@tsdevstack/cli/plugin';
+import type { GCPCredentials } from 'tsdevstack/plugin';
 import type { GCPCommandContext } from './types';
 
 interface GcpRemoveServiceParams {

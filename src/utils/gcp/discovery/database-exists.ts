@@ -5,7 +5,7 @@
  */
 
 import { google } from 'googleapis';
-import type { GCPCredentials } from '@tsdevstack/cli/plugin';
+import type { GCPCredentials } from 'tsdevstack/plugin';
 
 export interface DatabaseExistsOptions {
   databaseName: string;
@@ -26,7 +26,7 @@ export interface DatabaseExistsResult {
  * @returns Result indicating if the database exists
  */
 export async function databaseExists(
-  options: DatabaseExistsOptions
+  options: DatabaseExistsOptions,
 ): Promise<DatabaseExistsResult> {
   const auth = new google.auth.GoogleAuth({
     projectId: options.projectId,

@@ -1,6 +1,6 @@
 import { describe, it, expect, rs, beforeEach } from '@rstest/core';
 import { execSync } from 'node:child_process';
-import type { MockContext } from '@tsdevstack/cli/test-utils';
+import type { MockContext } from 'tsdevstack/test-utils';
 
 const mocks = (globalThis as unknown as { contextMocks: MockContext })
   .contextMocks;

@@ -18,7 +18,7 @@ import type {
   KongTemplate,
   ServiceRouteConfig,
   ParsedServiceSecurity,
-} from '@tsdevstack/cli/plugin';
+} from 'tsdevstack/plugin';
 
 interface InfraKongGenerateOptions {
   env?: string;

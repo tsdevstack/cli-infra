@@ -9,7 +9,7 @@ import inquirer from 'inquirer';
 import { getContext } from '../../../context';
 import { deleteContainerApp } from '../delete';
 import { listContainerApps } from '../discovery';
-import type { AzureCredentials } from '@tsdevstack/cli/plugin';
+import type { AzureCredentials } from 'tsdevstack/plugin';
 
 interface AzureRemoveDetachedWorkerParams {
   workerName: string;

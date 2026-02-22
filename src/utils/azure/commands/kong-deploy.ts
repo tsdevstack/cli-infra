@@ -12,7 +12,7 @@ import { buildAzureTerraformEnv } from '@tsdevstack/infra-core';
 import { deployAppService } from './deploy-app-service';
 import { setAppServiceSettings } from './set-app-service-settings';
 import { fetchSecret } from '../../credentials/fetch-secret';
-import type { AzureCredentials } from '@tsdevstack/cli/plugin';
+import type { AzureCredentials } from 'tsdevstack/plugin';
 
 interface AzureKongDeployParams {
   projectRoot: string;

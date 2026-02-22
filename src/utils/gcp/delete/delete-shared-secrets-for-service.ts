@@ -15,7 +15,7 @@
  */
 
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
-import type { GCPCredentials } from '@tsdevstack/cli/plugin';
+import type { GCPCredentials } from 'tsdevstack/plugin';
 import { getContext } from '../../../context';
 import { toEnvVarPrefix } from '@tsdevstack/infra-core';
 import { toScreamingSnakeCase } from '../../string/to-screaming-snake-case';

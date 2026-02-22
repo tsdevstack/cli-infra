@@ -6,7 +6,7 @@
  */
 
 import { Storage } from '@google-cloud/storage';
-import type { GCPCredentials } from '@tsdevstack/cli/plugin';
+import type { GCPCredentials } from 'tsdevstack/plugin';
 import { getContext } from '../../../context';
 
 export interface ListSpaBucketsOptions {
@@ -37,7 +37,7 @@ export interface ListSpaBucketsResult {
  * @returns List of SPA buckets found with extracted service names
  */
 export async function listSpaBuckets(
-  options: ListSpaBucketsOptions
+  options: ListSpaBucketsOptions,
 ): Promise<ListSpaBucketsResult> {
   const { buildGCPClientOptions } = getContext();
 

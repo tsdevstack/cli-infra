@@ -32,7 +32,7 @@ rs.mock('@azure/arm-storage', () => ({
 }));
 
 import { createStateBackend } from './create-state-backend';
-import type { AzureCredentials } from '@tsdevstack/cli/plugin';
+import type { AzureCredentials } from 'tsdevstack/plugin';
 
 const mockCredentials: AzureCredentials = {
   clientId: 'test-client-id',

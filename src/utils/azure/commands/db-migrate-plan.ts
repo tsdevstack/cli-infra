@@ -11,10 +11,7 @@ import { buildAzureTerraformEnv } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
 import { executeContainerJob } from './execute-container-job';
 import { fetchSecret } from '../../credentials/fetch-secret';
-import type {
-  AzureCredentials,
-  FrameworkService,
-} from '@tsdevstack/cli/plugin';
+import type { AzureCredentials, FrameworkService } from 'tsdevstack/plugin';
 
 interface AzureDbMigratePlanParams {
   projectRoot: string;

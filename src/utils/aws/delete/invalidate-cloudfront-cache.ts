@@ -9,7 +9,7 @@ import {
   CloudFrontClient,
   CreateInvalidationCommand,
 } from '@aws-sdk/client-cloudfront';
-import type { AWSCredentials } from '@tsdevstack/cli/plugin';
+import type { AWSCredentials } from 'tsdevstack/plugin';
 import { getContext } from '../../../context';
 
 export interface InvalidateCloudFrontCacheOptions {

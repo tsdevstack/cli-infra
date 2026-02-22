@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, rs, beforeEach } from '@rstest/core';
-import type { AWSCredentials } from '@tsdevstack/cli/plugin';
+import type { AWSCredentials } from 'tsdevstack/plugin';
 
 // Create mock functions in hoisted scope
 const { mockLoadFrameworkConfig, mockGetEcsService } = rs.hoisted(() => ({

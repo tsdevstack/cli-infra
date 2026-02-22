@@ -7,7 +7,7 @@
 import { PostgreSQLManagementFlexibleServerClient } from '@azure/arm-postgresql-flexible';
 import { createAzureCredential } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
-import type { AzureCredentials } from '@tsdevstack/cli/plugin';
+import type { AzureCredentials } from 'tsdevstack/plugin';
 
 export interface DatabaseExistsOptions {
   databaseName: string;

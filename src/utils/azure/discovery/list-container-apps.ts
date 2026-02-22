@@ -8,7 +8,7 @@
 import { ContainerAppsAPIClient } from '@azure/arm-appcontainers';
 import { createAzureCredential } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
-import type { AzureCredentials } from '@tsdevstack/cli/plugin';
+import type { AzureCredentials } from 'tsdevstack/plugin';
 
 export interface ListContainerAppsOptions {
   credentials: AzureCredentials;

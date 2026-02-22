@@ -25,7 +25,7 @@ import type {
   KongTemplate,
   KongUpstream,
   KongService,
-} from '@tsdevstack/cli/plugin';
+} from 'tsdevstack/plugin';
 import { fromServiceEnvVarName } from '@tsdevstack/infra-core';
 import { createKongUpstream } from './create-kong-upstream';
 import { createWakeupPostFunction } from './create-wakeup-post-function';

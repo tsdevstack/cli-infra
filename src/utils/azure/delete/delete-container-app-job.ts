@@ -7,7 +7,7 @@
 
 import { ContainerAppsAPIClient } from '@azure/arm-appcontainers';
 import { createAzureCredential } from '@tsdevstack/infra-core';
-import type { AzureCredentials } from '@tsdevstack/cli/plugin';
+import type { AzureCredentials } from 'tsdevstack/plugin';
 import { buildRuntime } from '../../build-runtime';
 
 export interface DeleteContainerAppJobOptions {

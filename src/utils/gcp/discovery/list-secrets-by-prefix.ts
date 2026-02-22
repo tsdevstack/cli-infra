@@ -6,7 +6,7 @@
  */
 
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
-import type { GCPCredentials } from '@tsdevstack/cli/plugin';
+import type { GCPCredentials } from 'tsdevstack/plugin';
 import { getContext } from '../../../context';
 
 export interface ListSecretsByPrefixOptions {
@@ -33,12 +33,12 @@ export interface ListSecretsByPrefixResult {
  * @returns List of matching secret names
  */
 export async function listSecretsByPrefix(
-  options: ListSecretsByPrefixOptions
+  options: ListSecretsByPrefixOptions,
 ): Promise<ListSecretsByPrefixResult> {
   const { buildGCPClientOptions } = getContext();
 
   const client = new SecretManagerServiceClient(
-    buildGCPClientOptions(options.credentials)
+    buildGCPClientOptions(options.credentials),
   );
 
   try {

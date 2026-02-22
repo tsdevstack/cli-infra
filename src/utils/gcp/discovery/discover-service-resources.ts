@@ -8,7 +8,7 @@
  * has already been removed from config.json.
  */
 
-import type { GCPCredentials } from '@tsdevstack/cli/plugin';
+import type { GCPCredentials } from 'tsdevstack/plugin';
 import { cloudRunServiceExists } from './cloud-run-service-exists';
 import { bucketExists } from './bucket-exists';
 import { listSecretsByPrefix } from './list-secrets-by-prefix';
@@ -54,7 +54,7 @@ export interface DiscoveredResources {
  * This allows removal even if service was already removed from config locally.
  */
 export async function discoverServiceResources(
-  options: DiscoverServiceResourcesOptions
+  options: DiscoverServiceResourcesOptions,
 ): Promise<DiscoveredResources> {
   const {
     serviceName,
@@ -126,7 +126,9 @@ export async function discoverServiceResources(
     spaBucketName,
     database: hasDatabase,
     databaseUser: hasDatabase, // Assume user exists if database exists
-    secrets: secretsResult.success ? secretsResult.secrets.map((s) => s.name) : [],
+    secrets: secretsResult.success
+      ? secretsResult.secrets.map((s) => s.name)
+      : [],
     serviceAccount: serviceAccountResult.exists,
     serviceAccountEmail,
     inferredType,

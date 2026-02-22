@@ -11,7 +11,7 @@ import { buildAwsTerraformEnv, executeEcsTask } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
 import { getMigrationJobConfig } from '../../infrastructure/merge-with-defaults';
-import type { AWSCredentials, FrameworkService } from '@tsdevstack/cli/plugin';
+import type { AWSCredentials, FrameworkService } from 'tsdevstack/plugin';
 
 interface AwsDbMigrateRunParams {
   projectRoot: string;

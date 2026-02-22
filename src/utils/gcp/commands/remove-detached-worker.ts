@@ -8,7 +8,7 @@ import inquirer from 'inquirer';
 import { getContext } from '../../../context';
 import { discoverDeployedServices } from '../discovery';
 import { deleteCloudRunService } from '../delete';
-import type { GCPCredentials } from '@tsdevstack/cli/plugin';
+import type { GCPCredentials } from 'tsdevstack/plugin';
 
 interface GcpRemoveDetachedWorkerParams {
   workerName: string;

@@ -8,7 +8,7 @@ import { getContext } from '../../../context';
 import { getTerraformOutput } from '../../terraform';
 import { buildAwsTerraformEnv, deleteEcsService } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
-import type { AWSCredentials } from '@tsdevstack/cli/plugin';
+import type { AWSCredentials } from 'tsdevstack/plugin';
 
 interface AwsRemoveDetachedWorkerParams {
   workerName: string;

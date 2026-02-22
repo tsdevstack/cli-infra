@@ -6,7 +6,7 @@
  */
 
 import { google } from 'googleapis';
-import type { GCPCredentials } from '@tsdevstack/cli/plugin';
+import type { GCPCredentials } from 'tsdevstack/plugin';
 
 export interface InvalidateCdnCacheOptions {
   urlMapName: string;
@@ -28,7 +28,7 @@ export interface InvalidateCdnCacheResult {
  * @returns Result indicating success/failure
  */
 export async function invalidateCdnCache(
-  options: InvalidateCdnCacheOptions
+  options: InvalidateCdnCacheOptions,
 ): Promise<InvalidateCdnCacheResult> {
   const auth = new google.auth.GoogleAuth({
     projectId: options.projectId,
@@ -58,7 +58,7 @@ export async function invalidateCdnCache(
       await waitForGlobalOperation(
         compute,
         options.projectId,
-        response.data.name
+        response.data.name,
       );
     }
 
@@ -86,7 +86,7 @@ async function waitForGlobalOperation(
   compute: ReturnType<typeof google.compute>,
   projectId: string,
   operationName: string,
-  maxWaitMs: number = 60000
+  maxWaitMs: number = 60000,
 ): Promise<void> {
   const startTime = Date.now();
 
@@ -99,7 +99,7 @@ async function waitForGlobalOperation(
     if (result.data?.status === 'DONE') {
       if (result.data.error) {
         throw new Error(
-          `Operation failed: ${JSON.stringify(result.data.error)}`
+          `Operation failed: ${JSON.stringify(result.data.error)}`,
         );
       }
       return;

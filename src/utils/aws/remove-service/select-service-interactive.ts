@@ -8,7 +8,7 @@ import inquirer from 'inquirer';
 import { getContext } from '../../../context';
 import { listEcsServices } from '../discovery/list-ecs-services';
 import { listAppRunnerServices } from '../discovery/list-apprunner-services';
-import type { AWSCredentials } from '@tsdevstack/cli/plugin';
+import type { AWSCredentials } from 'tsdevstack/plugin';
 
 export interface SelectServiceInteractiveOptions {
   projectName: string;

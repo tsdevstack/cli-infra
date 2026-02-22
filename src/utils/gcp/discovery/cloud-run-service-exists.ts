@@ -5,7 +5,7 @@
  */
 
 import { ServicesClient } from '@google-cloud/run';
-import type { GCPCredentials } from '@tsdevstack/cli/plugin';
+import type { GCPCredentials } from 'tsdevstack/plugin';
 import { getContext } from '../../../context';
 
 export interface CloudRunServiceExistsOptions {
@@ -28,7 +28,7 @@ export interface CloudRunServiceExistsResult {
  * @returns Result indicating if the service exists
  */
 export async function cloudRunServiceExists(
-  options: CloudRunServiceExistsOptions
+  options: CloudRunServiceExistsOptions,
 ): Promise<CloudRunServiceExistsResult> {
   const { buildGCPClientOptions } = getContext();
 

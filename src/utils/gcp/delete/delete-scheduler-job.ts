@@ -6,7 +6,7 @@
  */
 
 import { CloudSchedulerClient } from '@google-cloud/scheduler';
-import type { GCPCredentials } from '@tsdevstack/cli/plugin';
+import type { GCPCredentials } from 'tsdevstack/plugin';
 import { getContext } from '../../../context';
 
 export interface DeleteSchedulerJobOptions {
@@ -32,12 +32,12 @@ export interface DeleteSchedulerJobResult {
  * @returns Result indicating success/failure
  */
 export async function deleteSchedulerJob(
-  options: DeleteSchedulerJobOptions
+  options: DeleteSchedulerJobOptions,
 ): Promise<DeleteSchedulerJobResult> {
   const { buildGCPClientOptions } = getContext();
 
   const client = new CloudSchedulerClient(
-    buildGCPClientOptions(options.credentials)
+    buildGCPClientOptions(options.credentials),
   );
   const name = `projects/${options.projectId}/locations/${options.region}/jobs/${options.jobName}`;
 

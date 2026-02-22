@@ -15,10 +15,7 @@ import {
   createOrUpdateContainerApp,
   waitForContainerAppReady,
 } from '@tsdevstack/infra-core';
-import type {
-  AzureCredentials,
-  FrameworkService,
-} from '@tsdevstack/cli/plugin';
+import type { AzureCredentials, FrameworkService } from 'tsdevstack/plugin';
 
 interface AzureDeployWorkerParams {
   projectRoot: string;

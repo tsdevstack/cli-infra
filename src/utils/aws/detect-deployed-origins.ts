@@ -11,7 +11,7 @@ import {
   DescribeServiceCommand,
 } from '@aws-sdk/client-apprunner';
 import { S3Client, ListObjectsV2Command } from '@aws-sdk/client-s3';
-import type { AWSCredentials } from '@tsdevstack/cli/plugin';
+import type { AWSCredentials } from 'tsdevstack/plugin';
 import { getContext } from '../../context';
 
 export interface DeployedOrigins {

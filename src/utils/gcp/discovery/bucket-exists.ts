@@ -5,7 +5,7 @@
  */
 
 import { Storage } from '@google-cloud/storage';
-import type { GCPCredentials } from '@tsdevstack/cli/plugin';
+import type { GCPCredentials } from 'tsdevstack/plugin';
 import { getContext } from '../../../context';
 
 export interface BucketExistsOptions {
@@ -25,7 +25,7 @@ export interface BucketExistsResult {
  * @returns Result indicating if the bucket exists
  */
 export async function bucketExists(
-  options: BucketExistsOptions
+  options: BucketExistsOptions,
 ): Promise<BucketExistsResult> {
   const { buildGCPClientOptions } = getContext();
 

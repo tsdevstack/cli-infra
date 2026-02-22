@@ -10,7 +10,7 @@ import {
   discoverServiceResources,
   discoverDeployedServices,
 } from '../discovery';
-import type { AzureCredentials } from '@tsdevstack/cli/plugin';
+import type { AzureCredentials } from 'tsdevstack/plugin';
 
 interface AzureServiceStatusParams {
   serviceName: string;

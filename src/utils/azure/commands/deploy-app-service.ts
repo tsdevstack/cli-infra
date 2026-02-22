@@ -9,7 +9,7 @@ import { WebSiteManagementClient } from '@azure/arm-appservice';
 import { getContext } from '../../../context';
 import { createAzureCredential } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
-import type { AzureCredentials } from '@tsdevstack/cli/plugin';
+import type { AzureCredentials } from 'tsdevstack/plugin';
 
 interface DeployAppServiceParams {
   credentials: AzureCredentials;

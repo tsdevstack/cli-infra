@@ -9,7 +9,7 @@ import { getContext } from '../../../context';
 import { getTerraformOutput } from '../../terraform';
 import { buildAwsTerraformEnv, executeEcsTask } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
-import type { AWSCredentials, FrameworkService } from '@tsdevstack/cli/plugin';
+import type { AWSCredentials, FrameworkService } from 'tsdevstack/plugin';
 
 interface AwsDbMigratePlanParams {
   projectRoot: string;
