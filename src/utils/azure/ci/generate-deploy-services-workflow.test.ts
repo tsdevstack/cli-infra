@@ -26,7 +26,7 @@ describe('generateDeployServicesWorkflow', () => {
       createConfig(['dev']),
       defaultServices,
     );
-    expect(result).toContain('name: Deploy Services');
+    expect(result).toContain('name: "Deploy Services');
   });
 
   it('should include environment choice', () => {
@@ -122,5 +122,64 @@ describe('generateDeployServicesWorkflow', () => {
     expect(result).not.toContain('gcloud');
     expect(result).not.toContain('GCP_WIF');
     expect(result).not.toContain('AWS_ROLE_ARN');
+  });
+
+  describe('user mode (default)', () => {
+    it('should use npx tsdevstack', () => {
+      const result = generateDeployServicesWorkflow(
+        createConfig(['dev']),
+        defaultServices,
+      );
+      expect(result).toContain('npx tsdevstack');
+      expect(result).not.toContain('node packages/cli-core/dist/cli.js');
+      expect(result).not.toContain('npm link');
+    });
+
+    it('should include npm run build', () => {
+      const result = generateDeployServicesWorkflow(
+        createConfig(['dev']),
+        defaultServices,
+      );
+      expect(result).toContain('npm run build');
+    });
+  });
+
+  describe('framework mode', () => {
+    it('should use node packages/cli-core/dist/cli.js', () => {
+      const result = generateDeployServicesWorkflow(
+        createConfig(['dev']),
+        defaultServices,
+        'framework',
+      );
+      expect(result).toContain('node packages/cli-core/dist/cli.js');
+      expect(result).not.toContain('npx tsdevstack');
+    });
+
+    it('should include npm link', () => {
+      const result = generateDeployServicesWorkflow(
+        createConfig(['dev']),
+        defaultServices,
+        'framework',
+      );
+      expect(result).toContain('npm link');
+    });
+
+    it('should have Framework workflow name', () => {
+      const result = generateDeployServicesWorkflow(
+        createConfig(['dev']),
+        defaultServices,
+        'framework',
+      );
+      expect(result).toContain('name: "Framework: Deploy Services');
+    });
+
+    it('should have framework header comment', () => {
+      const result = generateDeployServicesWorkflow(
+        createConfig(['dev']),
+        defaultServices,
+        'framework',
+      );
+      expect(result).toContain('Framework development workflow');
+    });
   });
 });

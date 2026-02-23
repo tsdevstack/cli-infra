@@ -15,7 +15,7 @@ describe('generateRemoveDetachedWorkerWorkflow', () => {
 
   it('should be named Remove Detached Worker', () => {
     const result = generateRemoveDetachedWorkerWorkflow(createConfig(['dev']));
-    expect(result).toContain('name: Remove Detached Worker');
+    expect(result).toContain('name: "Remove Detached Worker');
   });
 
   it('should include environment choice', () => {
@@ -61,8 +61,11 @@ describe('generateRemoveDetachedWorkerWorkflow', () => {
     expect(result).toContain('Worker Removed');
   });
 
-  it('should use build:libs not full build', () => {
-    const result = generateRemoveDetachedWorkerWorkflow(createConfig(['dev']));
+  it('should use build:libs not full build in framework mode', () => {
+    const result = generateRemoveDetachedWorkerWorkflow(
+      createConfig(['dev']),
+      'framework',
+    );
     expect(result).toContain('npm run build:libs');
   });
 
@@ -76,5 +79,60 @@ describe('generateRemoveDetachedWorkerWorkflow', () => {
     const result = generateRemoveDetachedWorkerWorkflow(createConfig(['dev']));
     expect(result).not.toContain('google-github-actions');
     expect(result).not.toContain('gcloud');
+  });
+
+  describe('user mode (default)', () => {
+    it('should use npx tsdevstack', () => {
+      const result = generateRemoveDetachedWorkerWorkflow(
+        createConfig(['dev']),
+      );
+      expect(result).toContain('npx tsdevstack');
+      expect(result).not.toContain('node packages/cli-core/dist/cli.js');
+      expect(result).not.toContain('npm link');
+    });
+
+    it('should not include build steps', () => {
+      const result = generateRemoveDetachedWorkerWorkflow(
+        createConfig(['dev']),
+      );
+      expect(result).not.toContain('build:libs');
+    });
+  });
+
+  describe('framework mode', () => {
+    it('should use node packages/cli-core/dist/cli.js', () => {
+      const result = generateRemoveDetachedWorkerWorkflow(
+        createConfig(['dev']),
+        'framework',
+      );
+      expect(result).toContain('node packages/cli-core/dist/cli.js');
+      // Note: npx tsdevstack may appear in summary/next-steps text (user-facing instructions)
+      // but actual CLI invocations use node packages/cli-core/dist/cli.js
+      expect(result).not.toContain('run: npx tsdevstack');
+    });
+
+    it('should include npm link', () => {
+      const result = generateRemoveDetachedWorkerWorkflow(
+        createConfig(['dev']),
+        'framework',
+      );
+      expect(result).toContain('npm link');
+    });
+
+    it('should have Framework workflow name', () => {
+      const result = generateRemoveDetachedWorkerWorkflow(
+        createConfig(['dev']),
+        'framework',
+      );
+      expect(result).toContain('name: "Framework: Remove Detached Worker');
+    });
+
+    it('should have framework header comment', () => {
+      const result = generateRemoveDetachedWorkerWorkflow(
+        createConfig(['dev']),
+        'framework',
+      );
+      expect(result).toContain('Framework development workflow');
+    });
   });
 });

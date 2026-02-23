@@ -16,6 +16,7 @@
  * - remove-detached-worker.yml - Orphaned worker removal (cloud)
  */
 
+import * as path from 'path';
 import { getContext } from '../context';
 import { setupInfraCommand } from '../utils/setup/setup-infra-command';
 import { gcpGenerateCiWorkflows } from '../utils/gcp/commands';
@@ -24,13 +25,28 @@ import { azureGenerateCiWorkflows } from '../utils/azure/commands';
 
 interface CiGenerateOptions {
   env?: string;
+  framework?: boolean;
 }
 
 /**
  * Regenerate CI workflows from ci.json
  */
 export async function ciGenerate(options: CiGenerateOptions): Promise<void> {
-  const { logger, CliError } = getContext();
+  const { logger, CliError, findProjectRoot, isFile } = getContext();
+
+  // Guard: --framework only works inside the framework monorepo
+  if (options.framework) {
+    const projectRoot = findProjectRoot();
+    const isFrameworkRepo = isFile(
+      path.join(projectRoot, 'packages/cli-core/package.json'),
+    );
+    if (!isFrameworkRepo) {
+      throw new CliError(
+        '--framework flag is only available in the tsdevstack framework monorepo',
+        'infra:generate-ci',
+      );
+    }
+  }
 
   logger.newline();
   logger.info('Regenerating CI workflows...');
@@ -39,11 +55,11 @@ export async function ciGenerate(options: CiGenerateOptions): Promise<void> {
   const ctx = await setupInfraCommand(options, 'infra:generate-ci');
 
   if (ctx.provider === 'gcp') {
-    await gcpGenerateCiWorkflows();
+    await gcpGenerateCiWorkflows(options.framework);
   } else if (ctx.provider === 'aws') {
-    await awsGenerateCiWorkflows();
+    await awsGenerateCiWorkflows(options.framework);
   } else if (ctx.provider === 'azure') {
-    await azureGenerateCiWorkflows();
+    await azureGenerateCiWorkflows(options.framework);
   } else {
     throw new CliError(
       `Unsupported provider: ${ctx.provider}`,

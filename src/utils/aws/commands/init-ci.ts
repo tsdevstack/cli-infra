@@ -15,6 +15,11 @@ import {
   DEPLOY_INFRA_WORKFLOW_FILENAME,
   DEPLOY_KONG_WORKFLOW_FILENAME,
   REMOVE_SERVICE_WORKFLOW_FILENAME,
+  FRAMEWORK_DEPLOY_WORKFLOW_FILENAME,
+  FRAMEWORK_DEPLOY_SERVICES_WORKFLOW_FILENAME,
+  FRAMEWORK_DEPLOY_INFRA_WORKFLOW_FILENAME,
+  FRAMEWORK_DEPLOY_KONG_WORKFLOW_FILENAME,
+  FRAMEWORK_REMOVE_SERVICE_WORKFLOW_FILENAME,
 } from '../../../constants';
 import {
   generatePrWorkflow,
@@ -30,7 +35,7 @@ import type { CIConfig } from '../ci';
 /**
  * Initialize AWS CI/CD configuration
  */
-export async function awsInitCi(): Promise<void> {
+export async function awsInitCi(framework?: boolean): Promise<void> {
   const {
     logger,
     loadFrameworkConfig,
@@ -108,6 +113,20 @@ export async function awsInitCi(): Promise<void> {
   writeTextFile(deployWorkflowPath, generateDeployWorkflow(ciConfig));
   logger.info(`  Created ${GITHUB_WORKFLOWS_DIR}/${DEPLOY_WORKFLOW_FILENAME}`);
 
+  if (framework) {
+    const frameworkDeployPath = path.join(
+      workflowsDir,
+      FRAMEWORK_DEPLOY_WORKFLOW_FILENAME,
+    );
+    writeTextFile(
+      frameworkDeployPath,
+      generateDeployWorkflow(ciConfig, 'framework'),
+    );
+    logger.info(
+      `  Created ${GITHUB_WORKFLOWS_DIR}/${FRAMEWORK_DEPLOY_WORKFLOW_FILENAME}`,
+    );
+  }
+
   // Generate deploy-services workflow (with service booleans)
   const deployServicesPath = path.join(
     workflowsDir,
@@ -121,6 +140,20 @@ export async function awsInitCi(): Promise<void> {
     `  Created ${GITHUB_WORKFLOWS_DIR}/${DEPLOY_SERVICES_WORKFLOW_FILENAME}`,
   );
 
+  if (framework) {
+    const frameworkDeployServicesPath = path.join(
+      workflowsDir,
+      FRAMEWORK_DEPLOY_SERVICES_WORKFLOW_FILENAME,
+    );
+    writeTextFile(
+      frameworkDeployServicesPath,
+      generateDeployServicesWorkflow(ciConfig, config.services, 'framework'),
+    );
+    logger.info(
+      `  Created ${GITHUB_WORKFLOWS_DIR}/${FRAMEWORK_DEPLOY_SERVICES_WORKFLOW_FILENAME}`,
+    );
+  }
+
   // Generate deploy-infra workflow
   const deployInfraPath = path.join(
     workflowsDir,
@@ -131,12 +164,40 @@ export async function awsInitCi(): Promise<void> {
     `  Created ${GITHUB_WORKFLOWS_DIR}/${DEPLOY_INFRA_WORKFLOW_FILENAME}`,
   );
 
+  if (framework) {
+    const frameworkDeployInfraPath = path.join(
+      workflowsDir,
+      FRAMEWORK_DEPLOY_INFRA_WORKFLOW_FILENAME,
+    );
+    writeTextFile(
+      frameworkDeployInfraPath,
+      generateDeployInfraWorkflow(ciConfig, 'framework'),
+    );
+    logger.info(
+      `  Created ${GITHUB_WORKFLOWS_DIR}/${FRAMEWORK_DEPLOY_INFRA_WORKFLOW_FILENAME}`,
+    );
+  }
+
   // Generate deploy-kong workflow
   const deployKongPath = path.join(workflowsDir, DEPLOY_KONG_WORKFLOW_FILENAME);
   writeTextFile(deployKongPath, generateDeployKongWorkflow(ciConfig));
   logger.info(
     `  Created ${GITHUB_WORKFLOWS_DIR}/${DEPLOY_KONG_WORKFLOW_FILENAME}`,
   );
+
+  if (framework) {
+    const frameworkDeployKongPath = path.join(
+      workflowsDir,
+      FRAMEWORK_DEPLOY_KONG_WORKFLOW_FILENAME,
+    );
+    writeTextFile(
+      frameworkDeployKongPath,
+      generateDeployKongWorkflow(ciConfig, 'framework'),
+    );
+    logger.info(
+      `  Created ${GITHUB_WORKFLOWS_DIR}/${FRAMEWORK_DEPLOY_KONG_WORKFLOW_FILENAME}`,
+    );
+  }
 
   // Generate remove-service workflow
   const removeServicePath = path.join(
@@ -147,6 +208,20 @@ export async function awsInitCi(): Promise<void> {
   logger.info(
     `  Created ${GITHUB_WORKFLOWS_DIR}/${REMOVE_SERVICE_WORKFLOW_FILENAME}`,
   );
+
+  if (framework) {
+    const frameworkRemoveServicePath = path.join(
+      workflowsDir,
+      FRAMEWORK_REMOVE_SERVICE_WORKFLOW_FILENAME,
+    );
+    writeTextFile(
+      frameworkRemoveServicePath,
+      generateRemoveServiceWorkflow(ciConfig, 'framework'),
+    );
+    logger.info(
+      `  Created ${GITHUB_WORKFLOWS_DIR}/${FRAMEWORK_REMOVE_SERVICE_WORKFLOW_FILENAME}`,
+    );
+  }
 
   logger.newline();
   logger.success('CI/CD initialized successfully!');

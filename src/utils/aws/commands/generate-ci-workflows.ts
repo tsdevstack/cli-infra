@@ -17,6 +17,13 @@ import {
   DEPLOY_SCHEDULED_JOBS_WORKFLOW_FILENAME,
   REMOVE_SERVICE_WORKFLOW_FILENAME,
   REMOVE_DETACHED_WORKER_WORKFLOW_FILENAME,
+  FRAMEWORK_DEPLOY_WORKFLOW_FILENAME,
+  FRAMEWORK_DEPLOY_SERVICES_WORKFLOW_FILENAME,
+  FRAMEWORK_DEPLOY_INFRA_WORKFLOW_FILENAME,
+  FRAMEWORK_DEPLOY_KONG_WORKFLOW_FILENAME,
+  FRAMEWORK_DEPLOY_SCHEDULED_JOBS_WORKFLOW_FILENAME,
+  FRAMEWORK_REMOVE_SERVICE_WORKFLOW_FILENAME,
+  FRAMEWORK_REMOVE_DETACHED_WORKER_WORKFLOW_FILENAME,
 } from '../../../constants';
 import {
   generatePrWorkflow,
@@ -33,7 +40,9 @@ import type { CIConfig } from '../ci';
 /**
  * Generate AWS CI workflows
  */
-export async function awsGenerateCiWorkflows(): Promise<void> {
+export async function awsGenerateCiWorkflows(
+  framework?: boolean,
+): Promise<void> {
   const {
     logger,
     findProjectRoot,
@@ -89,6 +98,20 @@ export async function awsGenerateCiWorkflows(): Promise<void> {
   writeTextFile(deployWorkflowPath, generateDeployWorkflow(ciConfig));
   logger.info(`  Updated ${GITHUB_WORKFLOWS_DIR}/${DEPLOY_WORKFLOW_FILENAME}`);
 
+  if (framework) {
+    const frameworkDeployPath = path.join(
+      workflowsDir,
+      FRAMEWORK_DEPLOY_WORKFLOW_FILENAME,
+    );
+    writeTextFile(
+      frameworkDeployPath,
+      generateDeployWorkflow(ciConfig, 'framework'),
+    );
+    logger.info(
+      `  Updated ${GITHUB_WORKFLOWS_DIR}/${FRAMEWORK_DEPLOY_WORKFLOW_FILENAME}`,
+    );
+  }
+
   // Regenerate deploy-services workflow (with service booleans)
   const deployServicesPath = path.join(
     workflowsDir,
@@ -102,6 +125,20 @@ export async function awsGenerateCiWorkflows(): Promise<void> {
     `  Updated ${GITHUB_WORKFLOWS_DIR}/${DEPLOY_SERVICES_WORKFLOW_FILENAME}`,
   );
 
+  if (framework) {
+    const frameworkDeployServicesPath = path.join(
+      workflowsDir,
+      FRAMEWORK_DEPLOY_SERVICES_WORKFLOW_FILENAME,
+    );
+    writeTextFile(
+      frameworkDeployServicesPath,
+      generateDeployServicesWorkflow(ciConfig, services, 'framework'),
+    );
+    logger.info(
+      `  Updated ${GITHUB_WORKFLOWS_DIR}/${FRAMEWORK_DEPLOY_SERVICES_WORKFLOW_FILENAME}`,
+    );
+  }
+
   // Regenerate deploy-infra workflow
   const deployInfraPath = path.join(
     workflowsDir,
@@ -112,12 +149,40 @@ export async function awsGenerateCiWorkflows(): Promise<void> {
     `  Updated ${GITHUB_WORKFLOWS_DIR}/${DEPLOY_INFRA_WORKFLOW_FILENAME}`,
   );
 
+  if (framework) {
+    const frameworkDeployInfraPath = path.join(
+      workflowsDir,
+      FRAMEWORK_DEPLOY_INFRA_WORKFLOW_FILENAME,
+    );
+    writeTextFile(
+      frameworkDeployInfraPath,
+      generateDeployInfraWorkflow(ciConfig, 'framework'),
+    );
+    logger.info(
+      `  Updated ${GITHUB_WORKFLOWS_DIR}/${FRAMEWORK_DEPLOY_INFRA_WORKFLOW_FILENAME}`,
+    );
+  }
+
   // Regenerate deploy-kong workflow
   const deployKongPath = path.join(workflowsDir, DEPLOY_KONG_WORKFLOW_FILENAME);
   writeTextFile(deployKongPath, generateDeployKongWorkflow(ciConfig));
   logger.info(
     `  Updated ${GITHUB_WORKFLOWS_DIR}/${DEPLOY_KONG_WORKFLOW_FILENAME}`,
   );
+
+  if (framework) {
+    const frameworkDeployKongPath = path.join(
+      workflowsDir,
+      FRAMEWORK_DEPLOY_KONG_WORKFLOW_FILENAME,
+    );
+    writeTextFile(
+      frameworkDeployKongPath,
+      generateDeployKongWorkflow(ciConfig, 'framework'),
+    );
+    logger.info(
+      `  Updated ${GITHUB_WORKFLOWS_DIR}/${FRAMEWORK_DEPLOY_KONG_WORKFLOW_FILENAME}`,
+    );
+  }
 
   // Regenerate deploy-scheduled-jobs workflow
   const deployScheduledJobsPath = path.join(
@@ -132,6 +197,20 @@ export async function awsGenerateCiWorkflows(): Promise<void> {
     `  Updated ${GITHUB_WORKFLOWS_DIR}/${DEPLOY_SCHEDULED_JOBS_WORKFLOW_FILENAME}`,
   );
 
+  if (framework) {
+    const frameworkDeployScheduledJobsPath = path.join(
+      workflowsDir,
+      FRAMEWORK_DEPLOY_SCHEDULED_JOBS_WORKFLOW_FILENAME,
+    );
+    writeTextFile(
+      frameworkDeployScheduledJobsPath,
+      generateDeployScheduledJobsWorkflow(ciConfig, 'framework'),
+    );
+    logger.info(
+      `  Updated ${GITHUB_WORKFLOWS_DIR}/${FRAMEWORK_DEPLOY_SCHEDULED_JOBS_WORKFLOW_FILENAME}`,
+    );
+  }
+
   // Regenerate remove-service workflow
   const removeServicePath = path.join(
     workflowsDir,
@@ -141,6 +220,20 @@ export async function awsGenerateCiWorkflows(): Promise<void> {
   logger.info(
     `  Updated ${GITHUB_WORKFLOWS_DIR}/${REMOVE_SERVICE_WORKFLOW_FILENAME}`,
   );
+
+  if (framework) {
+    const frameworkRemoveServicePath = path.join(
+      workflowsDir,
+      FRAMEWORK_REMOVE_SERVICE_WORKFLOW_FILENAME,
+    );
+    writeTextFile(
+      frameworkRemoveServicePath,
+      generateRemoveServiceWorkflow(ciConfig, 'framework'),
+    );
+    logger.info(
+      `  Updated ${GITHUB_WORKFLOWS_DIR}/${FRAMEWORK_REMOVE_SERVICE_WORKFLOW_FILENAME}`,
+    );
+  }
 
   // Regenerate remove-detached-worker workflow
   const removeDetachedWorkerPath = path.join(
@@ -154,4 +247,18 @@ export async function awsGenerateCiWorkflows(): Promise<void> {
   logger.info(
     `  Updated ${GITHUB_WORKFLOWS_DIR}/${REMOVE_DETACHED_WORKER_WORKFLOW_FILENAME}`,
   );
+
+  if (framework) {
+    const frameworkRemoveDetachedWorkerPath = path.join(
+      workflowsDir,
+      FRAMEWORK_REMOVE_DETACHED_WORKER_WORKFLOW_FILENAME,
+    );
+    writeTextFile(
+      frameworkRemoveDetachedWorkerPath,
+      generateRemoveDetachedWorkerWorkflow(ciConfig, 'framework'),
+    );
+    logger.info(
+      `  Updated ${GITHUB_WORKFLOWS_DIR}/${FRAMEWORK_REMOVE_DETACHED_WORKER_WORKFLOW_FILENAME}`,
+    );
+  }
 }
