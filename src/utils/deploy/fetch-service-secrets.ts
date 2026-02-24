@@ -10,7 +10,7 @@
 import { getContext } from '../../context';
 import { getServiceSecretKeys } from './get-service-secret-keys';
 import { fetchSecret } from '../credentials/fetch-secret';
-import type { FrameworkConfig } from 'tsdevstack/plugin';
+import type { FrameworkConfig } from '@tsdevstack/cli/plugin';
 
 /**
  * Fetch secret values for a specific service

@@ -29,7 +29,7 @@ import { getServiceSecretKeys } from '../../deploy/get-service-secret-keys';
 import { getTotalServiceMaxInstances } from '../../deploy/get-total-service-max-instances';
 import type { SecretConfig } from '@tsdevstack/infra-core';
 import type { EnvironmentOverrides } from '../../infrastructure/types';
-import type { GCPCredentials, FrameworkService } from 'tsdevstack/plugin';
+import type { GCPCredentials, FrameworkService } from '@tsdevstack/cli/plugin';
 
 export interface GcpDeployServiceOptions {
   projectRoot: string;

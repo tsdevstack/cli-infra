@@ -10,7 +10,7 @@
 
 import { SecretClient } from '@azure/keyvault-secrets';
 import { createAzureCredential } from '@tsdevstack/infra-core';
-import type { AzureCredentials } from 'tsdevstack/plugin';
+import type { AzureCredentials } from '@tsdevstack/cli/plugin';
 import { buildRuntime } from '../../build-runtime';
 
 export interface DeleteKeyVaultSecretsByPrefixOptions {

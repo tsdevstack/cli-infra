@@ -5,7 +5,7 @@
  */
 
 import { google } from 'googleapis';
-import type { GCPCredentials } from 'tsdevstack/plugin';
+import type { GCPCredentials } from '@tsdevstack/cli/plugin';
 
 export interface DatabaseExistsOptions {
   databaseName: string;

@@ -9,7 +9,7 @@
 import inquirer from 'inquirer';
 import { getContext } from '../../../context';
 import { discoverDeployedServices } from '../discovery';
-import type { GCPCredentials } from 'tsdevstack/plugin';
+import type { GCPCredentials } from '@tsdevstack/cli/plugin';
 
 export interface SelectServiceInteractiveOptions {
   projectName: string;

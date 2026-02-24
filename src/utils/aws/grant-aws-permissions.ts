@@ -9,7 +9,7 @@ import {
   AttachUserPolicyCommand,
   AttachRolePolicyCommand,
 } from '@aws-sdk/client-iam';
-import type { AWSCredentials } from 'tsdevstack/plugin';
+import type { AWSCredentials } from '@tsdevstack/cli/plugin';
 import { buildAWSClientConfig } from './build-aws-client-config';
 import { AWS_MANAGED_POLICIES } from '../../constants';
 import type { AWSIdentity } from './verify-aws-credentials';

@@ -1,5 +1,5 @@
 import { describe, it, expect, rs, beforeEach } from '@rstest/core';
-import type { AzureCredentials } from 'tsdevstack/plugin';
+import type { AzureCredentials } from '@tsdevstack/cli/plugin';
 
 const { mockLoadFrameworkConfig, mockContainerAppsGet } = rs.hoisted(() => ({
   mockLoadFrameworkConfig: rs.fn(),

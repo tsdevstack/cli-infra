@@ -10,7 +10,7 @@ import {
   DeleteServiceCommand,
   DescribeServicesCommand,
 } from '@aws-sdk/client-ecs';
-import type { AWSCredentials } from 'tsdevstack/plugin';
+import type { AWSCredentials } from '@tsdevstack/cli/plugin';
 import { getContext } from '../../../context';
 
 export interface DeleteEcsServiceOptions {

@@ -10,7 +10,7 @@
 import { StorageManagementClient } from '@azure/arm-storage';
 import { createAzureCredential } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
-import type { AzureCredentials } from 'tsdevstack/plugin';
+import type { AzureCredentials } from '@tsdevstack/cli/plugin';
 
 export interface ListSpaStorageAccountsOptions {
   credentials: AzureCredentials;

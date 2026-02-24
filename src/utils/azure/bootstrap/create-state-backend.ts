@@ -9,7 +9,7 @@ import {
   StorageManagementClient,
   type StorageAccount,
 } from '@azure/arm-storage';
-import type { AzureCredentials } from 'tsdevstack/plugin';
+import type { AzureCredentials } from '@tsdevstack/cli/plugin';
 import { createAzureCredential } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
 

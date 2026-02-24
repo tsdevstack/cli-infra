@@ -8,7 +8,7 @@
  * has already been removed from config.json.
  */
 
-import type { GCPCredentials } from 'tsdevstack/plugin';
+import type { GCPCredentials } from '@tsdevstack/cli/plugin';
 import { cloudRunServiceExists } from './cloud-run-service-exists';
 import { bucketExists } from './bucket-exists';
 import { listSecretsByPrefix } from './list-secrets-by-prefix';

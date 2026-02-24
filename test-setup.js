@@ -4,7 +4,7 @@
  * Creates shared mocks on globalThis so test files can access them
  */
 
-import { createMockContext } from 'tsdevstack/test-utils';
+import { createMockContext } from '@tsdevstack/cli/test-utils';
 
 // Create mocks once and put on globalThis
 globalThis.contextMocks = createMockContext();

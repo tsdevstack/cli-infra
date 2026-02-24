@@ -15,7 +15,7 @@ import {
   waitForEcsStable,
 } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
-import type { AWSCredentials, FrameworkService } from 'tsdevstack/plugin';
+import type { AWSCredentials, FrameworkService } from '@tsdevstack/cli/plugin';
 
 interface AwsDeployWorkerParams {
   projectRoot: string;

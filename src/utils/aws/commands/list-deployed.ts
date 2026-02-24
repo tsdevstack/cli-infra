@@ -8,7 +8,7 @@ import { getContext } from '../../../context';
 import { discoverDeployedServices } from '../discovery';
 import { parseImageTag } from '../../display/parse-image-tag';
 import { padRight } from '../../display/pad-right';
-import type { AWSCredentials } from 'tsdevstack/plugin';
+import type { AWSCredentials } from '@tsdevstack/cli/plugin';
 
 interface AwsListDeployedParams {
   projectName: string;

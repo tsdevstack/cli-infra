@@ -5,7 +5,7 @@
  */
 
 import { ServicesClient } from '@google-cloud/run';
-import type { GCPCredentials } from 'tsdevstack/plugin';
+import type { GCPCredentials } from '@tsdevstack/cli/plugin';
 import { getContext } from '../../../context';
 
 export interface ListCloudRunServicesOptions {

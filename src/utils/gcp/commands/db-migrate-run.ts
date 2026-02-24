@@ -14,7 +14,7 @@ import { getTerraformOutput, getTerraformOutputJson } from '../terraform';
 import { buildRuntime } from '../../build-runtime';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
 import { getMigrationJobConfig } from '../../infrastructure/merge-with-defaults';
-import type { GCPCredentials, FrameworkService } from 'tsdevstack/plugin';
+import type { GCPCredentials, FrameworkService } from '@tsdevstack/cli/plugin';
 
 interface GcpDbMigrateRunParams {
   projectRoot: string;

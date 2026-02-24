@@ -11,7 +11,7 @@ import {
   DescribeTaskDefinitionCommand,
 } from '@aws-sdk/client-ecs';
 import { buildAWSClientConfig } from '../build-aws-client-config';
-import type { AWSCredentials } from 'tsdevstack/plugin';
+import type { AWSCredentials } from '@tsdevstack/cli/plugin';
 
 export interface ListEcsServicesOptions {
   clusterName: string;

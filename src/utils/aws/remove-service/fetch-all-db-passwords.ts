@@ -11,7 +11,7 @@ import {
   GetSecretValueCommand,
 } from '@aws-sdk/client-secrets-manager';
 import { buildAWSClientConfig } from '../build-aws-client-config';
-import type { AWSCredentials } from 'tsdevstack/plugin';
+import type { AWSCredentials } from '@tsdevstack/cli/plugin';
 
 export interface FetchAllDbPasswordsOptions {
   projectName: string;

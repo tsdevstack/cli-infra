@@ -2,7 +2,7 @@
  * GCP Command Types
  */
 
-import type { GCPCredentials } from 'tsdevstack/plugin';
+import type { GCPCredentials } from '@tsdevstack/cli/plugin';
 
 export interface GCPCommandContext {
   projectRoot: string;

@@ -27,7 +27,7 @@ import type {
   GCPCredentials,
   AWSCredentials,
   AzureCredentials,
-} from 'tsdevstack/plugin';
+} from '@tsdevstack/cli/plugin';
 
 interface InfraServiceStatusOptions {
   env?: string;

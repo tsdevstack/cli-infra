@@ -9,7 +9,7 @@ import { getContext } from '../../../context';
 import { getTerraformOutput } from '../terraform';
 import { buildAzureTerraformEnv } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
-import type { AzureCredentials } from 'tsdevstack/plugin';
+import type { AzureCredentials } from '@tsdevstack/cli/plugin';
 
 export interface AzureKongRegistryInfo {
   registryUrl: string;

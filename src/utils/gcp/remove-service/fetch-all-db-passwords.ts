@@ -10,7 +10,7 @@ import { discoverDeployedServices } from '../discovery';
 import { fetchSecret } from '../../credentials/fetch-secret';
 import { toEnvVarPrefix } from '@tsdevstack/infra-core';
 import { toTfVarSuffix } from '../../terraform';
-import type { GCPCredentials } from 'tsdevstack/plugin';
+import type { GCPCredentials } from '@tsdevstack/cli/plugin';
 
 export interface FetchAllDbPasswordsOptions {
   projectName: string;

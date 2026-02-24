@@ -9,7 +9,7 @@ import type {
   GCPCredentials,
   AWSCredentials,
   AzureCredentials,
-} from 'tsdevstack/plugin';
+} from '@tsdevstack/cli/plugin';
 import { getContext } from '../../context';
 import { resolveAWSAccountId } from '../aws/resolve-aws-account-id';
 

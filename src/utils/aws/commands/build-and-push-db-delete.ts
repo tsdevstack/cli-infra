@@ -5,7 +5,7 @@
  */
 
 import { execSync } from 'node:child_process';
-import type { AWSCredentials } from 'tsdevstack/plugin';
+import type { AWSCredentials } from '@tsdevstack/cli/plugin';
 import { getContext } from '../../../context';
 
 export interface BuildAndPushDbDeleteOptions {

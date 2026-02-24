@@ -13,7 +13,7 @@ import {
 import { getTerraformOutput } from './terraform';
 import { buildRuntime } from '../build-runtime';
 import { fetchServiceSecrets } from '../deploy/fetch-service-secrets';
-import type { GCPCredentials } from 'tsdevstack/plugin';
+import type { GCPCredentials } from '@tsdevstack/cli/plugin';
 
 export interface DeploySpaServiceOptions {
   projectRoot: string;

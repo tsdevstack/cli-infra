@@ -13,7 +13,7 @@ import { deployKongCloudRun } from '../deploy-kong-cloud-run';
 import { setSecretViaCli } from '../../credentials/set-secret-via-cli';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
 import { getKongConfig } from '../../infrastructure/merge-with-defaults';
-import type { GCPCredentials } from 'tsdevstack/plugin';
+import type { GCPCredentials } from '@tsdevstack/cli/plugin';
 
 interface GcpKongDeployParams {
   projectRoot: string;

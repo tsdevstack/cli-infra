@@ -5,7 +5,7 @@
  * Returns only workers that actually exist in ECS.
  */
 
-import type { AWSCredentials } from 'tsdevstack/plugin';
+import type { AWSCredentials } from '@tsdevstack/cli/plugin';
 import { getContext } from '../../../context';
 import { getEcsService } from './get-ecs-service';
 

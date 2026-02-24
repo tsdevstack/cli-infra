@@ -2,7 +2,7 @@
  * AWS Command Types
  */
 
-import type { AWSCredentials } from 'tsdevstack/plugin';
+import type { AWSCredentials } from '@tsdevstack/cli/plugin';
 
 export interface AWSCommandContext {
   projectRoot: string;

@@ -8,7 +8,7 @@
 import { SecretClient } from '@azure/keyvault-secrets';
 import { createAzureCredential } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
-import type { AzureCredentials } from 'tsdevstack/plugin';
+import type { AzureCredentials } from '@tsdevstack/cli/plugin';
 
 export interface ListKeyVaultSecretsByPrefixOptions {
   credentials: AzureCredentials;

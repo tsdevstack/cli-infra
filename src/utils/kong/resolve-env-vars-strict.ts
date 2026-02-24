@@ -2,7 +2,7 @@
  * Resolve ${ENV_VAR} placeholders - STRICT mode (throws on missing)
  */
 
-import type { JsonValue } from 'tsdevstack/plugin';
+import type { JsonValue } from '@tsdevstack/cli/plugin';
 import { getContext } from '../../context';
 
 /**

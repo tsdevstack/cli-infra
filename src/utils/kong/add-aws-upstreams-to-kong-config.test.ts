@@ -1,6 +1,6 @@
 import { describe, it, expect } from '@rstest/core';
 import { addAwsUpstreamsToKongConfig } from './add-aws-upstreams-to-kong-config';
-import type { KongTemplate } from 'tsdevstack/plugin';
+import type { KongTemplate } from '@tsdevstack/cli/plugin';
 
 describe('addAwsUpstreamsToKongConfig', () => {
   const baseConfig: KongTemplate = {

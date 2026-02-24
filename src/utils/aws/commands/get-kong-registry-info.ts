@@ -9,7 +9,7 @@ import { getContext } from '../../../context';
 import { getTerraformOutput } from '../../terraform';
 import { buildAwsTerraformEnv } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
-import type { AWSCredentials } from 'tsdevstack/plugin';
+import type { AWSCredentials } from '@tsdevstack/cli/plugin';
 
 export interface AwsKongRegistryInfo {
   registryUrl: string;

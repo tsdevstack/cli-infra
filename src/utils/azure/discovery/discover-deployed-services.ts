@@ -6,7 +6,7 @@
  * Filters out infrastructure components (Container Apps Environment, etc.).
  */
 
-import type { AzureCredentials } from 'tsdevstack/plugin';
+import type { AzureCredentials } from '@tsdevstack/cli/plugin';
 import type {
   DeployedServiceInfo,
   DeployedServiceType,

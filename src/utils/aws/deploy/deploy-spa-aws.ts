@@ -19,7 +19,7 @@ import {
 } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
 import { fetchServiceSecrets } from '../../deploy/fetch-service-secrets';
-import type { AWSCredentials } from 'tsdevstack/plugin';
+import type { AWSCredentials } from '@tsdevstack/cli/plugin';
 
 export interface DeploySpaAwsOptions {
   projectRoot: string;

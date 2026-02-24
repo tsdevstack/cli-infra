@@ -10,7 +10,7 @@ import {
   discoverServiceResources,
   discoverDeployedServices,
 } from '../discovery';
-import type { AWSCredentials } from 'tsdevstack/plugin';
+import type { AWSCredentials } from '@tsdevstack/cli/plugin';
 
 interface AwsServiceStatusParams {
   serviceName: string;

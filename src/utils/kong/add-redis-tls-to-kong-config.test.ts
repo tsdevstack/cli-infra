@@ -1,6 +1,6 @@
 import { describe, it, expect } from '@rstest/core';
 import { addRedisTlsToKongConfig } from './add-redis-tls-to-kong-config';
-import type { KongTemplate } from 'tsdevstack/plugin';
+import type { KongTemplate } from '@tsdevstack/cli/plugin';
 
 describe('addRedisTlsToKongConfig', () => {
   describe('Global plugins', () => {

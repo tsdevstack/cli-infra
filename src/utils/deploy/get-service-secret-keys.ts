@@ -7,7 +7,7 @@
 
 import path from 'node:path';
 import { getContext } from '../../context';
-import type { FrameworkConfig } from 'tsdevstack/plugin';
+import type { FrameworkConfig } from '@tsdevstack/cli/plugin';
 
 /**
  * Get the secret keys a specific service needs

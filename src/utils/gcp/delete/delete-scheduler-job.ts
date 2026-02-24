@@ -6,7 +6,7 @@
  */
 
 import { CloudSchedulerClient } from '@google-cloud/scheduler';
-import type { GCPCredentials } from 'tsdevstack/plugin';
+import type { GCPCredentials } from '@tsdevstack/cli/plugin';
 import { getContext } from '../../../context';
 
 export interface DeleteSchedulerJobOptions {

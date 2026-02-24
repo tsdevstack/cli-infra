@@ -6,7 +6,7 @@
  * the Azure REST API to detect restrictions before running a long terraform apply.
  */
 
-import type { AzureCredentials } from 'tsdevstack/plugin';
+import type { AzureCredentials } from '@tsdevstack/cli/plugin';
 import { createAzureCredential } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
 

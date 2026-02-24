@@ -8,7 +8,7 @@ import { execSync } from 'node:child_process';
 import { getContext } from '../../../context';
 import { configureAcrAuth } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
-import type { AzureCredentials } from 'tsdevstack/plugin';
+import type { AzureCredentials } from '@tsdevstack/cli/plugin';
 
 export async function pushAzureKongImage(
   fullImageTag: string,

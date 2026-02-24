@@ -9,7 +9,7 @@ import {
   SchedulerClient,
   DeleteScheduleCommand,
 } from '@aws-sdk/client-scheduler';
-import type { AWSCredentials } from 'tsdevstack/plugin';
+import type { AWSCredentials } from '@tsdevstack/cli/plugin';
 import { buildAWSClientConfig } from '../build-aws-client-config';
 
 export interface DeleteSchedulerScheduleOptions {

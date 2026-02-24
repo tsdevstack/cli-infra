@@ -20,7 +20,7 @@ rs.mock('@azure/arm-resources', () => ({
 }));
 
 import { registerInfraProviders } from './register-infra-providers';
-import type { AzureCredentials } from 'tsdevstack/plugin';
+import type { AzureCredentials } from '@tsdevstack/cli/plugin';
 
 const mockCredentials: AzureCredentials = {
   clientId: 'test-client-id',

@@ -9,7 +9,7 @@
 import { getContext } from '../../../context';
 import { buildBackendEnvVars } from '@tsdevstack/infra-core';
 import { fetchSecret } from '../../credentials/fetch-secret';
-import type { AzureCredentials } from 'tsdevstack/plugin';
+import type { AzureCredentials } from '@tsdevstack/cli/plugin';
 
 interface BuildAzureBackendEnvConfig {
   projectName: string;

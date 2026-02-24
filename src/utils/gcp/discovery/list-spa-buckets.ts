@@ -6,7 +6,7 @@
  */
 
 import { Storage } from '@google-cloud/storage';
-import type { GCPCredentials } from 'tsdevstack/plugin';
+import type { GCPCredentials } from '@tsdevstack/cli/plugin';
 import { getContext } from '../../../context';
 
 export interface ListSpaBucketsOptions {

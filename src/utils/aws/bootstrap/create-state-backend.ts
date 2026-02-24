@@ -18,7 +18,7 @@ import {
   CreateTableCommand,
   DescribeTableCommand,
 } from '@aws-sdk/client-dynamodb';
-import type { AWSCredentials } from 'tsdevstack/plugin';
+import type { AWSCredentials } from '@tsdevstack/cli/plugin';
 import { buildAWSClientConfig } from '../build-aws-client-config';
 
 export interface CreateStateBackendOptions {

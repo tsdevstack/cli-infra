@@ -31,7 +31,7 @@ rs.mock('../../context', () => ({
 }));
 
 import { createBucket } from './create-bucket';
-import type { GCPCredentials } from 'tsdevstack/plugin';
+import type { GCPCredentials } from '@tsdevstack/cli/plugin';
 
 describe('createBucket', () => {
   const mockCredentials: GCPCredentials = {

@@ -8,7 +8,7 @@ import { execSync } from 'node:child_process';
 import { getContext } from '../../../context';
 import { configureEcrAuth } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
-import type { AWSCredentials } from 'tsdevstack/plugin';
+import type { AWSCredentials } from '@tsdevstack/cli/plugin';
 
 /**
  * Push Kong image to AWS ECR

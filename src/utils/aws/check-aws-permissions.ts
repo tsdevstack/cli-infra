@@ -5,7 +5,7 @@
  */
 
 import { IAMClient, SimulatePrincipalPolicyCommand } from '@aws-sdk/client-iam';
-import type { AWSCredentials } from 'tsdevstack/plugin';
+import type { AWSCredentials } from '@tsdevstack/cli/plugin';
 import { buildAWSClientConfig } from './build-aws-client-config';
 import { AWS_REQUIRED_ACTIONS } from '../../constants';
 

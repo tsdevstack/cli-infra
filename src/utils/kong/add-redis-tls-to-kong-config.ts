@@ -9,7 +9,7 @@
  * within the VPC.
  */
 
-import type { KongTemplate, KongPlugin } from 'tsdevstack/plugin';
+import type { KongTemplate, KongPlugin } from '@tsdevstack/cli/plugin';
 
 /**
  * Add ssl and ssl_verify to a rate-limiting plugin's Redis config
