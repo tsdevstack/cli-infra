@@ -143,43 +143,4 @@ describe('generateDeployServicesWorkflow', () => {
       expect(result).toContain('npm run build');
     });
   });
-
-  describe('framework mode', () => {
-    it('should use node packages/cli-core/dist/cli.js', () => {
-      const result = generateDeployServicesWorkflow(
-        createConfig(['dev']),
-        defaultServices,
-        'framework',
-      );
-      expect(result).toContain('node packages/cli-core/dist/cli.js');
-      expect(result).not.toContain('npx tsdevstack');
-    });
-
-    it('should include npm link', () => {
-      const result = generateDeployServicesWorkflow(
-        createConfig(['dev']),
-        defaultServices,
-        'framework',
-      );
-      expect(result).toContain('npm link');
-    });
-
-    it('should have Framework workflow name', () => {
-      const result = generateDeployServicesWorkflow(
-        createConfig(['dev']),
-        defaultServices,
-        'framework',
-      );
-      expect(result).toContain('name: "Framework: Deploy Services');
-    });
-
-    it('should have framework header comment', () => {
-      const result = generateDeployServicesWorkflow(
-        createConfig(['dev']),
-        defaultServices,
-        'framework',
-      );
-      expect(result).toContain('Framework development workflow');
-    });
-  });
 });

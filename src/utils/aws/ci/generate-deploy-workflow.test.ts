@@ -123,40 +123,15 @@ describe('generateDeployWorkflow', () => {
     expect(result).toContain('continue-on-error: true');
   });
 
-  describe('user mode (default)', () => {
-    it('should use npx tsdevstack', () => {
-      const result = generateDeployWorkflow(createConfig(['dev']));
-      expect(result).toContain('npx tsdevstack');
-      expect(result).not.toContain('node packages/cli-core/dist/cli.js');
-      expect(result).not.toContain('npm link');
-    });
-
-    it('should include npm run build', () => {
-      const result = generateDeployWorkflow(createConfig(['dev']));
-      expect(result).toContain('npm run build');
-    });
+  it('should use npx tsdevstack', () => {
+    const result = generateDeployWorkflow(createConfig(['dev']));
+    expect(result).toContain('npx tsdevstack');
+    expect(result).not.toContain('node packages/cli-core/dist/cli.js');
+    expect(result).not.toContain('npm link');
   });
 
-  describe('framework mode', () => {
-    it('should use node packages/cli-core/dist/cli.js', () => {
-      const result = generateDeployWorkflow(createConfig(['dev']), 'framework');
-      expect(result).toContain('node packages/cli-core/dist/cli.js');
-      expect(result).not.toContain('npx tsdevstack');
-    });
-
-    it('should include npm link', () => {
-      const result = generateDeployWorkflow(createConfig(['dev']), 'framework');
-      expect(result).toContain('npm link');
-    });
-
-    it('should have Framework workflow name', () => {
-      const result = generateDeployWorkflow(createConfig(['dev']), 'framework');
-      expect(result).toContain('name: "Framework: Deploy');
-    });
-
-    it('should have framework header comment', () => {
-      const result = generateDeployWorkflow(createConfig(['dev']), 'framework');
-      expect(result).toContain('Framework development workflow');
-    });
+  it('should include npm run build', () => {
+    const result = generateDeployWorkflow(createConfig(['dev']));
+    expect(result).toContain('npm run build');
   });
 });

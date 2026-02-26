@@ -70,14 +70,6 @@ describe('generateRemoveServiceWorkflow', () => {
     expect(result).toContain('Service Removed');
   });
 
-  it('should use build:libs not full build in framework mode', () => {
-    const result = generateRemoveServiceWorkflow(
-      createConfig(['dev']),
-      'framework',
-    );
-    expect(result).toContain('npm run build:libs');
-  });
-
   it('should not use AWS or GCP auth', () => {
     const result = generateRemoveServiceWorkflow(createConfig(['dev']));
     expect(result).not.toContain('aws-actions');
@@ -97,43 +89,6 @@ describe('generateRemoveServiceWorkflow', () => {
     it('should not include build steps', () => {
       const result = generateRemoveServiceWorkflow(createConfig(['dev']));
       expect(result).not.toContain('build:libs');
-    });
-  });
-
-  describe('framework mode', () => {
-    it('should use node packages/cli-core/dist/cli.js', () => {
-      const result = generateRemoveServiceWorkflow(
-        createConfig(['dev']),
-        'framework',
-      );
-      expect(result).toContain('node packages/cli-core/dist/cli.js');
-      // Note: npx tsdevstack may appear in summary/next-steps text (user-facing instructions)
-      // but actual CLI invocations use node packages/cli-core/dist/cli.js
-      expect(result).not.toContain('run: npx tsdevstack');
-    });
-
-    it('should include npm link', () => {
-      const result = generateRemoveServiceWorkflow(
-        createConfig(['dev']),
-        'framework',
-      );
-      expect(result).toContain('npm link');
-    });
-
-    it('should have Framework workflow name', () => {
-      const result = generateRemoveServiceWorkflow(
-        createConfig(['dev']),
-        'framework',
-      );
-      expect(result).toContain('name: "Framework: Remove Service');
-    });
-
-    it('should have framework header comment', () => {
-      const result = generateRemoveServiceWorkflow(
-        createConfig(['dev']),
-        'framework',
-      );
-      expect(result).toContain('Framework development workflow');
     });
   });
 });

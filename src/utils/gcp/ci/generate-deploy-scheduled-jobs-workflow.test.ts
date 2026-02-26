@@ -78,39 +78,4 @@ describe('generateDeployScheduledJobsWorkflow', () => {
       expect(result).not.toContain('build:libs');
     });
   });
-
-  describe('framework mode', () => {
-    it('should use node packages/cli-core/dist/cli.js', () => {
-      const result = generateDeployScheduledJobsWorkflow(
-        createConfig(['dev']),
-        'framework',
-      );
-      expect(result).toContain('node packages/cli-core/dist/cli.js');
-      expect(result).not.toContain('npx tsdevstack');
-    });
-
-    it('should include npm link', () => {
-      const result = generateDeployScheduledJobsWorkflow(
-        createConfig(['dev']),
-        'framework',
-      );
-      expect(result).toContain('npm link');
-    });
-
-    it('should have Framework workflow name', () => {
-      const result = generateDeployScheduledJobsWorkflow(
-        createConfig(['dev']),
-        'framework',
-      );
-      expect(result).toContain('name: "Framework: Deploy Scheduled Jobs');
-    });
-
-    it('should have framework header comment', () => {
-      const result = generateDeployScheduledJobsWorkflow(
-        createConfig(['dev']),
-        'framework',
-      );
-      expect(result).toContain('Framework development workflow');
-    });
-  });
 });

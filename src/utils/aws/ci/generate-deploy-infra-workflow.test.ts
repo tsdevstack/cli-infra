@@ -33,14 +33,6 @@ describe('generateDeployInfraWorkflow', () => {
     expect(result).toContain('role-to-assume');
   });
 
-  it('should use build:libs not full build in framework mode', () => {
-    const result = generateDeployInfraWorkflow(
-      createConfig(['dev']),
-      'framework',
-    );
-    expect(result).toContain('npm run build:libs');
-  });
-
   it('should not include Docker or ECR steps', () => {
     const result = generateDeployInfraWorkflow(createConfig(['dev']));
     expect(result).not.toContain('amazon-ecr-login');
@@ -78,52 +70,15 @@ describe('generateDeployInfraWorkflow', () => {
     expect(result).not.toContain('gcloud');
   });
 
-  describe('user mode (default)', () => {
-    it('should use npx tsdevstack', () => {
-      const result = generateDeployInfraWorkflow(createConfig(['dev']));
-      expect(result).toContain('npx tsdevstack');
-      expect(result).not.toContain('node packages/cli-core/dist/cli.js');
-      expect(result).not.toContain('npm link');
-    });
-
-    it('should not include build steps', () => {
-      const result = generateDeployInfraWorkflow(createConfig(['dev']));
-      expect(result).not.toContain('build:libs');
-    });
+  it('should use npx tsdevstack', () => {
+    const result = generateDeployInfraWorkflow(createConfig(['dev']));
+    expect(result).toContain('npx tsdevstack');
+    expect(result).not.toContain('node packages/cli-core/dist/cli.js');
+    expect(result).not.toContain('npm link');
   });
 
-  describe('framework mode', () => {
-    it('should use node packages/cli-core/dist/cli.js', () => {
-      const result = generateDeployInfraWorkflow(
-        createConfig(['dev']),
-        'framework',
-      );
-      expect(result).toContain('node packages/cli-core/dist/cli.js');
-      expect(result).not.toContain('npx tsdevstack');
-    });
-
-    it('should include npm link', () => {
-      const result = generateDeployInfraWorkflow(
-        createConfig(['dev']),
-        'framework',
-      );
-      expect(result).toContain('npm link');
-    });
-
-    it('should have Framework workflow name', () => {
-      const result = generateDeployInfraWorkflow(
-        createConfig(['dev']),
-        'framework',
-      );
-      expect(result).toContain('name: "Framework: Deploy Infrastructure');
-    });
-
-    it('should have framework header comment', () => {
-      const result = generateDeployInfraWorkflow(
-        createConfig(['dev']),
-        'framework',
-      );
-      expect(result).toContain('Framework development workflow');
-    });
+  it('should not include build steps', () => {
+    const result = generateDeployInfraWorkflow(createConfig(['dev']));
+    expect(result).not.toContain('build:libs');
   });
 });

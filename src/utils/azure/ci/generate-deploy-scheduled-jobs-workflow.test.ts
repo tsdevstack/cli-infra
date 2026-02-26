@@ -37,14 +37,6 @@ describe('generateDeployScheduledJobsWorkflow', () => {
     expect(result).toContain('ARM_USE_OIDC=true');
   });
 
-  it('should use build:libs not full build in framework mode', () => {
-    const result = generateDeployScheduledJobsWorkflow(
-      createConfig(['dev']),
-      'framework',
-    );
-    expect(result).toContain('npm run build:libs');
-  });
-
   it('should setup Terraform', () => {
     const result = generateDeployScheduledJobsWorkflow(createConfig(['dev']));
     expect(result).toContain('hashicorp/setup-terraform@v3');
@@ -80,41 +72,6 @@ describe('generateDeployScheduledJobsWorkflow', () => {
     it('should not include build steps', () => {
       const result = generateDeployScheduledJobsWorkflow(createConfig(['dev']));
       expect(result).not.toContain('build:libs');
-    });
-  });
-
-  describe('framework mode', () => {
-    it('should use node packages/cli-core/dist/cli.js', () => {
-      const result = generateDeployScheduledJobsWorkflow(
-        createConfig(['dev']),
-        'framework',
-      );
-      expect(result).toContain('node packages/cli-core/dist/cli.js');
-      expect(result).not.toContain('npx tsdevstack');
-    });
-
-    it('should include npm link', () => {
-      const result = generateDeployScheduledJobsWorkflow(
-        createConfig(['dev']),
-        'framework',
-      );
-      expect(result).toContain('npm link');
-    });
-
-    it('should have Framework workflow name', () => {
-      const result = generateDeployScheduledJobsWorkflow(
-        createConfig(['dev']),
-        'framework',
-      );
-      expect(result).toContain('name: "Framework: Deploy Scheduled Jobs');
-    });
-
-    it('should have framework header comment', () => {
-      const result = generateDeployScheduledJobsWorkflow(
-        createConfig(['dev']),
-        'framework',
-      );
-      expect(result).toContain('Framework development workflow');
     });
   });
 });

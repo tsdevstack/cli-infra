@@ -14,7 +14,6 @@
  * - remove-service.yml - Service removal (cloud)
  */
 
-import * as path from 'path';
 import { getContext } from '../context';
 import { setupInfraCommand } from '../utils/setup/setup-infra-command';
 import { gcpInitCi } from '../utils/gcp/commands';
@@ -24,28 +23,13 @@ import { azureInitCi } from '../utils/azure/commands';
 interface CiInitOptions {
   github?: boolean;
   env?: string;
-  framework?: boolean;
 }
 
 /**
  * Initialize CI/CD configuration
  */
 export async function ciInit(options: CiInitOptions): Promise<void> {
-  const { logger, CliError, findProjectRoot, isFile } = getContext();
-
-  // Guard: --framework only works inside the framework monorepo
-  if (options.framework) {
-    const projectRoot = findProjectRoot();
-    const isFrameworkRepo = isFile(
-      path.join(projectRoot, 'packages/cli-core/package.json'),
-    );
-    if (!isFrameworkRepo) {
-      throw new CliError(
-        '--framework flag is only available in the tsdevstack framework monorepo',
-        'infra:init-ci',
-      );
-    }
-  }
+  const { logger, CliError } = getContext();
 
   // Only GitHub supported for now
   if (!options.github) {
@@ -63,11 +47,11 @@ export async function ciInit(options: CiInitOptions): Promise<void> {
   const ctx = await setupInfraCommand(options, 'infra:init-ci');
 
   if (ctx.provider === 'gcp') {
-    await gcpInitCi(options.framework);
+    await gcpInitCi();
   } else if (ctx.provider === 'aws') {
-    await awsInitCi(options.framework);
+    await awsInitCi();
   } else if (ctx.provider === 'azure') {
-    await azureInitCi(options.framework);
+    await azureInitCi();
   } else {
     throw new CliError(
       `Unsupported provider: ${ctx.provider}`,
