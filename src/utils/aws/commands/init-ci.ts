@@ -30,7 +30,10 @@ import type { CIConfig } from '../ci';
 /**
  * Initialize AWS CI/CD configuration
  */
-export async function awsInitCi(): Promise<void> {
+export async function awsInitCi(
+  environments: string[],
+  projectName: string,
+): Promise<void> {
   const {
     logger,
     loadFrameworkConfig,
@@ -40,15 +43,12 @@ export async function awsInitCi(): Promise<void> {
     ensureDirectory,
     writeTextFile,
     TSDEVSTACK_DIR,
-    loadCredentialsFile,
-    getAvailableEnvironments,
     loadUserSecrets,
     CliError,
   } = getContext();
 
   const projectRoot = findProjectRoot();
   const config = loadFrameworkConfig();
-  const projectName = config.project.name;
 
   // Check if ci.json already exists
   const ciConfigPath = path.join(
@@ -60,26 +60,7 @@ export async function awsInitCi(): Promise<void> {
     throw new CliError(
       'CI already initialized',
       'infra:init-ci',
-      'Use infra:generate-ci to regenerate workflows, or delete .tsdevstack/ci.json to start fresh',
-    );
-  }
-
-  // Get available environments from credentials
-  let awsCredentials: Record<string, unknown> | null = null;
-  try {
-    awsCredentials = loadCredentialsFile(projectRoot, 'aws');
-  } catch {
-    // No credentials yet
-  }
-  const environments = awsCredentials
-    ? getAvailableEnvironments(projectRoot, 'aws')
-    : [];
-
-  if (environments.length === 0) {
-    throw new CliError(
-      'No environments configured',
-      'infra:init-ci',
-      'Run cloud:init --aws first to configure cloud credentials',
+      'Run: npx tsdevstack infra:generate-ci to regenerate workflows, or delete .tsdevstack/ci.json to start fresh',
     );
   }
 
@@ -91,7 +72,7 @@ export async function awsInitCi(): Promise<void> {
 
   // Write ci.json
   logger.info('Creating CI configuration...');
-  writeJsonFile(ciConfigPath, ciConfig);
+  writeJsonFile(ciConfigPath, { $schema: './ci.schema.json', ...ciConfig });
   logger.info(`  Created ${TSDEVSTACK_DIR}/${CI_CONFIG_FILENAME}`);
 
   // Create workflows directory

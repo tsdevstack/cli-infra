@@ -60,7 +60,7 @@ export async function gcpGenerateCiWorkflows(): Promise<void> {
     throw new CliError(
       'CI not initialized',
       'infra:generate-ci',
-      'Run infra:init-ci --github first to initialize CI/CD',
+      'Run: npx tsdevstack infra:init-ci',
     );
   }
 

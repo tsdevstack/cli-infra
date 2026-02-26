@@ -42,23 +42,13 @@ rs.mock('../ci', () => ({
 import { gcpInitCi } from './init-ci';
 
 describe('gcpInitCi', () => {
-  const mockGCPCredentials = {
-    prod: {
-      project_id: 'gcp-project-123',
-      region: 'us-central1',
-    },
-    staging: {
-      project_id: 'gcp-project-staging',
-      region: 'us-central1',
-    },
-  };
+  const environments = ['prod', 'staging'];
+  const projectName = 'my-app';
 
   beforeEach(() => {
     rs.resetAllMocks();
     mocks.findProjectRoot.mockReturnValue('/test/project');
     mocks.isFile.mockReturnValue(false);
-    mocks.loadCredentialsFile.mockReturnValue(mockGCPCredentials);
-    mocks.getAvailableEnvironments.mockReturnValue(['prod', 'staging']);
     mocks.loadFrameworkConfig.mockReturnValue({
       project: { name: 'my-app' },
       services: [
@@ -82,14 +72,16 @@ describe('gcpInitCi', () => {
     it('should throw when ci.json already exists', async () => {
       mocks.isFile.mockReturnValue(true);
 
-      await expect(gcpInitCi()).rejects.toThrow(mocks.CliError);
+      await expect(gcpInitCi(environments, projectName)).rejects.toThrow(
+        mocks.CliError,
+      );
     });
 
     it('should suggest generate-ci command when already initialized', async () => {
       mocks.isFile.mockReturnValue(true);
 
       try {
-        await gcpInitCi();
+        await gcpInitCi(environments, projectName);
         expect.fail('Should have thrown');
       } catch (e) {
         expect((e as { hint?: string }).hint).toContain('generate-ci');
@@ -97,36 +89,9 @@ describe('gcpInitCi', () => {
     });
   });
 
-  describe('credentials validation', () => {
-    it('should throw when no credentials found', async () => {
-      mocks.loadCredentialsFile.mockImplementation(() => {
-        throw new Error('No credentials');
-      });
-
-      await expect(gcpInitCi()).rejects.toThrow(mocks.CliError);
-    });
-
-    it('should throw when no environments configured', async () => {
-      mocks.getAvailableEnvironments.mockReturnValue([]);
-
-      await expect(gcpInitCi()).rejects.toThrow(mocks.CliError);
-    });
-
-    it('should suggest cloud:init when no environments', async () => {
-      mocks.getAvailableEnvironments.mockReturnValue([]);
-
-      try {
-        await gcpInitCi();
-        expect.fail('Should have thrown');
-      } catch (e) {
-        expect((e as { hint?: string }).hint).toContain('cloud:init');
-      }
-    });
-  });
-
   describe('config creation', () => {
     it('should create ci.json with provider and environments', async () => {
-      await gcpInitCi();
+      await gcpInitCi(environments, projectName);
 
       expect(mocks.writeJsonFile).toHaveBeenCalledWith(
         expect.stringContaining('ci.json'),
@@ -140,7 +105,7 @@ describe('gcpInitCi', () => {
 
   describe('workflow generation', () => {
     it('should create workflows directory', async () => {
-      await gcpInitCi();
+      await gcpInitCi(environments, projectName);
 
       expect(mocks.ensureDirectory).toHaveBeenCalledWith(
         expect.stringContaining('.github/workflows'),
@@ -148,7 +113,7 @@ describe('gcpInitCi', () => {
     });
 
     it('should generate PR workflow', async () => {
-      await gcpInitCi();
+      await gcpInitCi(environments, projectName);
 
       expect(mockGeneratePrWorkflow).toHaveBeenCalled();
       expect(mocks.writeTextFile).toHaveBeenCalledWith(
@@ -158,7 +123,7 @@ describe('gcpInitCi', () => {
     });
 
     it('should generate deploy workflow', async () => {
-      await gcpInitCi();
+      await gcpInitCi(environments, projectName);
 
       expect(mockGenerateDeployWorkflow).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -169,7 +134,7 @@ describe('gcpInitCi', () => {
     });
 
     it('should generate deploy-services workflow with services', async () => {
-      await gcpInitCi();
+      await gcpInitCi(environments, projectName);
 
       expect(mockGenerateDeployServicesWorkflow).toHaveBeenCalledWith(
         expect.anything(),
@@ -181,7 +146,7 @@ describe('gcpInitCi', () => {
     });
 
     it('should generate all infrastructure workflows', async () => {
-      await gcpInitCi();
+      await gcpInitCi(environments, projectName);
 
       expect(mockGenerateDeployInfraWorkflow).toHaveBeenCalled();
       expect(mockGenerateDeployKongWorkflow).toHaveBeenCalled();
@@ -189,7 +154,7 @@ describe('gcpInitCi', () => {
     });
 
     it('should generate remove-service workflow', async () => {
-      await gcpInitCi();
+      await gcpInitCi(environments, projectName);
 
       expect(mockGenerateRemoveServiceWorkflow).toHaveBeenCalled();
     });
@@ -197,12 +162,11 @@ describe('gcpInitCi', () => {
 
   describe('setup instructions', () => {
     it('should print setup instructions', async () => {
-      await gcpInitCi();
+      await gcpInitCi(environments, projectName);
 
       expect(mockPrintSetupInstructions).toHaveBeenCalledWith(
         ['STRIPE_KEY'],
         'my-app',
-        'gcp-project-123',
         ['prod', 'staging'],
         mocks.logger,
       );
@@ -211,11 +175,10 @@ describe('gcpInitCi', () => {
     it('should handle missing user secrets', async () => {
       mocks.loadUserSecrets.mockReturnValue(null);
 
-      await gcpInitCi();
+      await gcpInitCi(environments, projectName);
 
       expect(mockPrintSetupInstructions).toHaveBeenCalledWith(
         [],
-        expect.anything(),
         expect.anything(),
         expect.anything(),
         expect.anything(),
@@ -225,7 +188,7 @@ describe('gcpInitCi', () => {
 
   describe('logging', () => {
     it('should log success message', async () => {
-      await gcpInitCi();
+      await gcpInitCi(environments, projectName);
 
       expect(mocks.logger.success).toHaveBeenCalledWith(
         expect.stringContaining('initialized successfully'),
@@ -233,7 +196,7 @@ describe('gcpInitCi', () => {
     });
 
     it('should log next steps', async () => {
-      await gcpInitCi();
+      await gcpInitCi(environments, projectName);
 
       expect(mocks.logger.info).toHaveBeenCalledWith(
         expect.stringContaining('Next Steps'),

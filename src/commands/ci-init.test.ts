@@ -12,9 +12,11 @@ rs.mock('../context', () => ({
   wrapCommand: rs.fn((fn: unknown) => fn),
 }));
 
-const mockSetupInfraCommand = rs.fn();
-rs.mock('../utils/setup/setup-infra-command', () => ({
-  setupInfraCommand: (...args: unknown[]) => mockSetupInfraCommand(...args),
+const mockInquirerPrompt = rs.fn();
+rs.mock('inquirer', () => ({
+  default: {
+    prompt: (...args: unknown[]) => mockInquirerPrompt(...args),
+  },
 }));
 
 const mockGcpInitCi = rs.fn();
@@ -32,120 +34,243 @@ rs.mock('../utils/azure/commands', () => ({
   azureInitCi: (...args: unknown[]) => mockAzureInitCi(...args),
 }));
 
+const mockGenerateInfrastructureSchema = rs.fn();
+rs.mock('../utils/infrastructure/generate-infrastructure-schema', () => ({
+  generateInfrastructureSchema: (...args: unknown[]) =>
+    mockGenerateInfrastructureSchema(...args),
+}));
+
 import { ciInit } from './ci-init';
 
 describe('ciInit', () => {
-  const mockGCPContext = {
-    projectRoot: '/test/project',
-    projectName: 'my-app',
-    provider: 'gcp' as const,
-    targetEnv: 'prod',
-    credentials: { project_id: 'gcp-project-123', region: 'us-central1' },
-    runningInCI: false,
-  };
-
-  const mockAWSContext = {
-    projectRoot: '/test/project',
-    projectName: 'my-app',
-    provider: 'aws' as const,
-    targetEnv: 'prod',
-    credentials: { region: 'us-east-1', accountId: '123456789012' },
-    runningInCI: false,
-  };
-
-  const mockAzureContext = {
-    projectRoot: '/test/project',
-    projectName: 'my-app',
-    provider: 'azure' as const,
-    targetEnv: 'prod',
-    credentials: { subscriptionId: 'sub-123', tenantId: 'tenant-123' },
-    runningInCI: false,
-  };
-
-  const mockUnsupportedContext = {
-    projectRoot: '/test/project',
-    projectName: 'my-app',
-    provider: 'unknown' as const,
-    targetEnv: 'prod',
-    credentials: {},
-    runningInCI: false,
-  };
-
   beforeEach(() => {
     rs.resetAllMocks();
-    mockSetupInfraCommand.mockResolvedValue(mockGCPContext);
+    mocks.loadFrameworkConfig.mockReturnValue({
+      project: { name: 'my-app' },
+      cloud: { provider: 'gcp' },
+    });
+    mocks.findProjectRoot.mockReturnValue('/test/project');
+    mocks.getConfigPath.mockReturnValue(
+      '/test/project/.tsdevstack/config.json',
+    );
+    mocks.isCIEnv.mockReturnValue(false);
+    mocks.getAvailableEnvironments.mockReturnValue(['dev', 'prod']);
+    mockGenerateInfrastructureSchema.mockReturnValue('{}');
+    mockInquirerPrompt.mockResolvedValue({ envInput: 'dev, prod' });
   });
 
-  describe('provider validation', () => {
-    it('should throw when no provider flag is passed', async () => {
-      await expect(ciInit({})).rejects.toThrow(mocks.CliError);
-    });
+  describe('CI provider auto-selection', () => {
+    it('should auto-select GitHub when --github not passed', async () => {
+      await ciInit({ envs: 'dev,prod' });
 
-    it('should throw with hint about --github flag', async () => {
-      try {
-        await ciInit({});
-        expect.fail('Should have thrown');
-      } catch (e) {
-        expect((e as { hint?: string }).hint).toContain('--github');
-      }
-    });
-
-    it('should accept --github flag', async () => {
-      await ciInit({ github: true });
-
-      expect(mockSetupInfraCommand).toHaveBeenCalled();
-    });
-  });
-
-  describe('context setup', () => {
-    it('should set up infra command', async () => {
-      await ciInit({ github: true });
-
-      expect(mockSetupInfraCommand).toHaveBeenCalledWith(
-        { github: true },
-        'infra:init-ci',
+      expect(mocks.logger.info).toHaveBeenCalledWith(
+        expect.stringContaining('Auto-selecting GitHub'),
       );
     });
 
-    it('should pass env option', async () => {
-      await ciInit({ github: true, env: 'staging' });
+    it('should not log auto-select when --github is passed', async () => {
+      await ciInit({ github: true, envs: 'dev,prod' });
 
-      expect(mockSetupInfraCommand).toHaveBeenCalledWith(
-        { github: true, env: 'staging' },
-        'infra:init-ci',
+      expect(mocks.logger.info).not.toHaveBeenCalledWith(
+        expect.stringContaining('Auto-selecting GitHub'),
+      );
+    });
+  });
+
+  describe('non-interactive mode (--envs flag)', () => {
+    it('should pass environments from --envs to provider', async () => {
+      await ciInit({ github: true, envs: 'dev,prod' });
+
+      expect(mockGcpInitCi).toHaveBeenCalledWith(['dev', 'prod'], 'my-app');
+    });
+
+    it('should trim whitespace from environment names', async () => {
+      await ciInit({ github: true, envs: ' dev , prod ' });
+
+      expect(mockGcpInitCi).toHaveBeenCalledWith(['dev', 'prod'], 'my-app');
+    });
+
+    it('should filter empty environment names', async () => {
+      await ciInit({ github: true, envs: 'dev,,prod,' });
+
+      expect(mockGcpInitCi).toHaveBeenCalledWith(['dev', 'prod'], 'my-app');
+    });
+  });
+
+  describe('interactive mode (no --envs)', () => {
+    it('should prompt with credential defaults when available', async () => {
+      mocks.getAvailableEnvironments.mockReturnValue(['dev', 'staging']);
+      mockInquirerPrompt.mockResolvedValue({ envInput: 'dev, staging' });
+
+      await ciInit({ github: true });
+
+      expect(mockInquirerPrompt).toHaveBeenCalledWith([
+        expect.objectContaining({
+          type: 'input',
+          name: 'envInput',
+          default: 'dev, staging',
+        }),
+      ]);
+    });
+
+    it('should prompt without defaults when no credentials', async () => {
+      mocks.getAvailableEnvironments.mockImplementation(() => {
+        throw new Error('No credentials');
+      });
+      mockInquirerPrompt.mockResolvedValue({ envInput: 'dev, prod' });
+
+      await ciInit({ github: true });
+
+      expect(mockInquirerPrompt).toHaveBeenCalledWith([
+        expect.objectContaining({
+          type: 'input',
+          name: 'envInput',
+          message: expect.stringContaining('e.g. dev, staging, prod'),
+        }),
+      ]);
+    });
+
+    it('should throw when environments are empty after prompt', async () => {
+      mocks.getAvailableEnvironments.mockImplementation(() => {
+        throw new Error('No credentials');
+      });
+      mockInquirerPrompt.mockResolvedValue({ envInput: '' });
+
+      await expect(ciInit({ github: true })).rejects.toThrow(mocks.CliError);
+    });
+  });
+
+  describe('CI mode (isCIEnv)', () => {
+    it('should throw when no --envs in CI mode', async () => {
+      mocks.isCIEnv.mockReturnValue(true);
+
+      await expect(ciInit({ github: true })).rejects.toThrow(mocks.CliError);
+    });
+
+    it('should work with --envs in CI mode', async () => {
+      mocks.isCIEnv.mockReturnValue(true);
+
+      await ciInit({ github: true, envs: 'dev,prod' });
+
+      expect(mockGcpInitCi).toHaveBeenCalledWith(['dev', 'prod'], 'my-app');
+    });
+  });
+
+  describe('cloud provider resolution', () => {
+    it('should use provider from config.json', async () => {
+      mocks.loadFrameworkConfig.mockReturnValue({
+        project: { name: 'my-app' },
+        cloud: { provider: 'aws' },
+      });
+
+      await ciInit({ github: true, envs: 'dev,prod' });
+
+      expect(mockAwsInitCi).toHaveBeenCalledWith(['dev', 'prod'], 'my-app');
+    });
+
+    it('should prompt for provider when null in config', async () => {
+      mocks.loadFrameworkConfig.mockReturnValue({
+        project: { name: 'my-app' },
+        cloud: { provider: null },
+      });
+      mockInquirerPrompt
+        .mockResolvedValueOnce({ selectedProvider: 'azure' })
+        .mockResolvedValueOnce({ envInput: 'dev, prod' });
+
+      await ciInit({ github: true });
+
+      expect(mockInquirerPrompt).toHaveBeenCalledWith([
+        expect.objectContaining({
+          type: 'list',
+          name: 'selectedProvider',
+        }),
+      ]);
+      expect(mockAzureInitCi).toHaveBeenCalled();
+    });
+
+    it('should write provider back to config.json when prompted', async () => {
+      const mockConfig = {
+        project: { name: 'my-app' },
+        cloud: { provider: null },
+      };
+      mocks.loadFrameworkConfig.mockReturnValue(mockConfig);
+      mockInquirerPrompt
+        .mockResolvedValueOnce({ selectedProvider: 'gcp' })
+        .mockResolvedValueOnce({ envInput: 'dev' });
+
+      await ciInit({ github: true });
+
+      expect(mocks.writeJsonFile).toHaveBeenCalledWith(
+        '/test/project/.tsdevstack/config.json',
+        expect.objectContaining({
+          cloud: { provider: 'gcp' },
+        }),
+      );
+    });
+
+    it('should throw when null provider in CI mode', async () => {
+      mocks.loadFrameworkConfig.mockReturnValue({
+        project: { name: 'my-app' },
+        cloud: { provider: null },
+      });
+      mocks.isCIEnv.mockReturnValue(true);
+
+      await expect(ciInit({ github: true, envs: 'dev' })).rejects.toThrow(
+        mocks.CliError,
       );
     });
   });
 
   describe('provider branching', () => {
     it('should call gcpInitCi for GCP provider', async () => {
-      mockSetupInfraCommand.mockResolvedValue(mockGCPContext);
+      await ciInit({ github: true, envs: 'dev,prod' });
 
-      await ciInit({ github: true });
-
-      expect(mockGcpInitCi).toHaveBeenCalled();
+      expect(mockGcpInitCi).toHaveBeenCalledWith(['dev', 'prod'], 'my-app');
     });
 
     it('should call awsInitCi for AWS provider', async () => {
-      mockSetupInfraCommand.mockResolvedValue(mockAWSContext);
+      mocks.loadFrameworkConfig.mockReturnValue({
+        project: { name: 'my-app' },
+        cloud: { provider: 'aws' },
+      });
 
-      await ciInit({ github: true });
+      await ciInit({ github: true, envs: 'dev,prod' });
 
-      expect(mockAwsInitCi).toHaveBeenCalled();
+      expect(mockAwsInitCi).toHaveBeenCalledWith(['dev', 'prod'], 'my-app');
     });
 
     it('should call azureInitCi for Azure provider', async () => {
-      mockSetupInfraCommand.mockResolvedValue(mockAzureContext);
+      mocks.loadFrameworkConfig.mockReturnValue({
+        project: { name: 'my-app' },
+        cloud: { provider: 'azure' },
+      });
 
-      await ciInit({ github: true });
+      await ciInit({ github: true, envs: 'dev,prod' });
 
-      expect(mockAzureInitCi).toHaveBeenCalled();
+      expect(mockAzureInitCi).toHaveBeenCalledWith(['dev', 'prod'], 'my-app');
     });
 
     it('should throw unsupported provider error for unknown provider', async () => {
-      mockSetupInfraCommand.mockResolvedValue(mockUnsupportedContext);
+      mocks.loadFrameworkConfig.mockReturnValue({
+        project: { name: 'my-app' },
+        cloud: { provider: 'unknown' },
+      });
 
-      await expect(ciInit({ github: true })).rejects.toThrow(mocks.CliError);
+      await expect(ciInit({ github: true, envs: 'dev' })).rejects.toThrow(
+        mocks.CliError,
+      );
+    });
+  });
+
+  describe('infrastructure schema generation', () => {
+    it('should generate infrastructure schema', async () => {
+      await ciInit({ github: true, envs: 'dev,prod' });
+
+      expect(mockGenerateInfrastructureSchema).toHaveBeenCalledWith('gcp');
+      expect(mocks.writeTextFile).toHaveBeenCalledWith(
+        expect.stringContaining('infrastructure.schema.json'),
+        '{}',
+      );
     });
   });
 });

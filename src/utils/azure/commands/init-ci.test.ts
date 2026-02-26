@@ -39,27 +39,13 @@ rs.mock('../ci', () => ({
 import { azureInitCi } from './init-ci';
 
 describe('azureInitCi', () => {
-  const mockAzureCredentials = {
-    dev: {
-      clientId: 'client-id-dev',
-      tenantId: 'tenant-id-dev',
-      subscriptionId: 'sub-id-dev',
-      location: 'eastus',
-    },
-    prod: {
-      clientId: 'client-id-prod',
-      tenantId: 'tenant-id-prod',
-      subscriptionId: 'sub-id-prod',
-      location: 'eastus',
-    },
-  };
+  const environments = ['dev', 'prod'];
+  const projectName = 'my-app';
 
   beforeEach(() => {
     rs.resetAllMocks();
     mocks.findProjectRoot.mockReturnValue('/test/project');
     mocks.isFile.mockReturnValue(false);
-    mocks.loadCredentialsFile.mockReturnValue(mockAzureCredentials);
-    mocks.getAvailableEnvironments.mockReturnValue(['dev', 'prod']);
     mocks.loadFrameworkConfig.mockReturnValue({
       project: { name: 'my-app' },
       services: [
@@ -82,14 +68,16 @@ describe('azureInitCi', () => {
     it('should throw when ci.json already exists', async () => {
       mocks.isFile.mockReturnValue(true);
 
-      await expect(azureInitCi()).rejects.toThrow(mocks.CliError);
+      await expect(azureInitCi(environments, projectName)).rejects.toThrow(
+        mocks.CliError,
+      );
     });
 
     it('should suggest generate-ci command when already initialized', async () => {
       mocks.isFile.mockReturnValue(true);
 
       try {
-        await azureInitCi();
+        await azureInitCi(environments, projectName);
         expect.fail('Should have thrown');
       } catch (e) {
         expect((e as { hint?: string }).hint).toContain('generate-ci');
@@ -97,36 +85,9 @@ describe('azureInitCi', () => {
     });
   });
 
-  describe('credentials validation', () => {
-    it('should throw when no credentials found', async () => {
-      mocks.loadCredentialsFile.mockImplementation(() => {
-        throw new Error('No credentials');
-      });
-
-      await expect(azureInitCi()).rejects.toThrow(mocks.CliError);
-    });
-
-    it('should throw when no environments configured', async () => {
-      mocks.getAvailableEnvironments.mockReturnValue([]);
-
-      await expect(azureInitCi()).rejects.toThrow(mocks.CliError);
-    });
-
-    it('should suggest cloud:init --azure when no environments', async () => {
-      mocks.getAvailableEnvironments.mockReturnValue([]);
-
-      try {
-        await azureInitCi();
-        expect.fail('Should have thrown');
-      } catch (e) {
-        expect((e as { hint?: string }).hint).toContain('cloud:init');
-      }
-    });
-  });
-
   describe('config creation', () => {
     it('should create ci.json with provider and environments', async () => {
-      await azureInitCi();
+      await azureInitCi(environments, projectName);
 
       expect(mocks.writeJsonFile).toHaveBeenCalledWith(
         expect.stringContaining('ci.json'),
@@ -140,7 +101,7 @@ describe('azureInitCi', () => {
 
   describe('workflow generation', () => {
     it('should create workflows directory', async () => {
-      await azureInitCi();
+      await azureInitCi(environments, projectName);
 
       expect(mocks.ensureDirectory).toHaveBeenCalledWith(
         expect.stringContaining('.github/workflows'),
@@ -148,7 +109,7 @@ describe('azureInitCi', () => {
     });
 
     it('should generate PR workflow', async () => {
-      await azureInitCi();
+      await azureInitCi(environments, projectName);
 
       expect(mockGeneratePrWorkflow).toHaveBeenCalled();
       expect(mocks.writeTextFile).toHaveBeenCalledWith(
@@ -158,7 +119,7 @@ describe('azureInitCi', () => {
     });
 
     it('should generate deploy workflow', async () => {
-      await azureInitCi();
+      await azureInitCi(environments, projectName);
 
       expect(mockGenerateDeployWorkflow).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -169,7 +130,7 @@ describe('azureInitCi', () => {
     });
 
     it('should generate deploy-services workflow with services', async () => {
-      await azureInitCi();
+      await azureInitCi(environments, projectName);
 
       expect(mockGenerateDeployServicesWorkflow).toHaveBeenCalledWith(
         expect.anything(),
@@ -181,20 +142,20 @@ describe('azureInitCi', () => {
     });
 
     it('should generate all infrastructure workflows', async () => {
-      await azureInitCi();
+      await azureInitCi(environments, projectName);
 
       expect(mockGenerateDeployInfraWorkflow).toHaveBeenCalled();
       expect(mockGenerateDeployKongWorkflow).toHaveBeenCalled();
     });
 
     it('should generate remove-service workflow', async () => {
-      await azureInitCi();
+      await azureInitCi(environments, projectName);
 
       expect(mockGenerateRemoveServiceWorkflow).toHaveBeenCalled();
     });
 
     it('should not generate deploy-lb workflow', async () => {
-      await azureInitCi();
+      await azureInitCi(environments, projectName);
 
       // Azure doesn't need deploy-lb (Front Door + App Service are Terraform-managed)
       const writeTextCalls = mocks.writeTextFile.mock.calls.map(
@@ -208,7 +169,7 @@ describe('azureInitCi', () => {
 
   describe('setup instructions', () => {
     it('should print setup instructions', async () => {
-      await azureInitCi();
+      await azureInitCi(environments, projectName);
 
       expect(mockPrintSetupInstructions).toHaveBeenCalledWith(
         ['STRIPE_KEY'],
@@ -221,7 +182,7 @@ describe('azureInitCi', () => {
     it('should handle missing user secrets', async () => {
       mocks.loadUserSecrets.mockReturnValue(null);
 
-      await azureInitCi();
+      await azureInitCi(environments, projectName);
 
       expect(mockPrintSetupInstructions).toHaveBeenCalledWith(
         [],
@@ -234,7 +195,7 @@ describe('azureInitCi', () => {
 
   describe('logging', () => {
     it('should log success message', async () => {
-      await azureInitCi();
+      await azureInitCi(environments, projectName);
 
       expect(mocks.logger.success).toHaveBeenCalledWith(
         expect.stringContaining('initialized successfully'),
@@ -242,7 +203,7 @@ describe('azureInitCi', () => {
     });
 
     it('should log next steps', async () => {
-      await azureInitCi();
+      await azureInitCi(environments, projectName);
 
       expect(mocks.logger.info).toHaveBeenCalledWith(
         expect.stringContaining('Next Steps'),

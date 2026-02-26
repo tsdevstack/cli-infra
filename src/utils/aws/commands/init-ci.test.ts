@@ -39,23 +39,13 @@ rs.mock('../ci', () => ({
 import { awsInitCi } from './init-ci';
 
 describe('awsInitCi', () => {
-  const mockAWSCredentials = {
-    dev: {
-      account_id: '123456789012',
-      region: 'us-east-1',
-    },
-    prod: {
-      account_id: '987654321098',
-      region: 'us-east-1',
-    },
-  };
+  const environments = ['dev', 'prod'];
+  const projectName = 'my-app';
 
   beforeEach(() => {
     rs.resetAllMocks();
     mocks.findProjectRoot.mockReturnValue('/test/project');
     mocks.isFile.mockReturnValue(false);
-    mocks.loadCredentialsFile.mockReturnValue(mockAWSCredentials);
-    mocks.getAvailableEnvironments.mockReturnValue(['dev', 'prod']);
     mocks.loadFrameworkConfig.mockReturnValue({
       project: { name: 'my-app' },
       services: [
@@ -78,14 +68,16 @@ describe('awsInitCi', () => {
     it('should throw when ci.json already exists', async () => {
       mocks.isFile.mockReturnValue(true);
 
-      await expect(awsInitCi()).rejects.toThrow(mocks.CliError);
+      await expect(awsInitCi(environments, projectName)).rejects.toThrow(
+        mocks.CliError,
+      );
     });
 
     it('should suggest generate-ci command when already initialized', async () => {
       mocks.isFile.mockReturnValue(true);
 
       try {
-        await awsInitCi();
+        await awsInitCi(environments, projectName);
         expect.fail('Should have thrown');
       } catch (e) {
         expect((e as { hint?: string }).hint).toContain('generate-ci');
@@ -93,36 +85,9 @@ describe('awsInitCi', () => {
     });
   });
 
-  describe('credentials validation', () => {
-    it('should throw when no credentials found', async () => {
-      mocks.loadCredentialsFile.mockImplementation(() => {
-        throw new Error('No credentials');
-      });
-
-      await expect(awsInitCi()).rejects.toThrow(mocks.CliError);
-    });
-
-    it('should throw when no environments configured', async () => {
-      mocks.getAvailableEnvironments.mockReturnValue([]);
-
-      await expect(awsInitCi()).rejects.toThrow(mocks.CliError);
-    });
-
-    it('should suggest cloud:init --aws when no environments', async () => {
-      mocks.getAvailableEnvironments.mockReturnValue([]);
-
-      try {
-        await awsInitCi();
-        expect.fail('Should have thrown');
-      } catch (e) {
-        expect((e as { hint?: string }).hint).toContain('cloud:init');
-      }
-    });
-  });
-
   describe('config creation', () => {
     it('should create ci.json with provider and environments', async () => {
-      await awsInitCi();
+      await awsInitCi(environments, projectName);
 
       expect(mocks.writeJsonFile).toHaveBeenCalledWith(
         expect.stringContaining('ci.json'),
@@ -136,7 +101,7 @@ describe('awsInitCi', () => {
 
   describe('workflow generation', () => {
     it('should create workflows directory', async () => {
-      await awsInitCi();
+      await awsInitCi(environments, projectName);
 
       expect(mocks.ensureDirectory).toHaveBeenCalledWith(
         expect.stringContaining('.github/workflows'),
@@ -144,7 +109,7 @@ describe('awsInitCi', () => {
     });
 
     it('should generate PR workflow', async () => {
-      await awsInitCi();
+      await awsInitCi(environments, projectName);
 
       expect(mockGeneratePrWorkflow).toHaveBeenCalled();
       expect(mocks.writeTextFile).toHaveBeenCalledWith(
@@ -154,7 +119,7 @@ describe('awsInitCi', () => {
     });
 
     it('should generate deploy workflow', async () => {
-      await awsInitCi();
+      await awsInitCi(environments, projectName);
 
       expect(mockGenerateDeployWorkflow).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -165,7 +130,7 @@ describe('awsInitCi', () => {
     });
 
     it('should generate deploy-services workflow with services', async () => {
-      await awsInitCi();
+      await awsInitCi(environments, projectName);
 
       expect(mockGenerateDeployServicesWorkflow).toHaveBeenCalledWith(
         expect.anything(),
@@ -177,20 +142,20 @@ describe('awsInitCi', () => {
     });
 
     it('should generate all infrastructure workflows', async () => {
-      await awsInitCi();
+      await awsInitCi(environments, projectName);
 
       expect(mockGenerateDeployInfraWorkflow).toHaveBeenCalled();
       expect(mockGenerateDeployKongWorkflow).toHaveBeenCalled();
     });
 
     it('should generate remove-service workflow', async () => {
-      await awsInitCi();
+      await awsInitCi(environments, projectName);
 
       expect(mockGenerateRemoveServiceWorkflow).toHaveBeenCalled();
     });
 
     it('should not generate deploy-lb workflow', async () => {
-      await awsInitCi();
+      await awsInitCi(environments, projectName);
 
       // AWS doesn't need deploy-lb (ALB is in Terraform)
       const writeTextCalls = mocks.writeTextFile.mock.calls.map(
@@ -204,7 +169,7 @@ describe('awsInitCi', () => {
 
   describe('setup instructions', () => {
     it('should print setup instructions', async () => {
-      await awsInitCi();
+      await awsInitCi(environments, projectName);
 
       expect(mockPrintSetupInstructions).toHaveBeenCalledWith(
         ['STRIPE_KEY'],
@@ -217,7 +182,7 @@ describe('awsInitCi', () => {
     it('should handle missing user secrets', async () => {
       mocks.loadUserSecrets.mockReturnValue(null);
 
-      await awsInitCi();
+      await awsInitCi(environments, projectName);
 
       expect(mockPrintSetupInstructions).toHaveBeenCalledWith(
         [],
@@ -230,7 +195,7 @@ describe('awsInitCi', () => {
 
   describe('logging', () => {
     it('should log success message', async () => {
-      await awsInitCi();
+      await awsInitCi(environments, projectName);
 
       expect(mocks.logger.success).toHaveBeenCalledWith(
         expect.stringContaining('initialized successfully'),
@@ -238,7 +203,7 @@ describe('awsInitCi', () => {
     });
 
     it('should log next steps', async () => {
-      await awsInitCi();
+      await awsInitCi(environments, projectName);
 
       expect(mocks.logger.info).toHaveBeenCalledWith(
         expect.stringContaining('Next Steps'),

@@ -14,7 +14,7 @@ describe('printSetupInstructions', () => {
 
   it('should print WIF setup section', () => {
     const logger = createMockLogger();
-    printSetupInstructions([], 'myproject', 'project-123', ['dev'], logger);
+    printSetupInstructions([], 'myproject', ['dev'], logger);
 
     const infoCalls = logger.info.mock.calls.map((c) => c[0]).join('\n');
     expect(infoCalls).toContain('WIF Setup');
@@ -24,7 +24,7 @@ describe('printSetupInstructions', () => {
 
   it('should print OIDC provider instructions', () => {
     const logger = createMockLogger();
-    printSetupInstructions([], 'myproject', 'project-123', ['dev'], logger);
+    printSetupInstructions([], 'myproject', ['dev'], logger);
 
     const infoCalls = logger.info.mock.calls.map((c) => c[0]).join('\n');
     expect(infoCalls).toContain('OpenID Connect (OIDC)');
@@ -33,7 +33,7 @@ describe('printSetupInstructions', () => {
 
   it('should print attribute mapping instructions', () => {
     const logger = createMockLogger();
-    printSetupInstructions([], 'myproject', 'project-123', ['dev'], logger);
+    printSetupInstructions([], 'myproject', ['dev'], logger);
 
     const infoCalls = logger.info.mock.calls.map((c) => c[0]).join('\n');
     expect(infoCalls).toContain('google.subject = assertion.sub');
@@ -42,7 +42,7 @@ describe('printSetupInstructions', () => {
 
   it('should print GitHub secrets instructions', () => {
     const logger = createMockLogger();
-    printSetupInstructions([], 'myproject', 'project-123', ['dev'], logger);
+    printSetupInstructions([], 'myproject', ['dev'], logger);
 
     const infoCalls = logger.info.mock.calls.map((c) => c[0]).join('\n');
     expect(infoCalls).toContain('GCP_WORKLOAD_IDENTITY_PROVIDER');
@@ -50,20 +50,20 @@ describe('printSetupInstructions', () => {
     expect(infoCalls).toContain('GCP_REGION');
   });
 
-  it('should include project ID in service account email', () => {
+  it('should use PROJECT_ID placeholder in service account email', () => {
     const logger = createMockLogger();
-    printSetupInstructions([], 'myproject', 'my-gcp-project', ['dev'], logger);
+    printSetupInstructions([], 'myproject', ['dev'], logger);
 
     const infoCalls = logger.info.mock.calls.map((c) => c[0]).join('\n');
     expect(infoCalls).toContain(
-      'deploy-sa@my-gcp-project.iam.gserviceaccount.com',
+      'deploy-sa@<PROJECT_ID>.iam.gserviceaccount.com',
     );
   });
 
   describe('user secrets section', () => {
     it('should show message when no user secrets', () => {
       const logger = createMockLogger();
-      printSetupInstructions([], 'myproject', 'project-123', ['dev'], logger);
+      printSetupInstructions([], 'myproject', ['dev'], logger);
 
       const infoCalls = logger.info.mock.calls.map((c) => c[0]).join('\n');
       expect(infoCalls).toContain('No user secrets found');
@@ -74,7 +74,6 @@ describe('printSetupInstructions', () => {
       printSetupInstructions(
         ['API_KEY', 'STRIPE_SECRET'],
         'myproject',
-        'project-123',
         ['dev'],
         logger,
       );
@@ -86,13 +85,7 @@ describe('printSetupInstructions', () => {
 
     it('should show CLI push commands for each environment', () => {
       const logger = createMockLogger();
-      printSetupInstructions(
-        ['API_KEY'],
-        'myproject',
-        'project-123',
-        ['dev', 'prod'],
-        logger,
-      );
+      printSetupInstructions(['API_KEY'], 'myproject', ['dev', 'prod'], logger);
 
       const infoCalls = logger.info.mock.calls.map((c) => c[0]).join('\n');
       expect(infoCalls).toContain('cloud-secrets:push --env dev');
@@ -101,44 +94,26 @@ describe('printSetupInstructions', () => {
 
     it('should show manual set command', () => {
       const logger = createMockLogger();
-      printSetupInstructions(
-        ['API_KEY'],
-        'myproject',
-        'project-123',
-        ['dev'],
-        logger,
-      );
+      printSetupInstructions(['API_KEY'], 'myproject', ['dev'], logger);
 
       const infoCalls = logger.info.mock.calls.map((c) => c[0]).join('\n');
       expect(infoCalls).toContain('cloud-secrets:set');
     });
 
-    it('should show GCP Console link with project ID', () => {
+    it('should show GCP Console link with PROJECT_ID placeholder', () => {
       const logger = createMockLogger();
-      printSetupInstructions(
-        ['API_KEY'],
-        'myproject',
-        'my-project-id',
-        ['dev'],
-        logger,
-      );
+      printSetupInstructions(['API_KEY'], 'myproject', ['dev'], logger);
 
       const infoCalls = logger.info.mock.calls.map((c) => c[0]).join('\n');
       expect(infoCalls).toContain(
         'console.cloud.google.com/security/secret-manager',
       );
-      expect(infoCalls).toContain('project=my-project-id');
+      expect(infoCalls).toContain('project=<PROJECT_ID>');
     });
 
     it('should show secret naming pattern', () => {
       const logger = createMockLogger();
-      printSetupInstructions(
-        ['API_KEY'],
-        'myproject',
-        'project-123',
-        ['dev'],
-        logger,
-      );
+      printSetupInstructions(['API_KEY'], 'myproject', ['dev'], logger);
 
       const infoCalls = logger.info.mock.calls.map((c) => c[0]).join('\n');
       expect(infoCalls).toContain('myproject-shared-{KEY}');

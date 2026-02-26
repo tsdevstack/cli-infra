@@ -9,14 +9,12 @@
  *
  * @param userSecrets - List of user secret keys from .secrets.user.json
  * @param projectName - Project name for secret naming
- * @param projectId - GCP project ID for console link
  * @param environments - Target environments
  * @param logger - Logger instance
  */
 export function printSetupInstructions(
   userSecrets: string[],
   projectName: string,
-  projectId: string,
   environments: string[],
   logger: {
     info: (msg: string) => void;
@@ -57,7 +55,7 @@ export function printSetupInstructions(
     '     projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider',
   );
   logger.info('   GCP_SERVICE_ACCOUNT:');
-  logger.info(`     deploy-sa@${projectId}.iam.gserviceaccount.com`);
+  logger.info('     deploy-sa@<PROJECT_ID>.iam.gserviceaccount.com');
   logger.info('   GCP_REGION:');
   logger.info('     e.g., us-central1');
   logger.newline();
@@ -94,7 +92,7 @@ export function printSetupInstructions(
 
   logger.info('  3. GCP Console (manual):');
   logger.info(
-    `     https://console.cloud.google.com/security/secret-manager?project=${projectId}`,
+    '     https://console.cloud.google.com/security/secret-manager?project=<PROJECT_ID>',
   );
   logger.info(`     Secret naming: ${projectName}-shared-{KEY}`);
   logger.newline();

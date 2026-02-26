@@ -17,36 +17,40 @@
  */
 
 import { getContext } from '../context';
-import { setupInfraCommand } from '../utils/setup/setup-infra-command';
 import { gcpGenerateCiWorkflows } from '../utils/gcp/commands';
 import { awsGenerateCiWorkflows } from '../utils/aws/commands';
 import { azureGenerateCiWorkflows } from '../utils/azure/commands';
 
-interface CiGenerateOptions {
-  env?: string;
-}
-
 /**
  * Regenerate CI workflows from ci.json
  */
-export async function ciGenerate(options: CiGenerateOptions): Promise<void> {
-  const { logger, CliError } = getContext();
+export async function ciGenerate(): Promise<void> {
+  const { logger, CliError, loadFrameworkConfig } = getContext();
 
   logger.newline();
   logger.info('Regenerating CI workflows...');
   logger.newline();
 
-  const ctx = await setupInfraCommand(options, 'infra:generate-ci');
+  const config = loadFrameworkConfig();
+  const provider = config.cloud.provider;
 
-  if (ctx.provider === 'gcp') {
+  if (!provider) {
+    throw new CliError(
+      'No cloud provider configured',
+      'infra:generate-ci',
+      'Set cloud.provider in .tsdevstack/config.json or run: npx tsdevstack init',
+    );
+  }
+
+  if (provider === 'gcp') {
     await gcpGenerateCiWorkflows();
-  } else if (ctx.provider === 'aws') {
+  } else if (provider === 'aws') {
     await awsGenerateCiWorkflows();
-  } else if (ctx.provider === 'azure') {
+  } else if (provider === 'azure') {
     await azureGenerateCiWorkflows();
   } else {
     throw new CliError(
-      `Unsupported provider: ${ctx.provider}`,
+      `Unsupported provider: ${provider}`,
       'infra:generate-ci',
       'Supported providers: gcp, aws, azure',
     );

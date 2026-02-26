@@ -490,9 +490,10 @@ export function registerInfraPlugin(program: Command): void {
   program
     .command('infra:init-ci')
     .description('Initialize CI/CD (generates GitHub Actions workflows)')
-    .option('--github', 'Use GitHub Actions (required)')
+    .option('--github', 'Use GitHub Actions (auto-selected)')
+    .option('--envs <envs>', 'Environments (comma-separated, e.g. dev,prod)')
     .action(
-      wrapCommand(async (options: { github?: boolean }) => {
+      wrapCommand(async (options: { github?: boolean; envs?: string }) => {
         await ciInit(options);
       }),
     );
@@ -501,10 +502,9 @@ export function registerInfraPlugin(program: Command): void {
   program
     .command('infra:generate-ci')
     .description('Regenerate CI workflows from ci.json')
-    .option('-e, --env <env>', 'Target environment')
     .action(
-      wrapCommand(async (options: { env?: string }) => {
-        await ciGenerate(options);
+      wrapCommand(async () => {
+        await ciGenerate();
       }),
     );
 }
