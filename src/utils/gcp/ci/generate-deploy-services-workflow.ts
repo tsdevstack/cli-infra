@@ -127,11 +127,17 @@ jobs:
         with:
           terraform_version: 1.9.0
 
+      # Generate Terraform files for this environment (CI-only mode: committed files may not match CI project)
+      - name: Generate Terraform
+        run: npx tsdevstack infra:generate --env \${{ inputs.environment }}
+        env:
+          GCP_REGION: \${{ secrets[env.GCP_REGION_NAME] }}
+
       # Initialize Terraform to read outputs (artifact registry URL)
       - name: Initialize Terraform
         run: |
           cd infrastructure/terraform/\${{ inputs.environment }}
-          terraform init -backend-config="credentials=\$GOOGLE_APPLICATION_CREDENTIALS"
+          terraform init
 
       # Enable containerd for BuildKit cache export support
       - name: Enable containerd image store

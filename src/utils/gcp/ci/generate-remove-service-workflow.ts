@@ -110,6 +110,12 @@ jobs:
         with:
           terraform_version: 1.9.0
 
+      # Generate Terraform files for this environment (needed for state sync)
+      - name: Generate Terraform
+        run: npx tsdevstack infra:generate --env \${{ inputs.environment }}
+        env:
+          GCP_REGION: \${{ secrets[env.GCP_REGION_NAME] }}
+
       - name: Remove service from cloud
         run: |
           FLAGS="--env \${{ inputs.environment }} --confirm"

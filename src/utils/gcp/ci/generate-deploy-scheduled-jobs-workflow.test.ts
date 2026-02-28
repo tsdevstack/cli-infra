@@ -53,6 +53,11 @@ describe('generateDeployScheduledJobsWorkflow', () => {
     expect(result).toContain('terraform_version');
   });
 
+  it('should generate Terraform files before deploy', () => {
+    const result = generateDeployScheduledJobsWorkflow(createConfig(['dev']));
+    expect(result).toContain('infra:generate');
+  });
+
   it('should run Deploy Scheduled Jobs step', () => {
     const result = generateDeployScheduledJobsWorkflow(createConfig(['dev']));
     expect(result).toContain('name: "Deploy Scheduled Jobs');

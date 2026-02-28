@@ -135,6 +135,14 @@ describe('generateDeployServicesWorkflow', () => {
     expect(result).toContain('artifact registry URL');
   });
 
+  it('should generate Terraform files before init', () => {
+    const result = generateDeployServicesWorkflow(
+      createConfig(['dev']),
+      createServices(),
+    );
+    expect(result).toContain('infra:generate');
+  });
+
   describe('user mode (default)', () => {
     it('should use npx tsdevstack', () => {
       const result = generateDeployServicesWorkflow(

@@ -74,6 +74,17 @@ jobs:
         with:
           terraform_version: 1.9.0
 
+      # Generate Terraform files for this environment
+      - name: Generate Terraform
+        run: npx tsdevstack infra:generate --env \${{ inputs.environment }}
+        env:
+          GCP_REGION: \${{ secrets[env.GCP_REGION_NAME] }}
+
+      - name: Initialize Terraform
+        run: |
+          cd infrastructure/terraform/\${{ inputs.environment }}
+          terraform init
+
       - name: Deploy Load Balancer
         run: npx tsdevstack infra:deploy-lb --env \${{ inputs.environment }} --auto-approve
         env:

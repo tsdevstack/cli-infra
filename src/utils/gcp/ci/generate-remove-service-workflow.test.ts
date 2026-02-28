@@ -73,6 +73,11 @@ describe('generateRemoveServiceWorkflow', () => {
     expect(result).toContain('terraform_version');
   });
 
+  it('should generate Terraform files before remove', () => {
+    const result = generateRemoveServiceWorkflow(createConfig(['dev']));
+    expect(result).toContain('infra:generate');
+  });
+
   it('should run infra:remove-service command', () => {
     const result = generateRemoveServiceWorkflow(createConfig(['dev']));
     expect(result).toContain('infra:remove-service');

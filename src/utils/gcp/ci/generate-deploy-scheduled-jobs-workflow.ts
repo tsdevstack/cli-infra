@@ -74,6 +74,12 @@ jobs:
         with:
           terraform_version: 1.9.0
 
+      # Generate Terraform files for this environment (CLI runs its own terraform init/apply)
+      - name: Generate Terraform
+        run: npx tsdevstack infra:generate --env \${{ inputs.environment }}
+        env:
+          GCP_REGION: \${{ secrets[env.GCP_REGION_NAME] }}
+
       - name: Deploy Scheduled Jobs
         run: npx tsdevstack infra:deploy-schedulers --env \${{ inputs.environment }} --auto-approve
         env:

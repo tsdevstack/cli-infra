@@ -51,6 +51,12 @@ describe('generateDeployLbWorkflow', () => {
     expect(result).toContain('terraform_version');
   });
 
+  it('should generate Terraform files and init before deploy', () => {
+    const result = generateDeployLbWorkflow(createConfig(['dev']));
+    expect(result).toContain('infra:generate');
+    expect(result).toContain('terraform init');
+  });
+
   it('should run Deploy Load Balancer step', () => {
     const result = generateDeployLbWorkflow(createConfig(['dev']));
     expect(result).toContain('name: "Deploy Load Balancer');

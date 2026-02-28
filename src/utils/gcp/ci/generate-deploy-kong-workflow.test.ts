@@ -69,9 +69,16 @@ describe('generateDeployKongWorkflow', () => {
     expect(result).toContain('infra:deploy-kong');
   });
 
-  it('should not setup Terraform (not needed for Kong)', () => {
+  it('should setup Terraform for reading outputs', () => {
     const result = generateDeployKongWorkflow(createConfig(['dev']));
-    expect(result).not.toContain('hashicorp/setup-terraform');
+    expect(result).toContain('hashicorp/setup-terraform@v3');
+    expect(result).toContain('terraform_version');
+  });
+
+  it('should generate Terraform files before init', () => {
+    const result = generateDeployKongWorkflow(createConfig(['dev']));
+    expect(result).toContain('infra:generate');
+    expect(result).toContain('terraform init');
   });
 
   it('should include generator comment', () => {

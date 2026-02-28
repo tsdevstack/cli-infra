@@ -81,6 +81,22 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v2
 
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+
+      # Generate Terraform files + init so CLI can read outputs (artifact registry URL, VPC, service accounts)
+      - name: Generate Terraform
+        run: npx tsdevstack infra:generate --env \${{ inputs.environment }}
+        env:
+          GCP_REGION: \${{ secrets[env.GCP_REGION_NAME] }}
+
+      - name: Initialize Terraform
+        run: |
+          cd infrastructure/terraform/\${{ inputs.environment }}
+          terraform init
+
       # Enable containerd for BuildKit cache export support
       - name: Enable containerd image store
         run: |
