@@ -6,7 +6,11 @@
 
 import path from 'node:path';
 import { getContext } from '../../../context';
-import { buildGcpTerraformEnv, waitForImage } from '@tsdevstack/infra-core';
+import {
+  buildGcpTerraformEnv,
+  waitForImage,
+  setServiceInvokerPolicy,
+} from '@tsdevstack/infra-core';
 import { getTerraformOutput, getTerraformOutputJson } from '../terraform';
 import { buildRuntime } from '../../build-runtime';
 import { deployKongCloudRun } from '../deploy-kong-cloud-run';
@@ -131,6 +135,17 @@ export async function gcpKongDeploy(
     maxInstances: kongConfig.maxInstances,
     cpu: kongConfig.cpu,
     memory: kongConfig.memory,
+  });
+
+  // Set IAM invoker policy for Kong (same pattern as regular services in cloud-run-services.ts)
+  // Kong uses INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER, so ingress is the real security boundary.
+  // The allUsers IAM binding just enables invocation via the load balancer.
+  const kongServiceName = `${projectName}-kong`;
+  await setServiceInvokerPolicy(runtime, {
+    projectId: credentials.project_id,
+    region: credentials.region,
+    serviceName: kongServiceName,
+    credentials,
   });
 
   logger.newline();

@@ -29,10 +29,10 @@ describe('generatePrWorkflow', () => {
     expect(result).toContain('actions/checkout@v4');
   });
 
-  it('should setup Node.js 20', () => {
+  it('should setup Node.js 22', () => {
     const result = generatePrWorkflow();
     expect(result).toContain('actions/setup-node@v4');
-    expect(result).toContain("node-version: '20'");
+    expect(result).toContain("node-version: '22'");
   });
 
   it('should cache npm dependencies', () => {

@@ -60,7 +60,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies
@@ -68,6 +68,10 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      # Ensure CLI binary is linked (workspace packages may have unresolved bin symlinks after install)
+      - name: Link CLI
+        run: npm rebuild @tsdevstack/cli 2>/dev/null || true
 
       # Authenticate to GCP via WIF
       - uses: google-github-actions/auth@v2

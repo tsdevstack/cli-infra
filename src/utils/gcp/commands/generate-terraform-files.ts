@@ -6,7 +6,6 @@
  */
 
 import path from 'node:path';
-import { existsSync } from 'node:fs';
 import { getContext } from '../../../context';
 import {
   gcp,
@@ -73,12 +72,6 @@ export function generateTerraformFiles(
     ctx.targetEnv,
   );
   ensureDirectory(outputDir);
-
-  // Check if loadbalancer.tf exists BEFORE cleanup.
-  // If yes: this is an existing project — we'll regenerate it with current config.
-  // If no: fresh project — skip LB generation (Cloud Run services don't exist yet,
-  // NEGs and IAM bindings would fail). Phase 4 of full deploy handles it.
-  const hadLoadBalancer = existsSync(path.join(outputDir, 'loadbalancer.tf'));
 
   // Clean up old generated files (handles provider switching, stale subdirs)
   // cloud-scheduler.tf is preserved — references Cloud Run services that don't
@@ -220,47 +213,42 @@ export function generateTerraformFiles(
   );
   logFile('terraform.tfvars');
 
-  // Regenerate loadbalancer.tf if it existed before cleanup.
-  // This ensures domain changes in infrastructure.json take effect immediately
-  // without requiring a separate infra:deploy-lb run.
-  // On a fresh project (hadLoadBalancer=false), skip — Cloud Run services don't
-  // exist yet, so NEGs and IAM bindings would fail. The full deploy's Phase 4
-  // (infra:deploy-lb) handles initial LB creation after services are deployed.
-  if (hadLoadBalancer) {
-    const envOverrides = infraConfig?.[ctx.targetEnv] as
-      | EnvironmentOverrides
+  // Generate loadbalancer.tf if frontend services have domains configured.
+  // IAM bindings are handled at deploy time (setServiceInvokerPolicy), not in Terraform,
+  // so this is safe to generate even on a fresh project where services don't exist yet.
+  const envOverrides = infraConfig?.[ctx.targetEnv] as
+    | EnvironmentOverrides
+    | undefined;
+  const frontendServices = getFrontendServicesWithDomains(
+    envOverrides,
+    frameworkConfig.services,
+  );
+
+  if (frontendServices.length > 0) {
+    const loadBalancerConfig = envOverrides?.loadBalancer as
+      | LoadBalancerOverride
       | undefined;
-    const frontendServices = getFrontendServicesWithDomains(
-      envOverrides,
-      frameworkConfig.services,
-    );
+    const securityConfig = envOverrides?.security as
+      | SecurityOverride
+      | undefined;
+    const accessControl = envOverrides?.accessControl as
+      | AccessControlOverride
+      | undefined;
 
-    if (frontendServices.length > 0) {
-      const loadBalancerConfig = envOverrides?.loadBalancer as
-        | LoadBalancerOverride
-        | undefined;
-      const securityConfig = envOverrides?.security as
-        | SecurityOverride
-        | undefined;
-      const accessControl = envOverrides?.accessControl as
-        | AccessControlOverride
-        | undefined;
+    const baseDomain = frontendServices[0].domain;
+    const apiDomain = loadBalancerConfig?.apiDomain ?? `api.${baseDomain}`;
 
-      const baseDomain = frontendServices[0].domain;
-      const apiDomain = loadBalancerConfig?.apiDomain ?? `api.${baseDomain}`;
+    const lbTf = gcp.generateLoadBalancerTf({
+      apiDomain,
+      frontendServices,
+      customWafRules: securityConfig?.waf?.customRules,
+      redirectDomains: loadBalancerConfig?.redirectDomains,
+      canonicalDomain: baseDomain,
+      noIndex: accessControl?.noIndex,
+    });
 
-      const lbTf = gcp.generateLoadBalancerTf({
-        apiDomain,
-        frontendServices,
-        customWafRules: securityConfig?.waf?.customRules,
-        redirectDomains: loadBalancerConfig?.redirectDomains,
-        canonicalDomain: baseDomain,
-        noIndex: accessControl?.noIndex,
-      });
-
-      writeTextFile(path.join(outputDir, 'loadbalancer.tf'), lbTf);
-      logFile('loadbalancer.tf');
-    }
+    writeTextFile(path.join(outputDir, 'loadbalancer.tf'), lbTf);
+    logFile('loadbalancer.tf');
   }
 
   // cloud-scheduler.tf is NOT generated here — references Cloud Run services

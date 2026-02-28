@@ -50,10 +50,13 @@ rs.mock('../utils/gcp/deploy-kong-cloud-run', () => ({
 
 const mockBuildGcpTerraformEnv = rs.fn();
 const mockWaitForImage = rs.fn();
+const mockSetServiceInvokerPolicy = rs.fn();
 rs.mock('@tsdevstack/infra-core', () => ({
   buildGcpTerraformEnv: (...args: unknown[]) =>
     mockBuildGcpTerraformEnv(...args),
   waitForImage: (...args: unknown[]) => mockWaitForImage(...args),
+  setServiceInvokerPolicy: (...args: unknown[]) =>
+    mockSetServiceInvokerPolicy(...args),
 }));
 
 const mockSetSecretViaCli = rs.fn();

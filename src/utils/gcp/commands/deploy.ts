@@ -2,10 +2,9 @@
  * GCP Deploy Handler
  *
  * Deploys complete infrastructure:
- * 1. Base infrastructure (VPC, DB, Redis, IAM, Artifact Registry)
- * 2. Services to Cloud Run
- * 3. Kong Gateway
- * 4. Load Balancer (if DOMAIN secret is set)
+ * 1. Base infrastructure (VPC, DB, Redis, IAM, Artifact Registry, Load Balancer)
+ * 2. Services to Cloud Run (+ IAM invoker bindings)
+ * 3. Kong Gateway (+ IAM invoker binding)
  */
 
 import inquirer from 'inquirer';
@@ -27,7 +26,6 @@ import { infraDeployServices } from '../../../commands/infra-deploy-services';
 import { infraKongGenerate } from '../../../commands/infra-kong-generate';
 import { infraKongBuild } from '../../../commands/infra-kong-build';
 import { infraKongDeploy } from '../../../commands/infra-kong-deploy';
-import { infraLbDeploy } from '../../../commands/infra-lb-deploy';
 
 /**
  * Deploy GCP infrastructure
@@ -331,7 +329,7 @@ export async function gcpDeploy(
     logger.complete('Infrastructure provisioning complete!');
     logger.info('════════════════════════════════════════════');
     logger.newline();
-    logger.info('Skipped: Service deployment, Kong Gateway, Load Balancer');
+    logger.info('Skipped: Service deployment, Kong Gateway');
     logger.info(
       'Run npx tsdevstack infra:deploy-services --env ' +
         ctx.targetEnv +
@@ -366,16 +364,6 @@ export async function gcpDeploy(
   await infraKongBuild({ env: ctx.targetEnv, tag: options.tag });
 
   await infraKongDeploy({ env: ctx.targetEnv, tag: options.tag });
-
-  // ============================================
-  // Phase 4: Deploy Load Balancer (if DOMAIN set)
-  // ============================================
-  logger.newline();
-  logger.info('════════════════════════════════════════════');
-  logger.info('Phase 4: Deploying Load Balancer...');
-  logger.info('════════════════════════════════════════════');
-
-  await infraLbDeploy({ env: ctx.targetEnv, autoApprove: true });
 
   // ============================================
   // Complete!

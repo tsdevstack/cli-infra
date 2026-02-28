@@ -347,7 +347,6 @@ describe('gcpDeploy', () => {
       expect(mockInfraKongGenerate).not.toHaveBeenCalled();
       expect(mockInfraKongBuild).not.toHaveBeenCalled();
       expect(mockInfraKongDeploy).not.toHaveBeenCalled();
-      expect(mockInfraLbDeploy).not.toHaveBeenCalled();
     });
 
     it('should log skip message when infraOnly is true', async () => {
@@ -375,10 +374,6 @@ describe('gcpDeploy', () => {
       expect(mockInfraKongDeploy).toHaveBeenCalledWith({
         env: 'prod',
         tag: undefined,
-      });
-      expect(mockInfraLbDeploy).toHaveBeenCalledWith({
-        env: 'prod',
-        autoApprove: true,
       });
     });
 

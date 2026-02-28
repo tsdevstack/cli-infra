@@ -100,7 +100,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies
@@ -108,6 +108,9 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Link CLI
+        run: npm rebuild @tsdevstack/cli 2>/dev/null || true
 
       # Authenticate to AWS via OIDC
       - uses: aws-actions/configure-aws-credentials@v4
