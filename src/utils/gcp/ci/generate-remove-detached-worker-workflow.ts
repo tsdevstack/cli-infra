@@ -92,6 +92,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build
+        run: npm run build
+
+      # Ensure CLI binary is linked (workspace packages may have unresolved bin symlinks after install)
+      - name: Link CLI
+        run: npm rebuild @tsdevstack/cli 2>/dev/null || true
+
       # Authenticate to GCP via WIF
       - uses: google-github-actions/auth@v2
         with:
@@ -99,6 +106,17 @@ jobs:
           service_account: \${{ secrets[env.GCP_SA_NAME] }}
 
       - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+
+      # Generate Terraform files for this environment (needed for state sync)
+      - name: Generate Terraform
+        run: npx tsdevstack infra:generate --env \${{ inputs.environment }}
+        env:
+          GCP_REGION: \${{ secrets[env.GCP_REGION_NAME] }}
 
       - name: Remove worker from cloud
         run: |

@@ -85,9 +85,9 @@ describe('generateDeployLbWorkflow', () => {
       expect(result).not.toContain('npm link');
     });
 
-    it('should not include build steps', () => {
+    it('should include npm run build', () => {
       const result = generateDeployLbWorkflow(createConfig(['dev']));
-      expect(result).not.toContain('build:libs');
+      expect(result).toContain('npm run build');
     });
   });
 });

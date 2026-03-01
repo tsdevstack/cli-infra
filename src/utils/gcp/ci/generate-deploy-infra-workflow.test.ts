@@ -94,9 +94,9 @@ describe('generateDeployInfraWorkflow', () => {
       expect(result).not.toContain('npm link');
     });
 
-    it('should not include build steps', () => {
+    it('should include npm run build', () => {
       const result = generateDeployInfraWorkflow(createConfig(['dev']));
-      expect(result).not.toContain('build:libs');
+      expect(result).toContain('npm run build');
     });
   });
 });
