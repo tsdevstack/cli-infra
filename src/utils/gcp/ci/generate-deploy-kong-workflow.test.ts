@@ -52,9 +52,12 @@ describe('generateDeployKongWorkflow', () => {
     expect(result).toContain('docker');
   });
 
-  it('should configure Docker for Artifact Registry', () => {
+  it('should configure Docker for Artifact Registry via docker login', () => {
     const result = generateDeployKongWorkflow(createConfig(['dev']));
-    expect(result).toContain('gcloud auth configure-docker');
+    expect(result).toContain(
+      'docker login -u oauth2accesstoken --password-stdin',
+    );
+    expect(result).not.toContain('gcloud');
   });
 
   it('should run Build Kong step', () => {

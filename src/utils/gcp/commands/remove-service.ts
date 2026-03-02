@@ -165,17 +165,9 @@ export async function gcpRemoveService(
     logger.newline();
     logger.warn('BACKUP YOUR DATABASE before proceeding!');
     logger.newline();
-    logger.info('  gcloud sql export sql ' + projectName + '-postgres \\');
-    logger.info(
-      '    gs://' +
-        projectName +
-        '-db-backups/' +
-        resolvedServiceName +
-        '.sql \\',
-    );
-    logger.info('    --database=' + resolvedServiceName);
-    logger.newline();
-    logger.info('  Or via Console: https://console.cloud.google.com/sql');
+    logger.info('  Export via Console: https://console.cloud.google.com/sql');
+    logger.info(`  Instance: ${projectName}-postgres`);
+    logger.info(`  Database: ${resolvedServiceName}`);
     logger.newline();
 
     const { backedUp } = await inquirer.prompt([

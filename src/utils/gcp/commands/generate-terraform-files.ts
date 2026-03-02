@@ -85,7 +85,7 @@ export function generateTerraformFiles(
   // Get service names for validation
   const serviceNames = new Set(frameworkConfig.services.map((s) => s.name));
 
-  // Validate worker baseService references (workers deploy via gcloud, not Terraform)
+  // Validate worker baseService references (workers deploy via CLI, not Terraform)
   frameworkConfig.services
     .filter((s) => s.type === 'worker' && s.baseService)
     .forEach((s) => {

@@ -74,12 +74,12 @@ jobs:
         run: npm rebuild @tsdevstack/cli 2>/dev/null || true
 
       # Authenticate to GCP via WIF
-      - uses: google-github-actions/auth@v2
+      - id: auth
+        uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: \${{ secrets[env.GCP_WIF_NAME] }}
           service_account: \${{ secrets[env.GCP_SA_NAME] }}
-
-      - uses: google-github-actions/setup-gcloud@v2
+          token_format: access_token
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -104,7 +104,7 @@ jobs:
           sudo systemctl restart docker
 
       - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker \${{ secrets[env.GCP_REGION_NAME] }}-docker.pkg.dev
+        run: echo '\${{ steps.auth.outputs.access_token }}' | docker login -u oauth2accesstoken --password-stdin https://\${{ secrets[env.GCP_REGION_NAME] }}-docker.pkg.dev
 
       - name: Build Kong
         run: npx tsdevstack infra:build-kong --env \${{ inputs.environment }} --tag \${{ env.IMAGE_TAG }}

@@ -51,9 +51,9 @@ describe('generateDeployWorkflow', () => {
     expect(result).toContain('service_account');
   });
 
-  it('should setup gcloud', () => {
+  it('should not use setup-gcloud', () => {
     const result = generateDeployWorkflow(createConfig(['dev']));
-    expect(result).toContain('google-github-actions/setup-gcloud@v2');
+    expect(result).not.toContain('setup-gcloud');
   });
 
   it('should setup Terraform', () => {
@@ -61,9 +61,12 @@ describe('generateDeployWorkflow', () => {
     expect(result).toContain('hashicorp/setup-terraform@v3');
   });
 
-  it('should configure Docker for Artifact Registry', () => {
+  it('should configure Docker for Artifact Registry via docker login', () => {
     const result = generateDeployWorkflow(createConfig(['dev']));
-    expect(result).toContain('gcloud auth configure-docker');
+    expect(result).toContain(
+      'docker login -u oauth2accesstoken --password-stdin',
+    );
+    expect(result).not.toContain('gcloud');
   });
 
   it('should run Bootstrap step', () => {
