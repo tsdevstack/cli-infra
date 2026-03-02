@@ -13,6 +13,7 @@ import { buildRuntime } from '../../build-runtime';
 const REQUIRED_PROVIDERS = [
   'Microsoft.ContainerRegistry',
   'Microsoft.App',
+  'Microsoft.Web',
   'Microsoft.DBforPostgreSQL',
   'Microsoft.Cache',
   'Microsoft.Cdn',

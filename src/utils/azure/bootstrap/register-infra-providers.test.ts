@@ -41,9 +41,10 @@ describe('registerInfraProviders', () => {
     const result = await registerInfraProviders(mockCredentials);
 
     expect(result.success).toBe(true);
-    expect(result.registered.length).toBe(10);
+    expect(result.registered.length).toBe(11);
     expect(result.registered).toContain('Microsoft.ContainerRegistry');
     expect(result.registered).toContain('Microsoft.App');
+    expect(result.registered).toContain('Microsoft.Web');
     expect(result.registered).toContain('Microsoft.Storage');
     expect(result.registered).toContain('Microsoft.KeyVault');
   });
