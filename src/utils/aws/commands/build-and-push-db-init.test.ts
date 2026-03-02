@@ -1,5 +1,6 @@
 import { describe, it, expect, rs, beforeEach } from '@rstest/core';
 import type { MockContext } from '@tsdevstack/cli/test-utils';
+import type { InfraCoreRuntime } from '@tsdevstack/infra-core';
 
 rs.mock('../../../context', () => ({
   getContext: rs.fn(
@@ -11,10 +12,25 @@ rs.mock('node:child_process', () => ({
   execSync: rs.fn(),
 }));
 
+rs.mock('@tsdevstack/infra-core', () => ({
+  configureEcrAuth: rs.fn(),
+}));
+
 import { execSync } from 'node:child_process';
+import { configureEcrAuth } from '@tsdevstack/infra-core';
 import { buildAndPushDbInit } from './build-and-push-db-init';
 
 describe('buildAndPushDbInit', () => {
+  const mockRuntime = {
+    logger: { info: rs.fn(), success: rs.fn(), error: rs.fn(), warn: rs.fn() },
+    executeCommand: rs.fn(),
+    writeFile: rs.fn(),
+    readFile: rs.fn(),
+    ensureDirectory: rs.fn(),
+    cleanupFolder: rs.fn(),
+    isCIEnv: rs.fn(() => false),
+  } as unknown as InfraCoreRuntime;
+
   const mockOptions = {
     dbInitDir: '/test/project/infrastructure/terraform/dev/db-init',
     ecrUrl: '123456789012.dkr.ecr.us-east-1.amazonaws.com/my-app/db-init',
@@ -24,18 +40,20 @@ describe('buildAndPushDbInit', () => {
       secretAccessKey: 'test-secret',
       region: 'us-east-1',
     },
+    runtime: mockRuntime,
   };
 
   beforeEach(() => {
     rs.resetAllMocks();
   });
 
-  it('should login to ECR before building', async () => {
+  it('should call configureEcrAuth before building', async () => {
     await buildAndPushDbInit(mockOptions);
 
-    expect(execSync).toHaveBeenCalledWith(
-      expect.stringContaining('ecr get-login-password'),
-      expect.anything(),
+    expect(configureEcrAuth).toHaveBeenCalledWith(
+      mockRuntime,
+      mockOptions.credentials,
+      mockOptions.ecrUrl,
     );
   });
 

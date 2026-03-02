@@ -12,6 +12,7 @@ import { getContext } from '../../../context';
 import {
   buildGcpTerraformEnv,
   checkTerraformInstalled,
+  setSchedulerInvokerBindings,
 } from '@tsdevstack/infra-core';
 import { executeTerraform, getTerraformOutput } from '../terraform';
 import { buildRuntime } from '../../build-runtime';
@@ -76,13 +77,10 @@ export async function gcpDeploy(
   logger.newline();
 
   // Generate all Terraform files using shared function.
-  // cloud-scheduler.tf is excluded — it uses data sources that reference Cloud Run
-  // services, which don't exist on a fresh project. Deploy schedulers separately
-  // via infra:deploy-schedulers after services are running.
-  const { outputDir, servicesWithDatabase } = generateTerraformFiles(
-    ctx,
-    'infra:deploy',
-  );
+  // cloud-scheduler.tf is included when scheduled jobs are configured.
+  // IAM bindings for schedulers are handled by deploy-schedulers (via SDK).
+  const { outputDir, servicesWithDatabase, scheduledJobs } =
+    generateTerraformFiles(ctx, 'infra:deploy');
 
   logger.complete('Configuration generated');
   logger.newline();
@@ -348,6 +346,22 @@ export async function gcpDeploy(
   logger.info('════════════════════════════════════════════');
 
   await infraDeployServices({ env: ctx.targetEnv, tag: options.tag });
+
+  // Set scheduler IAM bindings (services now exist)
+  if (scheduledJobs.length > 0) {
+    const targetServices = Array.from(
+      new Set(scheduledJobs.map((j) => j.targetService)),
+    );
+    logger.newline();
+    logger.info('Setting scheduler IAM bindings...');
+    await setSchedulerInvokerBindings(runtime, {
+      projectId: ctx.credentials.project_id,
+      projectName: ctx.projectName,
+      region: ctx.credentials.region,
+      targetServices,
+      credentials: ctx.credentials,
+    });
+  }
 
   // ============================================
   // Phase 3: Deploy Kong Gateway

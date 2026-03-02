@@ -14,6 +14,7 @@ import {
   buildGcpTerraformEnv,
   checkTerraformInstalled,
   gcp,
+  setSchedulerInvokerBindings,
 } from '@tsdevstack/infra-core';
 import { executeTerraform } from '../terraform';
 import { buildRuntime } from '../../build-runtime';
@@ -98,8 +99,21 @@ export async function gcpDeploySchedulers(
     );
   }
 
-  // Deploy each job with targeted apply
+  // Set IAM bindings for scheduler SA on target services (via SDK, not Terraform)
+  const targetServices = Array.from(
+    new Set(scheduledJobs.map((j) => j.targetService)),
+  );
+  logger.info('Setting IAM bindings for scheduler...');
+  await setSchedulerInvokerBindings(runtime, {
+    projectId: credentials.project_id,
+    projectName: ctx.projectName,
+    region: credentials.region,
+    targetServices,
+    credentials,
+  });
   logger.newline();
+
+  // Deploy each job with targeted apply
   logger.info('Deploying scheduled jobs...');
   logger.newline();
 

@@ -105,8 +105,6 @@ jobs:
           workload_identity_provider: \${{ secrets[env.GCP_WIF_NAME] }}
           service_account: \${{ secrets[env.GCP_SA_NAME] }}
 
-      - uses: google-github-actions/setup-gcloud@v2
-
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:

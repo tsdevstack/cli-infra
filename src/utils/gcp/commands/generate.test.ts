@@ -65,6 +65,15 @@ rs.mock('../../infrastructure/get-frontend-services-with-domains', () => ({
     mockGetFrontendServicesWithDomains(overrides, services),
 }));
 
+const mockGetScheduledJobs = rs.fn(
+  (): Array<{
+    name: string;
+    schedule: string;
+    targetService: string;
+    endpoint: string;
+  }> => [],
+);
+
 rs.mock('../../infrastructure/merge-with-defaults', () => ({
   getDatabaseConfig: rs.fn(() => ({
     tier: 'db-f1-micro',
@@ -74,7 +83,9 @@ rs.mock('../../infrastructure/merge-with-defaults', () => ({
     backup: false,
   })),
   getRedisConfig: rs.fn(() => ({ tier: 'BASIC', memoryGb: 1 })),
-  getScheduledJobs: rs.fn(() => []),
+  getScheduledJobs: (
+    ...args: Parameters<typeof mockGetScheduledJobs>
+  ): ReturnType<typeof mockGetScheduledJobs> => mockGetScheduledJobs(...args),
 }));
 
 import { gcpGenerate } from './generate';
@@ -103,6 +114,7 @@ describe('gcpGenerate', () => {
     mockCleanupFolder.mockClear();
     mockExistsSync.mockReturnValue(false);
     mockLoadInfrastructureConfig.mockReturnValue(null);
+    mockGetScheduledJobs.mockReturnValue([]);
     mockGetFrontendServicesWithDomains.mockReturnValue([]);
     mocks.loadFrameworkConfig.mockReturnValue({
       project: { name: 'my-app' },
@@ -206,12 +218,12 @@ describe('gcpGenerate', () => {
   });
 
   describe('cleanup', () => {
-    it('should preserve cloud-scheduler.tf during cleanup but not loadbalancer.tf', async () => {
+    it('should clean up old files preserving only terraform state', async () => {
       await gcpGenerate(mockContext);
 
       expect(mockCleanupFolder).toHaveBeenCalledWith(
         '/test/project/infrastructure/terraform/dev',
-        ['.terraform', '.terraform.lock.hcl', 'cloud-scheduler.tf'],
+        ['.terraform', '.terraform.lock.hcl'],
       );
     });
   });
@@ -261,6 +273,37 @@ describe('gcpGenerate', () => {
       expect(mockWriteTextFile).not.toHaveBeenCalledWith(
         expect.stringContaining('loadbalancer.tf'),
         expect.any(String),
+      );
+    });
+  });
+
+  describe('cloud-scheduler.tf generation', () => {
+    it('should not generate cloud-scheduler.tf when no scheduled jobs', async () => {
+      await gcpGenerate(mockContext);
+
+      expect(mockWriteTextFile).not.toHaveBeenCalledWith(
+        expect.stringContaining('cloud-scheduler.tf'),
+        expect.any(String),
+      );
+    });
+
+    it('should generate cloud-scheduler.tf when scheduled jobs are configured', async () => {
+      mockGetScheduledJobs.mockReturnValue([
+        {
+          name: 'cleanup-tokens',
+          schedule: '0 */4 * * *',
+          targetService: 'auth-service',
+          endpoint: '/jobs/cleanup-tokens',
+        },
+      ]);
+
+      await gcpGenerate(mockContext);
+
+      // 10 base files + 1 cloud-scheduler.tf = 11
+      expect(mockWriteTextFile).toHaveBeenCalledTimes(11);
+      expect(mockWriteTextFile).toHaveBeenCalledWith(
+        '/test/project/infrastructure/terraform/dev/cloud-scheduler.tf',
+        '# cloud-scheduler.tf',
       );
     });
   });

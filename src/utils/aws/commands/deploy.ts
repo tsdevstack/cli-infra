@@ -359,6 +359,7 @@ export async function awsDeploy(
       dbInitDir,
       ecrUrl: dbInitEcrUrl,
       credentials: ctx.credentials,
+      runtime,
     });
 
     // Run db-init task
@@ -414,6 +415,7 @@ export async function awsDeploy(
     dbDeleteDir,
     ecrUrl: dbDeleteEcrUrl,
     credentials: ctx.credentials,
+    runtime,
   });
 
   logger.newline();

@@ -6,12 +6,15 @@
 
 import { execSync } from 'node:child_process';
 import type { AWSCredentials } from '@tsdevstack/cli/plugin';
+import { configureEcrAuth } from '@tsdevstack/infra-core';
+import type { InfraCoreRuntime } from '@tsdevstack/infra-core';
 import { getContext } from '../../../context';
 
 export interface BuildAndPushDbInitOptions {
   dbInitDir: string;
   ecrUrl: string;
   credentials: AWSCredentials;
+  runtime: InfraCoreRuntime;
 }
 
 /**
@@ -22,17 +25,13 @@ export async function buildAndPushDbInit(
 ): Promise<void> {
   const { logger } = getContext();
 
-  const { dbInitDir, ecrUrl, credentials } = options;
+  const { dbInitDir, ecrUrl, credentials, runtime } = options;
   const imageTag = `${ecrUrl}:latest`;
-  const registry = ecrUrl.split('/')[0];
 
   logger.info('Building db-init image...');
 
   // ECR login first (needed for push)
-  execSync(
-    `aws ecr get-login-password --region ${credentials.region} | docker login --username AWS --password-stdin ${registry}`,
-    { stdio: 'inherit' },
-  );
+  await configureEcrAuth(runtime, credentials, ecrUrl);
 
   // Docker build (npm install happens inside Dockerfile)
   // Use --platform linux/amd64 for ECS Fargate compatibility
