@@ -210,7 +210,7 @@ describe('executeContainerJob', () => {
       const result = await executeContainerJob(baseOptions);
 
       expect(result.success).toBe(false);
-      expect(result.error).toBe('Unknown error executing Container Apps Job');
+      expect(result.error).toBe('Unknown error creating Container Apps Job');
     });
   });
 

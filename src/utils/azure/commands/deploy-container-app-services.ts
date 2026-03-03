@@ -187,15 +187,27 @@ export async function deployContainerAppServices(
 
     for (const service of servicesWithDb) {
       logger.info(`  Running migrations for ${service.name}...`);
-      await azureDbMigrateRun({
-        projectRoot,
-        targetEnv,
-        projectName,
-        credentials,
-        service,
-        imageTag,
-      });
-      logger.success(`  ${service.name} migrations complete`);
+      try {
+        await azureDbMigrateRun({
+          projectRoot,
+          targetEnv,
+          projectName,
+          credentials,
+          service,
+          imageTag,
+        });
+        logger.success(`  ${service.name} migrations complete`);
+      } catch (err: unknown) {
+        const msg =
+          err instanceof Error
+            ? err.message
+            : (JSON.stringify(err, null, 2) ?? String(err));
+        throw new CliError(
+          `Database migration failed for ${service.name}: ${msg}`,
+          'infra:deploy',
+          'Check container job logs in Azure Portal > Container Apps > Jobs',
+        );
+      }
     }
     logger.newline();
   }
@@ -272,11 +284,13 @@ export async function deployContainerAppServices(
         });
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+        const hint = (err as { hint?: string })?.hint;
+        const fullError = hint ? `${errorMsg}: ${hint}` : errorMsg;
         deployFailures.push({
           service: service.name,
-          error: errorMsg,
+          error: fullError,
         });
-        logger.error(`  ✗ ${service.name}: ${errorMsg}`);
+        logger.error(`  ✗ ${service.name}: ${fullError}`);
         return;
       }
 

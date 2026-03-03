@@ -41,6 +41,14 @@ export interface ExecuteContainerJobResult {
 const MAX_RETRIES = 3;
 const RETRY_BASE_MS = 5_000;
 
+function extractErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === 'object' && 'message' in err) {
+    return String((err as { message: unknown }).message);
+  }
+  return fallback;
+}
+
 function isTransientError(err: unknown): boolean {
   const message = (err as { message?: string })?.message ?? '';
   return (
@@ -151,11 +159,13 @@ export async function executeContainerJob(
   }
 
   if (!createSucceeded) {
-    const error = lastCreateError as { message?: string };
     return {
       success: false,
       logs: '',
-      error: error.message || 'Unknown error executing Container Apps Job',
+      error: extractErrorMessage(
+        lastCreateError,
+        'Unknown error creating Container Apps Job',
+      ),
     };
   }
 
@@ -204,11 +214,13 @@ export async function executeContainerJob(
       error: `Job execution status: ${result.status}`,
     };
   } catch {
-    const error = lastStartError as { message?: string };
     return {
       success: false,
       logs: '',
-      error: error.message || 'Unknown error executing Container Apps Job',
+      error: extractErrorMessage(
+        lastStartError,
+        'Unknown error starting Container Apps Job',
+      ),
     };
   }
 }
