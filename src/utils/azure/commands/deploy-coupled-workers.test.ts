@@ -16,8 +16,17 @@ rs.mock('./build-azure-backend-env', () => ({
 }));
 
 rs.mock('@tsdevstack/infra-core', () => ({
+  buildAzureTerraformEnv: rs.fn(() => ({})),
   calculatePoolSize: rs.fn(),
   getTotalWorkerMaxInstances: rs.fn(),
+}));
+
+rs.mock('../../build-runtime', () => ({
+  buildRuntime: rs.fn(() => ({})),
+}));
+
+rs.mock('../terraform', () => ({
+  getTerraformOutput: rs.fn(() => ''),
 }));
 
 rs.mock('../../deploy/get-total-service-max-instances', () => ({

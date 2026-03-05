@@ -18,6 +18,8 @@ interface BuildAzureBackendEnvConfig {
   serviceName: string;
   hasDatabase: boolean;
   poolMax: number;
+  /** Managed identity client ID (from Terraform). When set, container uses MI for Key Vault. */
+  managedIdentityClientId?: string;
 }
 
 interface AzureBackendEnv {
@@ -56,24 +58,36 @@ export function buildAzureBackendEnv(
   const secretEnvVars: Array<{ name: string; secretRef: string }> = [];
 
   // Inject Azure credentials for SecretsProvider
-  // CI-deployed containers use Managed Identity; local dev uses SP credentials
   const keyVaultName = `${projectName}-${targetEnv}-kv`;
-  envVars.push(
-    { name: 'AZURE_CLIENT_ID', value: credentials.clientId },
-    { name: 'AZURE_TENANT_ID', value: credentials.tenantId },
-    { name: 'AZURE_KEYVAULT_NAME', value: keyVaultName },
-  );
-  if (credentials.clientSecret) {
-    secrets.push({
-      name: 'azure-client-secret',
-      value: credentials.clientSecret,
-    });
-    secretEnvVars.push({
-      name: 'AZURE_CLIENT_SECRET',
-      secretRef: 'azure-client-secret',
-    });
+
+  if (config.managedIdentityClientId) {
+    // Managed identity: AZURE_CLIENT_ID = MI's client ID (selects user-assigned identity)
+    // DefaultAzureCredential in the NestJS app picks up the MI automatically.
+    // No AZURE_CLIENT_SECRET or AZURE_TENANT_ID needed.
+    envVars.push(
+      { name: 'AZURE_CLIENT_ID', value: config.managedIdentityClientId },
+      { name: 'AZURE_KEYVAULT_NAME', value: keyVaultName },
+    );
+    logger.info('  Injecting managed identity credentials for SecretsProvider');
+  } else {
+    // Fallback: SP credentials (old Terraform without MI)
+    envVars.push(
+      { name: 'AZURE_CLIENT_ID', value: credentials.clientId },
+      { name: 'AZURE_TENANT_ID', value: credentials.tenantId },
+      { name: 'AZURE_KEYVAULT_NAME', value: keyVaultName },
+    );
+    if (credentials.clientSecret) {
+      secrets.push({
+        name: 'azure-client-secret',
+        value: credentials.clientSecret,
+      });
+      secretEnvVars.push({
+        name: 'AZURE_CLIENT_SECRET',
+        secretRef: 'azure-client-secret',
+      });
+    }
+    logger.info('  Injecting SP credentials for SecretsProvider');
   }
-  logger.info('  Injecting Azure credentials for SecretsProvider');
 
   // DATABASE_URL for services with databases
   if (hasDatabase) {

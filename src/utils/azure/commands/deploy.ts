@@ -452,17 +452,22 @@ export async function azureDeploy(
   }
 
   // Sync deterministic service URLs to Key Vault
-  // Container Apps internal DNS: http://{projectName}-{serviceName}
+  // Container Apps internal FQDN: https://{projectName}-{serviceName}.{cae-default-domain}
   logger.newline();
   logger.info('Syncing service URLs to Key Vault...');
 
   try {
+    const caeDefaultDomain = getTerraformOutput(
+      outputDir,
+      'container_apps_env_default_domain',
+      tfEnv,
+    );
     const config = loadFrameworkConfig();
 
     for (const service of config.services) {
       if (!service.port) continue;
       const urlKey = `${service.name.replace(/-/g, '_').toUpperCase()}_URL`;
-      const url = `http://${ctx.projectName}-${service.name}`;
+      const url = `https://${ctx.projectName}-${service.name}.${caeDefaultDomain}`;
       await setSecretWithRetry(urlKey, url, ctx.targetEnv);
       logger.success(`  ✓ ${urlKey} = ${url}`);
     }

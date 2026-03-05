@@ -24,6 +24,8 @@ export interface ExecuteContainerJobOptions {
   envVars?: Array<{ name: string; value: string }>;
   /** ACR login server for private registry auth (e.g., 'myacr.azurecr.io') */
   acrLoginServer?: string;
+  /** User-assigned managed identity resource ID for ACR pull (preferred over password auth) */
+  acrManagedIdentityId?: string;
   /** Timeout in seconds (default: 300) */
   timeoutSeconds?: number;
   /** CPU allocation as number (default: 1) */
@@ -81,15 +83,27 @@ export async function executeContainerJob(
 
   let client = createClient(credentials);
 
-  // Build registry config for private ACR
-  // Local: SP client secret as password
-  // CI: exchange OIDC token for ACR refresh token
+  // ACR registry auth: prefer managed identity, fall back to password
   let secrets: Array<{ name: string; value: string }> | undefined;
-  let registries:
-    | Array<{ server: string; username: string; passwordSecretRef: string }>
+  let registries: Array<Record<string, string>> | undefined;
+  let identity:
+    | {
+        type: string;
+        userAssignedIdentities?: Record<string, Record<string, never>>;
+      }
     | undefined;
 
-  if (acrLoginServer) {
+  const { acrManagedIdentityId } = options;
+
+  if (acrLoginServer && acrManagedIdentityId) {
+    // Managed identity — no tokens to expire
+    registries = [{ server: acrLoginServer, identity: acrManagedIdentityId }];
+    identity = {
+      type: 'UserAssigned',
+      userAssignedIdentities: { [acrManagedIdentityId]: {} },
+    };
+  } else if (acrLoginServer) {
+    // Fallback: password-based auth (short-lived tokens)
     let acrUsername: string;
     if (credentials.clientSecret) {
       secrets = [{ name: 'acr-password', value: credentials.clientSecret }];
@@ -111,6 +125,7 @@ export async function executeContainerJob(
   const jobDefinition = {
     location: credentials.location,
     environmentId: containerAppsEnvId,
+    identity,
     configuration: {
       triggerType: 'Manual' as const,
       replicaTimeout: timeoutSeconds,

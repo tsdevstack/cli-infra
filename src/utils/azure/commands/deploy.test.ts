@@ -21,6 +21,10 @@ rs.mock('../../credentials/set-secret-via-cli', () => ({
   setSecretViaCli: rs.fn(),
 }));
 
+rs.mock('../set-secret-with-retry', () => ({
+  setSecretWithRetry: rs.fn(),
+}));
+
 rs.mock('../bootstrap/create-state-backend', () => ({
   createStateBackend: rs.fn(),
 }));
@@ -76,6 +80,7 @@ import { generateTerraformFiles } from './generate-terraform-files';
 import { extractLockId, buildAzureTerraformEnv } from '@tsdevstack/infra-core';
 import { checkPostgresAvailability } from '../preflight/check-postgres-availability';
 import { setSecretViaCli } from '../../credentials/set-secret-via-cli';
+import { setSecretWithRetry } from '../set-secret-with-retry';
 import { upgradeFrontdoorSku } from './upgrade-frontdoor-sku';
 import { lockDownPublicAccess } from './lock-down-public-access';
 
@@ -160,10 +165,22 @@ describe('azureDeploy', () => {
           redis_password: 'test-redis-key',
           database_host: 'my-app-dev-postgres.postgres.database.azure.com',
           database_admin_password: 'test-db-password',
+          container_apps_env_default_domain:
+            'nicefish-abc123.eastus.azurecontainerapps.io',
         };
         return outputs[name] || '';
       },
     );
+
+    rs.mocked(setSecretWithRetry).mockResolvedValue(undefined);
+
+    mocks.loadFrameworkConfig.mockReturnValue({
+      services: [
+        { name: 'auth-service', port: 3000 },
+        { name: 'bff-service', port: 3001 },
+        { name: 'frontend', type: 'nextjs' },
+      ],
+    });
 
     mockInfraDeployServices.mockResolvedValue(undefined);
     mockInfraKongGenerate.mockResolvedValue(undefined);
@@ -347,6 +364,8 @@ describe('azureDeploy', () => {
           redis_host: 'my-app-dev-redis.eastus.redis.azure.net',
           redis_port: '10000',
           redis_password: 'test-redis-key',
+          container_apps_env_default_domain:
+            'nicefish-abc123.eastus.azurecontainerapps.io',
         };
         return outputs[name] || '';
       },
@@ -449,6 +468,27 @@ describe('azureDeploy', () => {
         expect.anything(),
         'dev',
         'bff-service',
+      );
+    });
+
+    it('should sync service URLs with full FQDN to Key Vault', async () => {
+      await azureDeploy(mockCtx, { autoApprove: true });
+
+      expect(setSecretWithRetry).toHaveBeenCalledWith(
+        'AUTH_SERVICE_URL',
+        'https://my-app-auth-service.nicefish-abc123.eastus.azurecontainerapps.io',
+        'dev',
+      );
+      expect(setSecretWithRetry).toHaveBeenCalledWith(
+        'BFF_SERVICE_URL',
+        'https://my-app-bff-service.nicefish-abc123.eastus.azurecontainerapps.io',
+        'dev',
+      );
+      // frontend has no port — should NOT get a URL
+      expect(setSecretWithRetry).not.toHaveBeenCalledWith(
+        'FRONTEND_URL',
+        expect.anything(),
+        'dev',
       );
     });
 

@@ -208,6 +208,10 @@ export function generateTerraformFiles(
       name: 'container-apps-env.tf',
       content: azure.generateContainerAppsEnvTf(),
     },
+    {
+      name: 'container-apps-identity.tf',
+      content: azure.generateContainerAppsIdentityTf(),
+    },
     { name: 'database.tf', content: azure.generateDatabaseTf(generateConfig) },
     { name: 'redis.tf', content: azure.generateRedisTf(generateConfig) },
     {

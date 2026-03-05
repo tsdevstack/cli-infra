@@ -296,6 +296,36 @@ describe('deployContainerAppServices', () => {
     );
   });
 
+  it('should pass acrManagedIdentityId when available from Terraform output', async () => {
+    rs.mocked(getTerraformOutput).mockImplementation(
+      (_dir: string, key: string) => {
+        const outputs: Record<string, string> = {
+          acr_login_server: 'myapp.azurecr.io',
+          resource_group_name: 'my-app-dev-rg',
+          container_apps_env_id: '/subscriptions/sub-123/env-id',
+          container_apps_acr_identity_id: '/subscriptions/sub/identity/ca-id',
+        };
+        return outputs[key] ?? '';
+      },
+    );
+
+    await deployContainerAppServices(mockCtx, { service: 'auth-service' });
+
+    expect(createOrUpdateContainerApp).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({
+        acrManagedIdentityId: '/subscriptions/sub/identity/ca-id',
+      }),
+    );
+  });
+
+  it('should fall back to no managed identity when Terraform output not found', async () => {
+    await deployContainerAppServices(mockCtx, { service: 'auth-service' });
+
+    const callArgs = rs.mocked(createOrUpdateContainerApp).mock.calls[0][1];
+    expect(callArgs.acrManagedIdentityId).toBeFalsy();
+  });
+
   it('should pass correct options for nestjs service', async () => {
     await deployContainerAppServices(mockCtx, { service: 'auth-service' });
 
@@ -437,12 +467,17 @@ describe('deployContainerAppServices', () => {
     );
   });
 
-  it('should log Azure credentials injection for nestjs services', async () => {
+  it('should log credentials injection for nestjs services', async () => {
     await deployContainerAppServices(mockCtx, { service: 'auth-service' });
 
-    expect(mocks.logger.info).toHaveBeenCalledWith(
-      '  Injecting Azure credentials for SecretsProvider',
+    // Either managed identity or SP credentials injection is logged
+    const infoCalls = rs.mocked(mocks.logger.info).mock.calls.flat();
+    const hasCredentialLog = infoCalls.some(
+      (msg: string) =>
+        msg.includes('managed identity credentials for SecretsProvider') ||
+        msg.includes('SP credentials for SecretsProvider'),
     );
+    expect(hasCredentialLog).toBe(true);
   });
 
   it('should run migrations for services with databases before deploying', async () => {

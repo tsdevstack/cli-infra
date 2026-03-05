@@ -19,6 +19,9 @@ rs.mock('@tsdevstack/infra-core', () => ({
     generateNetworkTf: rs.fn(() => '# network.tf'),
     generateAcrTf: rs.fn(() => '# acr.tf'),
     generateContainerAppsEnvTf: rs.fn(() => '# container-apps-env.tf'),
+    generateContainerAppsIdentityTf: rs.fn(
+      () => '# container-apps-identity.tf',
+    ),
     generateDatabaseTf: rs.fn(() => '# database.tf'),
     generateRedisTf: rs.fn(() => '# redis.tf'),
     generateFrontdoorTf: rs.fn(() => '# frontdoor.tf'),
@@ -140,6 +143,7 @@ describe('generateTerraformFiles', () => {
     expect(azure.generateNetworkTf).toHaveBeenCalled();
     expect(azure.generateAcrTf).toHaveBeenCalled();
     expect(azure.generateContainerAppsEnvTf).toHaveBeenCalled();
+    expect(azure.generateContainerAppsIdentityTf).toHaveBeenCalled();
     expect(azure.generateDatabaseTf).toHaveBeenCalled();
     expect(azure.generateRedisTf).toHaveBeenCalled();
     expect(azure.generateFrontdoorTf).toHaveBeenCalled();
@@ -153,7 +157,7 @@ describe('generateTerraformFiles', () => {
   it('should write all generated files', () => {
     generateTerraformFiles(mockCtx, 'infra:generate');
 
-    expect(mocks.writeTextFile).toHaveBeenCalledTimes(15);
+    expect(mocks.writeTextFile).toHaveBeenCalledTimes(16);
     expect(mocks.writeTextFile).toHaveBeenCalledWith(
       '/test/project/infrastructure/terraform/dev/main.tf',
       '# main.tf',
@@ -181,6 +185,10 @@ describe('generateTerraformFiles', () => {
     expect(mocks.writeTextFile).toHaveBeenCalledWith(
       '/test/project/infrastructure/terraform/dev/container-apps-env.tf',
       '# container-apps-env.tf',
+    );
+    expect(mocks.writeTextFile).toHaveBeenCalledWith(
+      '/test/project/infrastructure/terraform/dev/container-apps-identity.tf',
+      '# container-apps-identity.tf',
     );
     expect(mocks.writeTextFile).toHaveBeenCalledWith(
       '/test/project/infrastructure/terraform/dev/database.tf',
@@ -227,6 +235,9 @@ describe('generateTerraformFiles', () => {
     expect(mocks.logger.generating).toHaveBeenCalledWith('  acr.tf');
     expect(mocks.logger.generating).toHaveBeenCalledWith(
       '  container-apps-env.tf',
+    );
+    expect(mocks.logger.generating).toHaveBeenCalledWith(
+      '  container-apps-identity.tf',
     );
     expect(mocks.logger.generating).toHaveBeenCalledWith('  database.tf');
     expect(mocks.logger.generating).toHaveBeenCalledWith('  redis.tf');

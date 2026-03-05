@@ -23,6 +23,7 @@ import {
   createOrUpdateContainerApp,
   getTotalWorkerMaxInstances,
   parseServiceFilter,
+  waitForContainerAppActivation,
   waitForContainerAppReady,
 } from '@tsdevstack/infra-core';
 import { getTotalServiceMaxInstances } from '../../deploy/get-total-service-max-instances';
@@ -96,6 +97,25 @@ export async function deployContainerAppServices(
       'infra:deploy-services',
       `Run npx tsdevstack infra:deploy --env ${targetEnv} to deploy infrastructure`,
     );
+  }
+
+  // Managed identity for ACR pull + Key Vault access (created by infra:deploy Terraform)
+  // Falls back to password-based auth if not yet provisioned
+  let acrManagedIdentityId: string | undefined;
+  let managedIdentityClientId: string | undefined;
+  try {
+    acrManagedIdentityId = getTerraformOutput(
+      terraformDir,
+      'container_apps_acr_identity_id',
+      tfEnv,
+    );
+    managedIdentityClientId = getTerraformOutput(
+      terraformDir,
+      'container_apps_acr_identity_client_id',
+      tfEnv,
+    );
+  } catch {
+    // Old Terraform state — fall back to password-based auth
   }
 
   // Get NestJS backend services (Next.js uses App Service, see deploy-nextjs-app-services.ts)
@@ -255,6 +275,7 @@ export async function deployContainerAppServices(
         serviceName: service.name,
         hasDatabase: service.hasDatabase ?? false,
         poolMax,
+        managedIdentityClientId,
       });
       const envVars = backendEnv.envVars;
       const secrets = backendEnv.secrets;
@@ -263,61 +284,140 @@ export async function deployContainerAppServices(
       // Set PORT to match ingress target (Azure doesn't inject PORT like GCP Cloud Run does)
       envVars.push({ name: 'PORT', value: String(ingressPort) });
 
+      // When using managed identity with minReplicas=0, we must verify
+      // the image can actually be pulled (RBAC propagation after Terraform).
+      // Deploy with min=1 to force a replica, verify activation, then scale to 0.
+      const needsActivationCheck =
+        !!acrManagedIdentityId && serviceConfig.minInstances === 0;
+      const deployMinReplicas = needsActivationCheck
+        ? 1
+        : serviceConfig.minInstances;
+
+      const MAX_ACTIVATION_RETRIES = 6;
+      const ACTIVATION_RETRY_DELAY_MS = 15_000;
+
+      const createOptions = {
+        credentials,
+        resourceGroupName,
+        containerAppName,
+        containerAppsEnvId,
+        image: imageUri,
+        envVars,
+        secrets: secrets.length > 0 ? secrets : undefined,
+        secretEnvVars: secretEnvVars.length > 0 ? secretEnvVars : undefined,
+        ingressPort,
+        externalIngress: true,
+        minReplicas: deployMinReplicas,
+        maxReplicas: serviceConfig.maxInstances,
+        cpu: parseFloat(serviceConfig.cpu),
+        memory: serviceConfig.memory,
+        acrLoginServer,
+        acrManagedIdentityId,
+      };
+
       let result: Awaited<ReturnType<typeof createOrUpdateContainerApp>>;
-      try {
-        result = await createOrUpdateContainerApp(runtime, {
+      let activated = false;
+
+      for (
+        let attempt = 1;
+        attempt <= (needsActivationCheck ? MAX_ACTIVATION_RETRIES : 1);
+        attempt++
+      ) {
+        try {
+          result = await createOrUpdateContainerApp(runtime, createOptions);
+        } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+          const hint = (err as { hint?: string })?.hint;
+          const fullError = hint ? `${errorMsg}: ${hint}` : errorMsg;
+          deployFailures.push({
+            service: service.name,
+            error: fullError,
+          });
+          logger.error(`  ✗ ${service.name}: ${fullError}`);
+          return;
+        }
+
+        // Wait for ARM provisioning
+        logger.info(`  Waiting for ${service.name} to be ready...`);
+        try {
+          await waitForContainerAppReady(runtime, {
+            credentials,
+            resourceGroupName,
+            containerAppName,
+            timeoutMs: 300000,
+          });
+        } catch (err) {
+          const errorMsg =
+            err instanceof Error
+              ? err.message
+              : 'Service did not reach ready state';
+          deployFailures.push({
+            service: service.name,
+            error: errorMsg,
+          });
+          logger.error(`  ✗ ${service.name} failed to stabilize: ${errorMsg}`);
+          return;
+        }
+
+        if (!needsActivationCheck) {
+          activated = true;
+          break;
+        }
+
+        // Verify actual replica activation (image pull + container start)
+        const activation = await waitForContainerAppActivation(runtime, {
           credentials,
           resourceGroupName,
           containerAppName,
-          containerAppsEnvId,
-          image: imageUri,
-          envVars,
-          secrets: secrets.length > 0 ? secrets : undefined,
-          secretEnvVars: secretEnvVars.length > 0 ? secretEnvVars : undefined,
-          ingressPort,
-          externalIngress: true,
-          minReplicas: serviceConfig.minInstances,
-          maxReplicas: serviceConfig.maxInstances,
-          cpu: parseFloat(serviceConfig.cpu),
-          memory: serviceConfig.memory,
-          acrLoginServer,
         });
-      } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : 'Unknown error';
-        const hint = (err as { hint?: string })?.hint;
-        const fullError = hint ? `${errorMsg}: ${hint}` : errorMsg;
-        deployFailures.push({
-          service: service.name,
-          error: fullError,
-        });
-        logger.error(`  ✗ ${service.name}: ${fullError}`);
-        return;
+
+        if (activation.healthy) {
+          activated = true;
+          break;
+        }
+
+        if (attempt < MAX_ACTIVATION_RETRIES) {
+          logger.warn(
+            `  ACR identity RBAC propagating, retry ${attempt}/${MAX_ACTIVATION_RETRIES} in ${ACTIVATION_RETRY_DELAY_MS / 1000}s... (${activation.error})`,
+          );
+          await new Promise((resolve) =>
+            setTimeout(resolve, ACTIVATION_RETRY_DELAY_MS),
+          );
+        } else {
+          deployFailures.push({
+            service: service.name,
+            error: activation.error,
+          });
+          logger.error(
+            `  ✗ ${service.name} activation failed after ${MAX_ACTIVATION_RETRIES} retries: ${activation.error}`,
+          );
+          return;
+        }
       }
 
-      // Wait for ready
-      logger.info(`  Waiting for ${service.name} to be ready...`);
-      try {
-        await waitForContainerAppReady(runtime, {
-          credentials,
-          resourceGroupName,
-          containerAppName,
-          timeoutMs: 300000,
-        });
-
+      if (activated) {
         logger.success(`  ${service.name} deployed`);
-        if (result.fqdn) {
-          logger.info(`    URL: https://${result.fqdn}`);
+        if (result!.fqdn) {
+          logger.info(`    URL: https://${result!.fqdn}`);
         }
-      } catch (err) {
-        const errorMsg =
-          err instanceof Error
-            ? err.message
-            : 'Service did not reach ready state';
-        deployFailures.push({
-          service: service.name,
-          error: errorMsg,
-        });
-        logger.error(`  ✗ ${service.name} failed to stabilize: ${errorMsg}`);
+
+        // Scale back to minReplicas=0 now that image pull is verified
+        if (needsActivationCheck) {
+          logger.info(
+            `  Scaling ${service.name} to minReplicas=${serviceConfig.minInstances}...`,
+          );
+          try {
+            await createOrUpdateContainerApp(runtime, {
+              ...createOptions,
+              minReplicas: serviceConfig.minInstances,
+            });
+          } catch {
+            // Non-fatal: service works, just won't scale to zero yet
+            logger.warn(
+              `  Could not scale ${service.name} to minReplicas=${serviceConfig.minInstances}`,
+            );
+          }
+        }
       }
     },
     { concurrency: maxParallel },

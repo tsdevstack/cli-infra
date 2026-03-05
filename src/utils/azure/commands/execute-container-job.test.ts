@@ -153,6 +153,49 @@ describe('executeContainerJob', () => {
     });
   });
 
+  describe('Managed identity ACR auth', () => {
+    it('should use managed identity for registry when acrManagedIdentityId is provided', async () => {
+      mockBeginCreateOrUpdateAndWait.mockResolvedValue({});
+      mockBeginStartAndWait.mockResolvedValue({});
+
+      await executeContainerJob({
+        ...baseOptions,
+        acrLoginServer: 'myacr.azurecr.io',
+        acrManagedIdentityId: '/subscriptions/sub/identity/ca-id',
+      });
+
+      const callArgs = mockBeginCreateOrUpdateAndWait.mock.calls[0];
+      const jobDef = callArgs[2];
+      expect(jobDef.configuration.registries).toEqual([
+        {
+          server: 'myacr.azurecr.io',
+          identity: '/subscriptions/sub/identity/ca-id',
+        },
+      ]);
+      expect(jobDef.identity).toEqual({
+        type: 'UserAssigned',
+        userAssignedIdentities: {
+          '/subscriptions/sub/identity/ca-id': {},
+        },
+      });
+    });
+
+    it('should not include acr-password secret when using managed identity', async () => {
+      mockBeginCreateOrUpdateAndWait.mockResolvedValue({});
+      mockBeginStartAndWait.mockResolvedValue({});
+
+      await executeContainerJob({
+        ...baseOptions,
+        acrLoginServer: 'myacr.azurecr.io',
+        acrManagedIdentityId: '/subscriptions/sub/identity/ca-id',
+      });
+
+      const callArgs = mockBeginCreateOrUpdateAndWait.mock.calls[0];
+      const jobDef = callArgs[2];
+      expect(jobDef.configuration.secrets).toBeUndefined();
+    });
+  });
+
   describe('ACR registry auth', () => {
     it('should configure registry credentials when acrLoginServer is provided', async () => {
       mockBeginCreateOrUpdateAndWait.mockResolvedValue({});

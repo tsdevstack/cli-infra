@@ -37,6 +37,12 @@ rs.mock('../utils/gcp/terraform', () => ({
     mockGetTerraformOutputJson(...args),
 }));
 
+const mockAzureGetTerraformOutput = rs.fn();
+rs.mock('../utils/azure/terraform', () => ({
+  getTerraformOutput: (...args: unknown[]) =>
+    mockAzureGetTerraformOutput(...args),
+}));
+
 rs.mock('../utils/build-runtime', () => ({
   buildRuntime: () => ({}),
 }));
@@ -49,6 +55,7 @@ rs.mock('../utils/docker', () => ({
 const mockBuildBackendEnvVars = rs.fn();
 const mockBuildBackendSecrets = rs.fn();
 const mockBuildGcpTerraformEnv = rs.fn();
+const mockBuildAzureTerraformEnv = rs.fn();
 const mockCalculatePoolSize = rs.fn();
 const mockDeployCloudRunService = rs.fn();
 const mockGetTotalWorkerMaxInstances = rs.fn();
@@ -58,6 +65,8 @@ rs.mock('@tsdevstack/infra-core', () => ({
   buildBackendSecrets: (...args: unknown[]) => mockBuildBackendSecrets(...args),
   buildGcpTerraformEnv: (...args: unknown[]) =>
     mockBuildGcpTerraformEnv(...args),
+  buildAzureTerraformEnv: (...args: unknown[]) =>
+    mockBuildAzureTerraformEnv(...args),
   calculatePoolSize: (...args: unknown[]) => mockCalculatePoolSize(...args),
   deployCloudRunService: (...args: unknown[]) =>
     mockDeployCloudRunService(...args),
@@ -132,6 +141,10 @@ describe('infraWorkerDeploy', () => {
     mockBuildGcpTerraformEnv.mockReturnValue({
       GOOGLE_PROJECT: 'gcp-project-123',
     });
+    mockBuildAzureTerraformEnv.mockReturnValue({
+      ARM_SUBSCRIPTION_ID: 'sub-123',
+    });
+    mockAzureGetTerraformOutput.mockReturnValue('');
     mockGetTerraformOutput.mockImplementation((_dir: string, name: string) => {
       if (name === 'artifact_registry_url')
         return 'us-central1-docker.pkg.dev/gcp-project-123/my-app';

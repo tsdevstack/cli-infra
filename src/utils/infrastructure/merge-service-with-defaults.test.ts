@@ -299,8 +299,8 @@ describe('mergeServiceWithDefaults', () => {
       expect(awsResult.cpu).toBe('0.5');
       expect(awsResult.memory).toBe('1Gi');
       // Azure Container Apps
-      expect(azureResult.cpu).toBe('0.25');
-      expect(azureResult.memory).toBe('0.5Gi');
+      expect(azureResult.cpu).toBe('0.5');
+      expect(azureResult.memory).toBe('1Gi');
       expect(azureResult.minInstances).toBe(0); // Scale-to-zero by default
     });
   });

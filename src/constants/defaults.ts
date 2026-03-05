@@ -310,8 +310,8 @@ export const REDIS_DEFAULTS_AZURE = {
 export const INFRASTRUCTURE_DEFAULTS_AZURE = {
   minInstances: 0,
   maxInstances: 5,
-  cpu: '0.25',
-  memory: '0.5Gi',
+  cpu: '0.5',
+  memory: '1Gi',
   timeout: '300s',
   port: 3000,
   concurrency: 80,

@@ -5,10 +5,12 @@
  * then deploys each one to Azure Container Apps.
  */
 
+import path from 'node:path';
 import { getContext } from '../../../context';
 import { azureDeployWorker } from './deploy-worker';
 import { buildAzureBackendEnv } from './build-azure-backend-env';
 import {
+  buildAzureTerraformEnv,
   calculatePoolSize,
   getTotalWorkerMaxInstances,
 } from '@tsdevstack/infra-core';
@@ -17,6 +19,8 @@ import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructu
 import { getServiceConfig } from '../../infrastructure/get-service-config';
 import type { EnvironmentOverrides } from '../../infrastructure/types';
 import { getGitSha } from '../../docker';
+import { buildRuntime } from '../../build-runtime';
+import { getTerraformOutput } from '../terraform';
 import type { AzureCommandContext } from './types';
 
 export async function deployCoupledWorkers(
@@ -35,6 +39,26 @@ export async function deployCoupledWorkers(
   );
 
   if (coupledWorkers.length === 0) return;
+
+  // Read managed identity client ID from Terraform for Key Vault access
+  const runtime = buildRuntime();
+  const tfEnv = buildAzureTerraformEnv(runtime, ctx.credentials);
+  const terraformDir = path.join(
+    ctx.projectRoot,
+    'infrastructure',
+    'terraform',
+    ctx.targetEnv,
+  );
+  let managedIdentityClientId: string | undefined;
+  try {
+    managedIdentityClientId = getTerraformOutput(
+      terraformDir,
+      'container_apps_acr_identity_client_id',
+      tfEnv,
+    );
+  } catch {
+    // Old Terraform state — fall back to SP credentials
+  }
 
   logger.newline();
   logger.info('════════════════════════════════════════════');
@@ -79,6 +103,7 @@ export async function deployCoupledWorkers(
       serviceName: baseService.name,
       hasDatabase: baseService.hasDatabase ?? false,
       poolMax: workerPoolMax,
+      managedIdentityClientId,
     });
 
     const workerConfig = getServiceConfig(

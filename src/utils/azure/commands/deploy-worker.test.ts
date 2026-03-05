@@ -102,6 +102,36 @@ describe('azureDeployWorker', () => {
       );
     });
 
+    it('should pass acrManagedIdentityId when available from Terraform output', async () => {
+      rs.mocked(getTerraformOutput).mockImplementation(
+        (_dir: string, name: string) => {
+          const outputs: Record<string, string> = {
+            acr_login_server: 'myacr.azurecr.io',
+            resource_group_name: 'myapp-dev-rg',
+            container_apps_env_id: '/subscriptions/sub/envs/env',
+            container_apps_acr_identity_id: '/subscriptions/sub/identity/ca-id',
+          };
+          return outputs[name] || '';
+        },
+      );
+
+      await azureDeployWorker(baseParams);
+
+      expect(createOrUpdateContainerApp).toHaveBeenCalledWith(
+        {},
+        expect.objectContaining({
+          acrManagedIdentityId: '/subscriptions/sub/identity/ca-id',
+        }),
+      );
+    });
+
+    it('should fall back to no managed identity when Terraform output not found', async () => {
+      await azureDeployWorker(baseParams);
+
+      const callArgs = rs.mocked(createOrUpdateContainerApp).mock.calls[0][1];
+      expect(callArgs.acrManagedIdentityId).toBeFalsy();
+    });
+
     it('should deploy worker with worker command', async () => {
       await azureDeployWorker(baseParams);
 

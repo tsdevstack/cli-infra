@@ -170,6 +170,35 @@ describe('azureDbMigrateRun', () => {
         }),
       );
     });
+
+    it('should pass acrManagedIdentityId when available from Terraform output', async () => {
+      rs.mocked(getTerraformOutput).mockImplementation(
+        (_dir: string, name: string) => {
+          const outputs: Record<string, string> = {
+            acr_login_server: 'myacr.azurecr.io',
+            resource_group_name: 'myapp-dev-rg',
+            container_apps_env_id: '/subscriptions/sub/envs/env',
+            container_apps_acr_identity_id: '/subscriptions/sub/identity/ca-id',
+          };
+          return outputs[name] || '';
+        },
+      );
+
+      await azureDbMigrateRun(baseParams);
+
+      expect(executeContainerJob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          acrManagedIdentityId: '/subscriptions/sub/identity/ca-id',
+        }),
+      );
+    });
+
+    it('should fall back to no managed identity when Terraform output not found', async () => {
+      await azureDbMigrateRun(baseParams);
+
+      const callArgs = rs.mocked(executeContainerJob).mock.calls[0][0];
+      expect(callArgs.acrManagedIdentityId).toBeFalsy();
+    });
   });
 
   describe('Error cases', () => {

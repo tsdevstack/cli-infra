@@ -18,12 +18,15 @@ import {
   buildAzureBackendEnv,
 } from '../utils/azure/commands';
 import {
+  buildAzureTerraformEnv,
   calculatePoolSize,
   getTotalWorkerMaxInstances,
 } from '@tsdevstack/infra-core';
 import { getTotalServiceMaxInstances } from '../utils/deploy/get-total-service-max-instances';
 import { loadInfrastructureConfig } from '../utils/infrastructure/load-infrastructure-config';
 import { getServiceConfig } from '../utils/infrastructure/get-service-config';
+import { getTerraformOutput } from '../utils/azure/terraform';
+import { buildRuntime } from '../utils/build-runtime';
 import type { EnvironmentOverrides } from '../utils/infrastructure/types';
 import type {
   GCPCredentials,
@@ -145,6 +148,20 @@ export async function infraWorkerDeploy(
       totalWorkerMaxInstances: totalWorkerMax,
     });
 
+    // Read managed identity client ID from Terraform for Key Vault access
+    const runtime = buildRuntime();
+    const tfEnv = buildAzureTerraformEnv(runtime, azureCredentials);
+    let managedIdentityClientId: string | undefined;
+    try {
+      managedIdentityClientId = getTerraformOutput(
+        terraformDir,
+        'container_apps_acr_identity_client_id',
+        tfEnv,
+      );
+    } catch {
+      // Old Terraform state — fall back to SP credentials
+    }
+
     const backendEnv = buildAzureBackendEnv({
       projectName,
       targetEnv,
@@ -152,6 +169,7 @@ export async function infraWorkerDeploy(
       serviceName: baseService.name,
       hasDatabase: baseService.hasDatabase ?? false,
       poolMax: workerPoolMax,
+      managedIdentityClientId,
     });
 
     const workerConfig = getServiceConfig(

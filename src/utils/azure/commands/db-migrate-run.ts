@@ -70,6 +70,18 @@ export async function azureDbMigrateRun(
     );
   }
 
+  // Managed identity for ACR pull (falls back to password if not provisioned)
+  let acrManagedIdentityId: string | undefined;
+  try {
+    acrManagedIdentityId = getTerraformOutput(
+      terraformDir,
+      'container_apps_acr_identity_id',
+      tfEnv,
+    );
+  } catch {
+    // Old Terraform state — fall back to password-based auth
+  }
+
   const databaseUrl = fetchSecret('DATABASE_URL', targetEnv, service.name);
 
   if (!databaseUrl) {
@@ -105,6 +117,7 @@ export async function azureDbMigrateRun(
     ],
     envVars: [{ name: 'DATABASE_URL', value: databaseUrl }],
     acrLoginServer,
+    acrManagedIdentityId,
     cpu: parseFloat(migrationJob.cpu),
     memory: migrationJob.memory,
   });
