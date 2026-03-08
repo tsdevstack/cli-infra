@@ -13,7 +13,7 @@ rs.mock('../context', () => ({
 }));
 
 const mockSetupGCPInfraCommand = rs.fn();
-rs.mock('../utils/setup/setup-gcp-infra-command', () => ({
+rs.mock('../utils/gcp/setup/setup-gcp-infra-command', () => ({
   setupGCPInfraCommand: (...args: unknown[]) =>
     mockSetupGCPInfraCommand(...args),
 }));

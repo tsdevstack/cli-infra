@@ -20,7 +20,7 @@ export { awsDbMigratePlan } from './db-migrate-plan';
 export { awsDbMigrateRun } from './db-migrate-run';
 export { awsDeployWorker } from './deploy-worker';
 export { awsRemoveDetachedWorker } from './remove-detached-worker';
-export { awsKongDeploy } from './kong-deploy';
+export { awsKongDeploy } from './deploy-kong';
 export {
   getAwsKongRegistryInfo,
   type AwsKongRegistryInfo,

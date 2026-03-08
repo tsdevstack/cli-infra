@@ -4,10 +4,23 @@
  * Includes OIDC plugin installation (same approach as infrastructure/kong/Dockerfile)
  */
 
+import type { CloudProvider } from '@tsdevstack/cli/plugin';
+
+interface GenerateKongDockerfileOptions {
+  provider?: CloudProvider;
+}
+
 /**
- * Returns the Dockerfile content for Kong Gateway on Cloud Run
+ * Returns the Dockerfile content for Kong Gateway
  */
-export function generateKongDockerfile(): string {
+export function generateKongDockerfile(
+  options?: GenerateKongDockerfileOptions,
+): string {
+  const healthCheckScript =
+    options?.provider === 'aws'
+      ? buildAwsHealthCheckScript()
+      : buildBasicHealthCheckScript();
+
   return `FROM kong:3.8
 
 # Switch to root to install plugins and configure
@@ -35,7 +48,7 @@ ENV KONG_PLUGINS=bundled,oidc
 ENV KONG_DATABASE=off
 ENV KONG_DECLARATIVE_CONFIG=/kong/declarative/kong.yml
 
-# Proxy on Cloud Run's expected port
+# Proxy port (all providers use 8080)
 ENV KONG_PROXY_LISTEN="0.0.0.0:8080"
 
 # Admin API DISABLED for security (critical!)
@@ -62,7 +75,7 @@ ENV KONG_TRUSTED_IPS="10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
 ENV KONG_REAL_IP_HEADER="X-Forwarded-For"
 ENV KONG_REAL_IP_RECURSIVE="on"
 
-# Cloud Run expects port 8080
+# Container port
 EXPOSE 8080
 EXPOSE 8100
 
@@ -76,11 +89,23 @@ RUN mkdir -p /kong/declarative && chown kong:kong /kong/declarative
 COPY kong.yml /kong/declarative/kong.yml
 RUN chown kong:kong /kong/declarative/kong.yml
 
-# Health check script for zero-downtime deployment (AWS only)
-# 1. Wait for /status/ready (Kong 3.3+ - config loaded, ready to proxy)
-# 2. On first check: validate OIDC discovery works (wake auth-service if needed)
-# 3. After first success: skip OIDC check (prevents auth-service flicker)
-# Uses WAKEUP_LAMBDA_URL and WAKEUP_SECRET env vars (injected by ECS)
+${healthCheckScript}
+# Switch back to kong user for runtime
+USER kong
+CMD ["kong", "docker-start"]
+`;
+}
+
+/**
+ * AWS health check script with OIDC validation and wakeup lambda
+ *
+ * 1. Wait for /status/ready (Kong 3.3+ - config loaded, ready to proxy)
+ * 2. On first check: validate OIDC discovery works (wake auth-service if needed)
+ * 3. After first success: skip OIDC check (prevents auth-service flicker)
+ * Uses WAKEUP_LAMBDA_URL and WAKEUP_SECRET env vars (injected by ECS)
+ */
+function buildAwsHealthCheckScript(): string {
+  return `# Health check script with OIDC validation and wakeup lambda (AWS)
 RUN echo '#!/bin/sh' > /usr/local/bin/kong-health-check.sh && \\
     echo 'curl -sf http://localhost:8100/status/ready || exit 1' >> /usr/local/bin/kong-health-check.sh && \\
     echo '# After first successful OIDC check, skip validation' >> /usr/local/bin/kong-health-check.sh && \\
@@ -99,9 +124,16 @@ RUN echo '#!/bin/sh' > /usr/local/bin/kong-health-check.sh && \\
     echo 'done' >> /usr/local/bin/kong-health-check.sh && \\
     echo 'exit 1' >> /usr/local/bin/kong-health-check.sh && \\
     chmod +x /usr/local/bin/kong-health-check.sh
+`;
+}
 
-# Switch back to kong user for runtime
-USER kong
-CMD ["kong", "docker-start"]
+/**
+ * Basic health check script — checks Kong readiness only
+ */
+function buildBasicHealthCheckScript(): string {
+  return `# Health check script
+RUN echo '#!/bin/sh' > /usr/local/bin/kong-health-check.sh && \\
+    echo 'curl -sf http://localhost:8100/status/ready || exit 1' >> /usr/local/bin/kong-health-check.sh && \\
+    chmod +x /usr/local/bin/kong-health-check.sh
 `;
 }

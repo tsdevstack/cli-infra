@@ -1,7 +1,7 @@
 /**
  * Add Redis TLS settings to Kong rate-limiting plugins
  *
- * AWS ElastiCache with transit encryption requires TLS connections.
+ * AWS ElastiCache and Azure Managed Redis require TLS connections.
  * This function adds ssl: true and ssl_verify: false to all rate-limiting
  * plugin Redis configs in the Kong configuration.
  *
@@ -9,29 +9,8 @@
  * within the VPC.
  */
 
-import type { KongTemplate, KongPlugin } from '@tsdevstack/cli/plugin';
-
-/**
- * Add ssl and ssl_verify to a rate-limiting plugin's Redis config
- */
-function addTlsToPlugin(plugin: KongPlugin): KongPlugin {
-  if (plugin.name !== 'rate-limiting') return plugin;
-
-  const redis = plugin.config.redis as Record<string, unknown> | undefined;
-  if (!redis) return plugin;
-
-  return {
-    ...plugin,
-    config: {
-      ...plugin.config,
-      redis: {
-        ...redis,
-        ssl: true,
-        ssl_verify: false,
-      },
-    },
-  };
-}
+import type { KongTemplate } from '@tsdevstack/cli/plugin';
+import { addTlsToPlugin } from './add-tls-to-plugin';
 
 export function addRedisTlsToKongConfig(config: KongTemplate): KongTemplate {
   // Transform global plugins

@@ -18,6 +18,7 @@ rs.mock('../../build-runtime', () => ({ buildRuntime: () => ({}) }));
 
 rs.mock('../terraform', () => ({
   getTerraformOutput: rs.fn(),
+  getAcrIdentityOutputs: rs.fn(),
 }));
 
 rs.mock('./execute-container-job', () => ({
@@ -41,7 +42,7 @@ rs.mock('../../infrastructure/merge-with-defaults', () => ({
 }));
 
 import { azureDbMigrateRun } from './db-migrate-run';
-import { getTerraformOutput } from '../terraform';
+import { getTerraformOutput, getAcrIdentityOutputs } from '../terraform';
 import { executeContainerJob } from './execute-container-job';
 import { fetchSecret } from '../../credentials/fetch-secret';
 import { buildAzureTerraformEnv } from '@tsdevstack/infra-core';
@@ -81,6 +82,11 @@ describe('azureDbMigrateRun', () => {
         return outputs[name] || '';
       },
     );
+
+    rs.mocked(getAcrIdentityOutputs).mockReturnValue({
+      acrManagedIdentityId: undefined,
+      managedIdentityClientId: undefined,
+    });
 
     rs.mocked(fetchSecret).mockReturnValue('postgres://user:pass@host:5432/db');
 
@@ -172,17 +178,10 @@ describe('azureDbMigrateRun', () => {
     });
 
     it('should pass acrManagedIdentityId when available from Terraform output', async () => {
-      rs.mocked(getTerraformOutput).mockImplementation(
-        (_dir: string, name: string) => {
-          const outputs: Record<string, string> = {
-            acr_login_server: 'myacr.azurecr.io',
-            resource_group_name: 'myapp-dev-rg',
-            container_apps_env_id: '/subscriptions/sub/envs/env',
-            container_apps_acr_identity_id: '/subscriptions/sub/identity/ca-id',
-          };
-          return outputs[name] || '';
-        },
-      );
+      rs.mocked(getAcrIdentityOutputs).mockReturnValue({
+        acrManagedIdentityId: '/subscriptions/sub/identity/ca-id',
+        managedIdentityClientId: undefined,
+      });
 
       await azureDbMigrateRun(baseParams);
 

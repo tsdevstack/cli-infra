@@ -20,7 +20,7 @@ import { getServiceConfig } from '../../infrastructure/get-service-config';
 import type { EnvironmentOverrides } from '../../infrastructure/types';
 import { getGitSha } from '../../docker';
 import { buildRuntime } from '../../build-runtime';
-import { getTerraformOutput } from '../terraform';
+import { getAcrIdentityOutputs } from '../terraform';
 import type { AzureCommandContext } from './types';
 
 export async function deployCoupledWorkers(
@@ -49,16 +49,10 @@ export async function deployCoupledWorkers(
     'terraform',
     ctx.targetEnv,
   );
-  let managedIdentityClientId: string | undefined;
-  try {
-    managedIdentityClientId = getTerraformOutput(
-      terraformDir,
-      'container_apps_acr_identity_client_id',
-      tfEnv,
-    );
-  } catch {
-    // Old Terraform state — fall back to SP credentials
-  }
+  const { managedIdentityClientId } = getAcrIdentityOutputs(
+    terraformDir,
+    tfEnv,
+  );
 
   logger.newline();
   logger.info('════════════════════════════════════════════');

@@ -1,7 +1,8 @@
 /**
  * Azure Kong Deployment
  *
- * Deploys Kong Gateway to Azure App Service with secrets from Key Vault.
+ * Deploys Kong Gateway to Azure App Service. All config values are baked
+ * into kong.yml at Docker image build time — no runtime secrets needed.
  */
 
 import path from 'node:path';
@@ -10,8 +11,6 @@ import { buildRuntime } from '../../build-runtime';
 import { getTerraformOutput } from '../terraform';
 import { buildAzureTerraformEnv } from '@tsdevstack/infra-core';
 import { deployAppService } from './deploy-app-service';
-import { setAppServiceSettings } from './set-app-service-settings';
-import { fetchSecret } from '../../credentials/fetch-secret';
 import type { AzureCredentials } from '@tsdevstack/cli/plugin';
 
 interface AzureKongDeployParams {
@@ -21,17 +20,6 @@ interface AzureKongDeployParams {
   credentials: AzureCredentials;
   imageTag: string;
 }
-
-const KONG_SECRETS = [
-  'REDIS_HOST',
-  'REDIS_PORT',
-  'REDIS_PASSWORD',
-  'REDIS_TLS',
-  'AUTH_SERVICE_URL',
-  'KONG_SSL_VERIFY',
-  'KONG_TRUST_TOKEN',
-  'KONG_CORS_ORIGINS',
-];
 
 export async function azureKongDeploy(
   params: AzureKongDeployParams,
@@ -83,29 +71,7 @@ export async function azureKongDeploy(
   logger.info(`App Service: ${kongAppServiceName}`);
   logger.newline();
 
-  // Fetch Kong secrets and set as App Service settings
-  logger.info('Setting Kong secrets as App Service settings...');
-  const settings: Record<string, string> = {};
-
-  for (const secretName of KONG_SECRETS) {
-    const value = fetchSecret(secretName, targetEnv);
-    if (value) {
-      settings[secretName] = value;
-      logger.success(`  ✓ ${secretName}`);
-    }
-  }
-
-  if (Object.keys(settings).length > 0) {
-    await setAppServiceSettings(
-      credentials,
-      resourceGroupName,
-      kongAppServiceName,
-      settings,
-    );
-  }
-
   // Deploy Kong to App Service
-  logger.newline();
   logger.info('Deploying Kong to App Service...');
 
   await deployAppService({

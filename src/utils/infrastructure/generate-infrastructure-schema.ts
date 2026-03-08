@@ -6,8 +6,6 @@
  */
 
 import {
-  VALID_CPU_VALUES,
-  VALID_MEMORY_VALUES,
   VALIDATION_CONSTRAINTS,
   DATABASE_CONSTRAINTS,
   REDIS_CONSTRAINTS,
@@ -96,13 +94,13 @@ export function generateInfrastructureSchema(
           },
           cpu: {
             type: 'string',
-            enum: [...VALID_CPU_VALUES],
-            description: 'CPU allocation per instance',
+            enum: [...providerConfig.cpuValues],
+            description: providerConfig.cpuDescription,
           },
           memory: {
             type: 'string',
-            enum: [...VALID_MEMORY_VALUES],
-            description: "Memory allocation (e.g., '512Mi', '1Gi', '2Gi')",
+            enum: [...providerConfig.memoryValues],
+            description: providerConfig.memoryDescription,
           },
           timeout: {
             type: 'string',
@@ -222,13 +220,13 @@ export function generateInfrastructureSchema(
               },
               cpu: {
                 type: 'string',
-                enum: [...VALID_CPU_VALUES],
-                description: 'CPU allocation per instance',
+                enum: [...providerConfig.cpuValues],
+                description: providerConfig.cpuDescription,
               },
               memory: {
                 type: 'string',
-                enum: [...VALID_MEMORY_VALUES],
-                description: "Memory allocation (e.g., '1Gi', '2Gi')",
+                enum: [...providerConfig.memoryValues],
+                description: providerConfig.memoryDescription,
               },
             },
         additionalProperties: false,

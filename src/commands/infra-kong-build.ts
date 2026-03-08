@@ -267,7 +267,7 @@ export async function infraKongBuild(
 
     // Write Dockerfile
     const dockerfilePath = path.join(tempDir, 'Dockerfile');
-    fs.writeFileSync(dockerfilePath, generateKongDockerfile());
+    fs.writeFileSync(dockerfilePath, generateKongDockerfile({ provider }));
 
     logger.success('Build context prepared');
 

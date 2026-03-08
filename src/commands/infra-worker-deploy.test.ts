@@ -38,9 +38,12 @@ rs.mock('../utils/gcp/terraform', () => ({
 }));
 
 const mockAzureGetTerraformOutput = rs.fn();
+const mockGetAcrIdentityOutputs = rs.fn();
 rs.mock('../utils/azure/terraform', () => ({
   getTerraformOutput: (...args: unknown[]) =>
     mockAzureGetTerraformOutput(...args),
+  getAcrIdentityOutputs: (...args: unknown[]) =>
+    mockGetAcrIdentityOutputs(...args),
 }));
 
 rs.mock('../utils/build-runtime', () => ({
@@ -145,6 +148,10 @@ describe('infraWorkerDeploy', () => {
       ARM_SUBSCRIPTION_ID: 'sub-123',
     });
     mockAzureGetTerraformOutput.mockReturnValue('');
+    mockGetAcrIdentityOutputs.mockReturnValue({
+      acrManagedIdentityId: undefined,
+      managedIdentityClientId: undefined,
+    });
     mockGetTerraformOutput.mockImplementation((_dir: string, name: string) => {
       if (name === 'artifact_registry_url')
         return 'us-central1-docker.pkg.dev/gcp-project-123/my-app';

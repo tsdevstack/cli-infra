@@ -12,6 +12,7 @@ import type {
   EnvironmentOverrides,
 } from './types';
 import { RESERVED_ENVIRONMENT_KEYS } from './types';
+import type { SchemaProvider } from './get-provider-schema-config';
 import { validateVersion } from './validate-version';
 import { validateServiceOverride } from './validate-service-override';
 
@@ -28,11 +29,12 @@ export function validateInfrastructureConfig(
   // 1. Validate version exists and is supported
   validateVersion(config);
 
-  // 2. Get valid service names from framework config
+  // 2. Get valid service names and provider from framework config
   const frameworkConfig = loadFrameworkConfig();
   const validServiceNames = new Set(
     frameworkConfig.services.map((s) => s.name),
   );
+  const provider: SchemaProvider = frameworkConfig.cloud.provider ?? 'gcp';
 
   // 3. Validate each environment
   for (const [key, value] of Object.entries(config)) {
@@ -72,8 +74,13 @@ export function validateInfrastructureConfig(
         );
       }
 
-      // Validate the service override
-      validateServiceOverride(itemKey, key, override as ServiceOverride);
+      // Validate the service override (provider-aware for CPU/memory)
+      validateServiceOverride(
+        itemKey,
+        key,
+        override as ServiceOverride,
+        provider,
+      );
     }
   }
 }

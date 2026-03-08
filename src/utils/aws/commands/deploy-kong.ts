@@ -1,9 +1,8 @@
 /**
  * AWS Kong Deployment
  *
- * Deploys Kong Gateway to ECS with secrets from Secrets Manager.
- * Kong requires runtime secrets: REDIS_HOST, REDIS_PORT, REDIS_PASSWORD,
- * ALB_INTERNAL_DNS, AUTH_SERVICE_URL, KONG_TRUST_TOKEN, etc.
+ * Deploys Kong Gateway to ECS. All config values are baked into kong.yml
+ * at Docker image build time — no runtime secrets needed.
  */
 
 import path from 'node:path';
@@ -27,22 +26,6 @@ interface AwsKongDeployParams {
 }
 
 /**
- * Kong-specific secrets that need to be injected from Secrets Manager
- */
-const KONG_SECRETS = [
-  'REDIS_HOST',
-  'REDIS_PORT',
-  'REDIS_PASSWORD',
-  'REDIS_TLS',
-  'ALB_INTERNAL_DNS',
-  'AUTH_SERVICE_URL',
-  'KONG_SSL_VERIFY',
-  'KONG_TRUST_TOKEN',
-  'KONG_CORS_ORIGINS',
-  'TEST_PARTNER_2_API_KEY_WITH_NO_CONVENTION',
-];
-
-/**
  * Deploy Kong Gateway to ECS
  */
 export async function awsKongDeploy(
@@ -63,12 +46,10 @@ export async function awsKongDeploy(
   // Get required terraform outputs
   let clusterName: string;
   let ecrUrl: string;
-  let accountId: string;
 
   try {
     clusterName = getTerraformOutput(terraformDir, 'ecs_cluster_name', tfEnv);
     ecrUrl = getTerraformOutput(terraformDir, 'ecr_repository_url', tfEnv);
-    accountId = getTerraformOutput(terraformDir, 'aws_account_id', tfEnv);
   } catch {
     throw new CliError(
       'Failed to get required Terraform outputs',
@@ -118,13 +99,6 @@ export async function awsKongDeploy(
     );
   }
 
-  // Step 2: Build secrets array for Kong
-  // Secret ARN format: arn:aws:secretsmanager:REGION:ACCOUNT:secret:PROJECT-shared-SECRET_NAME
-  const secretsArray = KONG_SECRETS.map((secretName) => ({
-    name: secretName,
-    valueFrom: `arn:aws:secretsmanager:${region}:${accountId}:secret:${projectName}-shared-${secretName}`,
-  }));
-
   // Get existing container definition
   const existingContainer = existingTaskDef.containerDefinitions?.[0];
   if (!existingContainer) {
@@ -135,11 +109,11 @@ export async function awsKongDeploy(
     );
   }
 
-  // Preserve existing environment variables and add secrets
+  // Preserve existing environment variables
   const existingEnv = existingContainer.environment ?? [];
 
-  // Step 3: Register new task definition with secrets
-  logger.info('Registering new task definition with secrets...');
+  // Step 2: Register new task definition with updated image
+  logger.info('Registering new task definition...');
   const registerResponse = await ecs.send(
     new RegisterTaskDefinitionCommand({
       family: existingTaskDef.family!,
@@ -152,10 +126,9 @@ export async function awsKongDeploy(
       containerDefinitions: [
         {
           name: existingContainer.name,
-          image: imageUri, // Use new image
+          image: imageUri,
           portMappings: existingContainer.portMappings,
           environment: existingEnv,
-          secrets: secretsArray, // Inject secrets from Secrets Manager
           logConfiguration: existingContainer.logConfiguration,
           healthCheck: existingContainer.healthCheck,
           essential: existingContainer.essential,

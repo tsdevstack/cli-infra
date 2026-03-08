@@ -1,23 +1,23 @@
 /**
  * AWS Bootstrap Handler
  *
- * Verifies credentials, checks permissions, and attempts to grant missing ones.
+ * Verifies credentials and checks that all required permissions are available.
+ * Does NOT attempt to grant permissions — the user must configure IAM before running bootstrap.
  */
 
 import { getContext } from '../../../context';
 import { verifyAWSCredentials } from '../verify-aws-credentials';
 import { checkAWSPermissions } from '../check-aws-permissions';
-import { grantAWSPermissions } from '../grant-aws-permissions';
 import type { AWSCommandContext } from './types';
 
 /**
- * Bootstrap AWS - verify credentials and permissions
+ * Bootstrap AWS - verify credentials and check permissions
  */
 export async function awsBootstrap(ctx: AWSCommandContext): Promise<void> {
   const { logger, CliError } = getContext();
 
   // Step 1: Verify credentials
-  logger.info('Step 1/3: Verifying AWS credentials...');
+  logger.info('Step 1/2: Verifying AWS credentials...');
   const verifyResult = await verifyAWSCredentials(ctx.credentials);
 
   if (!verifyResult.success || !verifyResult.identity) {
@@ -36,14 +36,16 @@ export async function awsBootstrap(ctx: AWSCommandContext): Promise<void> {
   logger.newline();
 
   // Step 2: Check permissions
-  logger.info('Step 2/3: Checking required permissions...');
+  logger.info('Step 2/2: Checking required permissions...');
   const checkResult = await checkAWSPermissions(ctx.credentials, identity.arn);
 
   if (!checkResult.success) {
     // SimulatePrincipalPolicy failed - might not have iam:SimulatePrincipalPolicy permission
-    // This is not fatal - we can continue and try to grant permissions anyway
-    logger.warn(`  Could not check permissions: ${checkResult.error}`);
-    logger.info('  Continuing with permission granting attempt...');
+    // or the ARN format is not supported (e.g., assumed-role ARNs)
+    logger.warn(`  Could not verify permissions: ${checkResult.error}`);
+    logger.info(
+      '  Skipping permission check — deployment will fail if permissions are missing.',
+    );
     logger.newline();
   } else {
     const totalActions = checkResult.allowed.length + checkResult.denied.length;
@@ -52,59 +54,25 @@ export async function awsBootstrap(ctx: AWSCommandContext): Promise<void> {
     );
 
     if (checkResult.denied.length > 0) {
-      logger.warn(`  Denied: ${checkResult.denied.length} actions`);
+      logger.newline();
+      logger.error('Missing permissions:');
+      for (const action of checkResult.denied.slice(0, 20)) {
+        logger.error(`  - ${action}`);
+      }
+      if (checkResult.denied.length > 20) {
+        logger.error(`  ... and ${checkResult.denied.length - 20} more`);
+      }
+      logger.newline();
+
+      throw new CliError(
+        `Missing ${checkResult.denied.length} required IAM permissions`,
+        'infra:bootstrap',
+        'Add the missing permissions to your IAM user or role. See the AWS CI/CD guide for the required inline policy.',
+      );
     }
     logger.newline();
   }
 
-  // Step 3: Grant missing permissions if needed
-  const hasMissingPermissions =
-    checkResult.denied.length > 0 || !checkResult.success;
-
-  if (hasMissingPermissions) {
-    logger.info('Step 3/3: Attempting to grant missing permissions...');
-    const grantResult = await grantAWSPermissions(ctx.credentials, identity);
-
-    if (grantResult.policiesAttached.length > 0) {
-      logger.info(`  Attached ${grantResult.policiesAttached.length} policies`);
-      for (const policy of grantResult.policiesAttached) {
-        const policyName = policy.split('/').pop();
-        logger.info(`    + ${policyName}`);
-      }
-    }
-
-    if (grantResult.policiesFailed.length > 0) {
-      logger.warn(
-        `  Failed to attach ${grantResult.policiesFailed.length} policies`,
-      );
-
-      // If we couldn't attach any policies and have denied permissions, show detailed error
-      if (
-        grantResult.policiesAttached.length === 0 &&
-        checkResult.denied.length > 0
-      ) {
-        logger.newline();
-        logger.error('Missing permissions (cannot grant automatically):');
-        for (const action of checkResult.denied.slice(0, 10)) {
-          logger.error(`  - ${action}`);
-        }
-        if (checkResult.denied.length > 10) {
-          logger.error(`  ... and ${checkResult.denied.length - 10} more`);
-        }
-        logger.newline();
-
-        throw new CliError(
-          'Cannot automatically grant required permissions',
-          'infra:bootstrap',
-          'Ask your AWS admin to grant the listed permissions, or use credentials with IAM admin access',
-        );
-      }
-    }
-  } else {
-    logger.info('Step 3/3: All permissions already granted');
-  }
-
-  logger.newline();
   logger.complete('Bootstrap complete!');
   logger.info('AWS credentials verified and permissions checked.');
   logger.newline();

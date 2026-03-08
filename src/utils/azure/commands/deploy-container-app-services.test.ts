@@ -14,6 +14,7 @@ rs.mock('../../build-runtime', () => ({ buildRuntime: () => ({}) }));
 
 rs.mock('../terraform', () => ({
   getTerraformOutput: rs.fn(),
+  getAcrIdentityOutputs: rs.fn(),
 }));
 
 rs.mock('../../docker', () => ({
@@ -59,8 +60,7 @@ rs.mock('@tsdevstack/infra-core', () => ({
       : undefined,
   ),
   buildAzureTerraformEnv: rs.fn(),
-  createOrUpdateContainerApp: rs.fn(),
-  waitForContainerAppReady: rs.fn(),
+  deployWithActivationCheck: rs.fn(),
 }));
 
 rs.mock('../../deploy/get-total-service-max-instances', () => ({
@@ -76,7 +76,7 @@ rs.mock('../../infrastructure/merge-with-defaults', () => ({
 }));
 
 import { deployContainerAppServices } from './deploy-container-app-services';
-import { getTerraformOutput } from '../terraform';
+import { getTerraformOutput, getAcrIdentityOutputs } from '../terraform';
 import { fetchSecret } from '../../credentials/fetch-secret';
 import { azureDbMigrateRun } from './db-migrate-run';
 import { infraDockerBuild } from '../../../commands/infra-docker-build';
@@ -86,8 +86,7 @@ import {
   calculatePoolSize,
   getTotalWorkerMaxInstances,
   buildAzureTerraformEnv,
-  createOrUpdateContainerApp,
-  waitForContainerAppReady,
+  deployWithActivationCheck,
 } from '@tsdevstack/infra-core';
 import { getTotalServiceMaxInstances } from '../../deploy/get-total-service-max-instances';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
@@ -187,12 +186,14 @@ describe('deployContainerAppServices', () => {
     rs.mocked(infraDockerBuild).mockResolvedValue(undefined);
     rs.mocked(infraDockerPush).mockResolvedValue(undefined);
 
-    rs.mocked(createOrUpdateContainerApp).mockResolvedValue({
-      fqdn: 'my-app-auth-service.azurecontainerapps.io',
+    rs.mocked(getAcrIdentityOutputs).mockReturnValue({
+      acrManagedIdentityId: undefined,
+      managedIdentityClientId: undefined,
     });
 
-    rs.mocked(waitForContainerAppReady).mockResolvedValue({
-      status: 'Succeeded',
+    rs.mocked(deployWithActivationCheck).mockResolvedValue({
+      activated: true,
+      fqdn: 'my-app-auth-service.azurecontainerapps.io',
     });
   });
 
@@ -200,18 +201,19 @@ describe('deployContainerAppServices', () => {
     await deployContainerAppServices(mockCtx, {});
 
     // auth-service, offers-service (not frontend/nextjs, not landing/spa)
-    expect(createOrUpdateContainerApp).toHaveBeenCalledTimes(2);
+    expect(deployWithActivationCheck).toHaveBeenCalledTimes(2);
   });
 
   it('should filter by specific service', async () => {
     await deployContainerAppServices(mockCtx, { service: 'auth-service' });
 
-    expect(createOrUpdateContainerApp).toHaveBeenCalledTimes(1);
-    expect(createOrUpdateContainerApp).toHaveBeenCalledWith(
-      {},
+    expect(deployWithActivationCheck).toHaveBeenCalledTimes(1);
+    expect(deployWithActivationCheck).toHaveBeenCalledWith(
       expect.objectContaining({
-        containerAppName: 'my-app-auth-service',
-        image: 'myapp.azurecr.io/auth-service:abc1234',
+        createOptions: expect.objectContaining({
+          containerAppName: 'my-app-auth-service',
+          image: 'myapp.azurecr.io/auth-service:abc1234',
+        }),
       }),
     );
   });
@@ -222,10 +224,11 @@ describe('deployContainerAppServices', () => {
       tag: 'v1.0.0',
     });
 
-    expect(createOrUpdateContainerApp).toHaveBeenCalledWith(
-      {},
+    expect(deployWithActivationCheck).toHaveBeenCalledWith(
       expect.objectContaining({
-        image: 'myapp.azurecr.io/auth-service:v1.0.0',
+        createOptions: expect.objectContaining({
+          image: 'myapp.azurecr.io/auth-service:v1.0.0',
+        }),
       }),
     );
   });
@@ -233,10 +236,11 @@ describe('deployContainerAppServices', () => {
   it('should default to latest tag', async () => {
     await deployContainerAppServices(mockCtx, { service: 'auth-service' });
 
-    expect(createOrUpdateContainerApp).toHaveBeenCalledWith(
-      {},
+    expect(deployWithActivationCheck).toHaveBeenCalledWith(
       expect.objectContaining({
-        image: 'myapp.azurecr.io/auth-service:abc1234',
+        createOptions: expect.objectContaining({
+          image: 'myapp.azurecr.io/auth-service:abc1234',
+        }),
       }),
     );
   });
@@ -261,7 +265,7 @@ describe('deployContainerAppServices', () => {
     expect(mocks.logger.warn).toHaveBeenCalledWith(
       'No Docker services found to deploy',
     );
-    expect(createOrUpdateContainerApp).not.toHaveBeenCalled();
+    expect(deployWithActivationCheck).not.toHaveBeenCalled();
   });
 
   it('should authenticate Docker once and pass skipAuth to build and push', async () => {
@@ -276,20 +280,11 @@ describe('deployContainerAppServices', () => {
     );
   });
 
-  it('should throw when container app creation fails', async () => {
-    rs.mocked(createOrUpdateContainerApp).mockRejectedValue(
-      new Error('Quota exceeded'),
-    );
-
-    await expect(deployContainerAppServices(mockCtx, {})).rejects.toThrow(
-      mocks.CliError,
-    );
-  });
-
-  it('should throw when container app fails to stabilize', async () => {
-    rs.mocked(waitForContainerAppReady).mockRejectedValue(
-      new Error('Container App reached Failed state'),
-    );
+  it('should throw when deployment fails', async () => {
+    rs.mocked(deployWithActivationCheck).mockResolvedValue({
+      activated: false,
+      error: 'Quota exceeded',
+    });
 
     await expect(deployContainerAppServices(mockCtx, {})).rejects.toThrow(
       mocks.CliError,
@@ -297,24 +292,18 @@ describe('deployContainerAppServices', () => {
   });
 
   it('should pass acrManagedIdentityId when available from Terraform output', async () => {
-    rs.mocked(getTerraformOutput).mockImplementation(
-      (_dir: string, key: string) => {
-        const outputs: Record<string, string> = {
-          acr_login_server: 'myapp.azurecr.io',
-          resource_group_name: 'my-app-dev-rg',
-          container_apps_env_id: '/subscriptions/sub-123/env-id',
-          container_apps_acr_identity_id: '/subscriptions/sub/identity/ca-id',
-        };
-        return outputs[key] ?? '';
-      },
-    );
+    rs.mocked(getAcrIdentityOutputs).mockReturnValue({
+      acrManagedIdentityId: '/subscriptions/sub/identity/ca-id',
+      managedIdentityClientId: undefined,
+    });
 
     await deployContainerAppServices(mockCtx, { service: 'auth-service' });
 
-    expect(createOrUpdateContainerApp).toHaveBeenCalledWith(
-      {},
+    expect(deployWithActivationCheck).toHaveBeenCalledWith(
       expect.objectContaining({
-        acrManagedIdentityId: '/subscriptions/sub/identity/ca-id',
+        createOptions: expect.objectContaining({
+          acrManagedIdentityId: '/subscriptions/sub/identity/ca-id',
+        }),
       }),
     );
   });
@@ -322,45 +311,36 @@ describe('deployContainerAppServices', () => {
   it('should fall back to no managed identity when Terraform output not found', async () => {
     await deployContainerAppServices(mockCtx, { service: 'auth-service' });
 
-    const callArgs = rs.mocked(createOrUpdateContainerApp).mock.calls[0][1];
-    expect(callArgs.acrManagedIdentityId).toBeFalsy();
+    const callArgs = rs.mocked(deployWithActivationCheck).mock.calls[0][0];
+    expect(callArgs.createOptions.acrManagedIdentityId).toBeFalsy();
   });
 
   it('should pass correct options for nestjs service', async () => {
     await deployContainerAppServices(mockCtx, { service: 'auth-service' });
 
-    expect(createOrUpdateContainerApp).toHaveBeenCalledWith(
-      {},
-      expect.objectContaining({
-        credentials: mockCtx.credentials,
-        resourceGroupName: 'my-app-dev-rg',
-        containerAppsEnvId: '/subscriptions/sub-123/env-id',
-        ingressPort: 3000,
-        externalIngress: true,
-        minReplicas: 1,
-        maxReplicas: 3,
-        cpu: 0.5,
-        memory: '1Gi',
-      }),
-    );
-  });
-
-  it('should pass correct options to waitForContainerAppReady', async () => {
-    await deployContainerAppServices(mockCtx, { service: 'auth-service' });
-
-    expect(waitForContainerAppReady).toHaveBeenCalledWith(
-      {},
+    expect(deployWithActivationCheck).toHaveBeenCalledWith(
       expect.objectContaining({
         credentials: mockCtx.credentials,
         resourceGroupName: 'my-app-dev-rg',
         containerAppName: 'my-app-auth-service',
-        timeoutMs: 300000,
+        createOptions: expect.objectContaining({
+          credentials: mockCtx.credentials,
+          resourceGroupName: 'my-app-dev-rg',
+          containerAppsEnvId: '/subscriptions/sub-123/env-id',
+          ingressPort: 3000,
+          externalIngress: true,
+          minReplicas: 1,
+          maxReplicas: 3,
+          cpu: 0.5,
+          memory: '1Gi',
+        }),
       }),
     );
   });
 
   it('should log fqdn when available', async () => {
-    rs.mocked(createOrUpdateContainerApp).mockResolvedValue({
+    rs.mocked(deployWithActivationCheck).mockResolvedValue({
+      activated: true,
       fqdn: 'my-app-auth.azurecontainerapps.io',
     });
 
@@ -372,7 +352,9 @@ describe('deployContainerAppServices', () => {
   });
 
   it('should log success without fqdn when not available', async () => {
-    rs.mocked(createOrUpdateContainerApp).mockResolvedValue({});
+    rs.mocked(deployWithActivationCheck).mockResolvedValue({
+      activated: true,
+    });
 
     await deployContainerAppServices(mockCtx, { service: 'auth-service' });
 
@@ -395,16 +377,17 @@ describe('deployContainerAppServices', () => {
   it('should pass envVars with Azure credentials and PORT for nestjs services', async () => {
     await deployContainerAppServices(mockCtx, { service: 'auth-service' });
 
-    expect(createOrUpdateContainerApp).toHaveBeenCalledWith(
-      {},
+    expect(deployWithActivationCheck).toHaveBeenCalledWith(
       expect.objectContaining({
-        envVars: [
-          ...expectedBackendEnvVarsArray,
-          { name: 'AZURE_CLIENT_ID', value: 'client-789' },
-          { name: 'AZURE_TENANT_ID', value: 'tenant-456' },
-          { name: 'AZURE_KEYVAULT_NAME', value: 'my-app-dev-kv' },
-          { name: 'PORT', value: '3000' },
-        ],
+        createOptions: expect.objectContaining({
+          envVars: [
+            ...expectedBackendEnvVarsArray,
+            { name: 'AZURE_CLIENT_ID', value: 'client-789' },
+            { name: 'AZURE_TENANT_ID', value: 'tenant-456' },
+            { name: 'AZURE_KEYVAULT_NAME', value: 'my-app-dev-kv' },
+            { name: 'PORT', value: '3000' },
+          ],
+        }),
       }),
     );
   });
@@ -417,20 +400,21 @@ describe('deployContainerAppServices', () => {
       'dev',
       'auth-service',
     );
-    expect(createOrUpdateContainerApp).toHaveBeenCalledWith(
-      {},
+    expect(deployWithActivationCheck).toHaveBeenCalledWith(
       expect.objectContaining({
-        secrets: [
-          { name: 'azure-client-secret', value: 'secret-abc' },
-          {
-            name: 'database-url',
-            value: 'postgresql://user:pass@db.example.com:5432/mydb',
-          },
-        ],
-        secretEnvVars: [
-          { name: 'AZURE_CLIENT_SECRET', secretRef: 'azure-client-secret' },
-          { name: 'DATABASE_URL', secretRef: 'database-url' },
-        ],
+        createOptions: expect.objectContaining({
+          secrets: [
+            { name: 'azure-client-secret', value: 'secret-abc' },
+            {
+              name: 'database-url',
+              value: 'postgresql://user:pass@db.example.com:5432/mydb',
+            },
+          ],
+          secretEnvVars: [
+            { name: 'AZURE_CLIENT_SECRET', secretRef: 'azure-client-secret' },
+            { name: 'DATABASE_URL', secretRef: 'database-url' },
+          ],
+        }),
       }),
     );
   });
@@ -448,13 +432,14 @@ describe('deployContainerAppServices', () => {
       'dev',
       'auth-service',
     );
-    expect(createOrUpdateContainerApp).toHaveBeenCalledWith(
-      {},
+    expect(deployWithActivationCheck).toHaveBeenCalledWith(
       expect.objectContaining({
-        secrets: [{ name: 'azure-client-secret', value: 'secret-abc' }],
-        secretEnvVars: [
-          { name: 'AZURE_CLIENT_SECRET', secretRef: 'azure-client-secret' },
-        ],
+        createOptions: expect.objectContaining({
+          secrets: [{ name: 'azure-client-secret', value: 'secret-abc' }],
+          secretEnvVars: [
+            { name: 'AZURE_CLIENT_SECRET', secretRef: 'azure-client-secret' },
+          ],
+        }),
       }),
     );
   });

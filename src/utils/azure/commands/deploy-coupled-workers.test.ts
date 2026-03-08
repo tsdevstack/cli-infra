@@ -27,6 +27,10 @@ rs.mock('../../build-runtime', () => ({
 
 rs.mock('../terraform', () => ({
   getTerraformOutput: rs.fn(() => ''),
+  getAcrIdentityOutputs: rs.fn(() => ({
+    acrManagedIdentityId: undefined,
+    managedIdentityClientId: undefined,
+  })),
 }));
 
 rs.mock('../../deploy/get-total-service-max-instances', () => ({

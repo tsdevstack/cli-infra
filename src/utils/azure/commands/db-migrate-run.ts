@@ -6,7 +6,7 @@
 
 import path from 'node:path';
 import { getContext } from '../../../context';
-import { getTerraformOutput } from '../terraform';
+import { getAcrIdentityOutputs, getTerraformOutput } from '../terraform';
 import { buildAzureTerraformEnv } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
 import { executeContainerJob } from './execute-container-job';
@@ -71,16 +71,7 @@ export async function azureDbMigrateRun(
   }
 
   // Managed identity for ACR pull (falls back to password if not provisioned)
-  let acrManagedIdentityId: string | undefined;
-  try {
-    acrManagedIdentityId = getTerraformOutput(
-      terraformDir,
-      'container_apps_acr_identity_id',
-      tfEnv,
-    );
-  } catch {
-    // Old Terraform state — fall back to password-based auth
-  }
+  const { acrManagedIdentityId } = getAcrIdentityOutputs(terraformDir, tfEnv);
 
   const databaseUrl = fetchSecret('DATABASE_URL', targetEnv, service.name);
 

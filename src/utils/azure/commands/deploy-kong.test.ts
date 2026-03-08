@@ -28,20 +28,10 @@ rs.mock('./deploy-app-service', () => ({
   deployAppService: rs.fn(),
 }));
 
-rs.mock('./set-app-service-settings', () => ({
-  setAppServiceSettings: rs.fn(),
-}));
-
-rs.mock('../../credentials/fetch-secret', () => ({
-  fetchSecret: rs.fn(),
-}));
-
-import { azureKongDeploy } from './kong-deploy';
+import { azureKongDeploy } from './deploy-kong';
 import { getTerraformOutput } from '../terraform';
 import { buildAzureTerraformEnv } from '@tsdevstack/infra-core';
 import { deployAppService } from './deploy-app-service';
-import { setAppServiceSettings } from './set-app-service-settings';
-import { fetchSecret } from '../../credentials/fetch-secret';
 
 const testCredentials = {
   subscriptionId: 'sub-123',
@@ -78,8 +68,6 @@ describe('azureKongDeploy', () => {
         return outputs[name] || '';
       },
     );
-
-    rs.mocked(fetchSecret).mockReturnValue(null);
   });
 
   describe('Standard use cases', () => {
@@ -102,34 +90,6 @@ describe('azureKongDeploy', () => {
       expect(mocks.logger.complete).toHaveBeenCalledWith(
         'Kong Gateway deployed successfully!',
       );
-    });
-
-    it('should fetch and inject Kong secrets as App Service settings', async () => {
-      rs.mocked(fetchSecret).mockImplementation((name: string) => {
-        if (name === 'REDIS_HOST') return 'redis.example.com';
-        if (name === 'REDIS_PORT') return '6380';
-        return null;
-      });
-
-      await azureKongDeploy(baseParams);
-
-      expect(setAppServiceSettings).toHaveBeenCalledWith(
-        testCredentials,
-        'myapp-dev-rg',
-        'myapp-kong-app',
-        expect.objectContaining({
-          REDIS_HOST: 'redis.example.com',
-          REDIS_PORT: '6380',
-        }),
-      );
-    });
-
-    it('should not call setAppServiceSettings when no secrets found', async () => {
-      rs.mocked(fetchSecret).mockReturnValue(null);
-
-      await azureKongDeploy(baseParams);
-
-      expect(setAppServiceSettings).not.toHaveBeenCalled();
     });
 
     it('should get kong_app_service_name from Terraform outputs', async () => {

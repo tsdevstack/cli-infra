@@ -4,7 +4,7 @@
  * Kong requires special configuration:
  * - Ingress: INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER
  * - Status probe on port 8100 (Kong status API)
- * - Runtime secrets: KONG_TRUST_TOKEN, REDIS_HOST, REDIS_PORT, REDIS_PASSWORD
+ * All config values are baked into kong.yml at Docker image build time.
  */
 
 import { ServicesClient } from '@google-cloud/run';
@@ -48,47 +48,6 @@ export async function deployKongCloudRun(
   const parent = `projects/${options.projectId}/locations/${options.region}`;
   const serviceName = `${parent}/services/${options.projectName}-kong`;
 
-  // Build secrets references
-  const secretPrefix = `projects/${options.projectId}/secrets/${options.projectName}-shared`;
-  const secretEnvVars = [
-    {
-      name: 'KONG_TRUST_TOKEN',
-      valueSource: {
-        secretKeyRef: {
-          secret: `${secretPrefix}-KONG_TRUST_TOKEN`,
-          version: 'latest',
-        },
-      },
-    },
-    {
-      name: 'REDIS_HOST',
-      valueSource: {
-        secretKeyRef: {
-          secret: `${secretPrefix}-REDIS_HOST`,
-          version: 'latest',
-        },
-      },
-    },
-    {
-      name: 'REDIS_PORT',
-      valueSource: {
-        secretKeyRef: {
-          secret: `${secretPrefix}-REDIS_PORT`,
-          version: 'latest',
-        },
-      },
-    },
-    {
-      name: 'REDIS_PASSWORD',
-      valueSource: {
-        secretKeyRef: {
-          secret: `${secretPrefix}-REDIS_PASSWORD`,
-          version: 'latest',
-        },
-      },
-    },
-  ];
-
   // Build template config (use Record to avoid strict type issues with SDK)
   const templateConfig: Record<string, unknown> = {
     serviceAccount: options.serviceAccount,
@@ -100,7 +59,6 @@ export async function deployKongCloudRun(
       {
         image: options.imageUri,
         ports: [{ containerPort: 8080 }],
-        env: secretEnvVars,
         resources: {
           limits: {
             cpu: options.cpu,

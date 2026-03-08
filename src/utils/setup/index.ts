@@ -8,4 +8,4 @@ export {
   setupInfraCommand,
   type InfraCommandContext,
 } from './setup-infra-command';
-export { setupGCPInfraCommand } from './setup-gcp-infra-command';
+export { setupGCPInfraCommand } from '../gcp/setup/setup-gcp-infra-command';

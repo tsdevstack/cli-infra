@@ -29,7 +29,7 @@ describe('generateKongDockerfile', () => {
     expect(result).toContain('KONG_DECLARATIVE_CONFIG');
   });
 
-  it('should configure Cloud Run expected port 8080', () => {
+  it('should configure proxy on port 8080', () => {
     const result = generateKongDockerfile();
     expect(result).toContain('KONG_PROXY_LISTEN="0.0.0.0:8080"');
     expect(result).toContain('EXPOSE 8080');
@@ -72,5 +72,28 @@ describe('generateKongDockerfile', () => {
     const result = generateKongDockerfile();
     expect(result).toContain('USER kong');
     expect(result).toContain('CMD ["kong", "docker-start"]');
+  });
+
+  it('should include basic health check for all providers', () => {
+    const result = generateKongDockerfile();
+    expect(result).toContain('kong-health-check.sh');
+    expect(result).toContain('localhost:8100/status/ready');
+  });
+
+  it('should include AWS health check script when provider is aws', () => {
+    const result = generateKongDockerfile({ provider: 'aws' });
+    expect(result).toContain('WAKEUP_LAMBDA_URL');
+    expect(result).toContain('WAKEUP_SECRET');
+    expect(result).toContain('oidc-initialized');
+  });
+
+  it('should not include AWS health check script for non-aws providers', () => {
+    const gcpResult = generateKongDockerfile({ provider: 'gcp' });
+    expect(gcpResult).not.toContain('WAKEUP_LAMBDA_URL');
+    expect(gcpResult).not.toContain('WAKEUP_SECRET');
+
+    const azureResult = generateKongDockerfile({ provider: 'azure' });
+    expect(azureResult).not.toContain('WAKEUP_LAMBDA_URL');
+    expect(azureResult).not.toContain('WAKEUP_SECRET');
   });
 });

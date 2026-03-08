@@ -19,66 +19,96 @@ describe('validateServiceOverride', () => {
     rs.clearAllMocks();
   });
 
-  describe('valid configurations', () => {
+  describe('valid configurations (GCP)', () => {
     it('should accept empty object', () => {
       expect(() =>
-        validateServiceOverride('auth-service', 'dev', {}),
+        validateServiceOverride('auth-service', 'dev', {}, 'gcp'),
       ).not.toThrow();
     });
 
     it('should accept valid minInstances', () => {
       expect(() =>
-        validateServiceOverride('auth-service', 'dev', { minInstances: 1 }),
+        validateServiceOverride(
+          'auth-service',
+          'dev',
+          { minInstances: 1 },
+          'gcp',
+        ),
       ).not.toThrow();
     });
 
     it('should accept valid maxInstances', () => {
       expect(() =>
-        validateServiceOverride('auth-service', 'dev', { maxInstances: 10 }),
+        validateServiceOverride(
+          'auth-service',
+          'dev',
+          { maxInstances: 10 },
+          'gcp',
+        ),
       ).not.toThrow();
     });
 
     it('should accept valid cpu', () => {
       expect(() =>
-        validateServiceOverride('bff-service', 'prod', { cpu: '1' }),
+        validateServiceOverride('bff-service', 'prod', { cpu: '1' }, 'gcp'),
       ).not.toThrow();
     });
 
     it('should accept valid memory', () => {
       expect(() =>
-        validateServiceOverride('bff-service', 'prod', { memory: '512Mi' }),
+        validateServiceOverride(
+          'bff-service',
+          'prod',
+          { memory: '512Mi' },
+          'gcp',
+        ),
       ).not.toThrow();
     });
 
     it('should accept valid timeout', () => {
       expect(() =>
-        validateServiceOverride('api-service', 'staging', { timeout: '300s' }),
+        validateServiceOverride(
+          'api-service',
+          'staging',
+          { timeout: '300s' },
+          'gcp',
+        ),
       ).not.toThrow();
     });
 
     it('should accept valid port', () => {
       expect(() =>
-        validateServiceOverride('api-service', 'dev', { port: 8080 }),
+        validateServiceOverride('api-service', 'dev', { port: 8080 }, 'gcp'),
       ).not.toThrow();
     });
 
     it('should accept valid concurrency', () => {
       expect(() =>
-        validateServiceOverride('api-service', 'dev', { concurrency: 80 }),
+        validateServiceOverride(
+          'api-service',
+          'dev',
+          { concurrency: 80 },
+          'gcp',
+        ),
       ).not.toThrow();
     });
 
     it('should accept full configuration', () => {
       expect(() =>
-        validateServiceOverride('api-service', 'prod', {
-          minInstances: 2,
-          maxInstances: 10,
-          cpu: '2',
-          memory: '1Gi',
-          timeout: '60s',
-          port: 3000,
-          concurrency: 100,
-        }),
+        validateServiceOverride(
+          'api-service',
+          'prod',
+          {
+            minInstances: 2,
+            maxInstances: 10,
+            cpu: '2',
+            memory: '1Gi',
+            timeout: '60s',
+            port: 3000,
+            concurrency: 100,
+          },
+          'gcp',
+        ),
       ).not.toThrow();
     });
   });
@@ -90,6 +120,7 @@ describe('validateServiceOverride', () => {
           'auth-service',
           'dev',
           null as unknown as Record<string, unknown>,
+          'gcp',
         ),
       ).toThrow(mocks.CliError);
     });
@@ -100,6 +131,7 @@ describe('validateServiceOverride', () => {
           'auth-service',
           'dev',
           'invalid' as unknown as Record<string, unknown>,
+          'gcp',
         ),
       ).toThrow(mocks.CliError);
     });
@@ -110,6 +142,7 @@ describe('validateServiceOverride', () => {
           'auth-service',
           'dev',
           [] as unknown as Record<string, unknown>,
+          'gcp',
         ),
       ).toThrow(mocks.CliError);
     });
@@ -118,17 +151,27 @@ describe('validateServiceOverride', () => {
   describe('unknown fields', () => {
     it('should throw for unknown field', () => {
       expect(() =>
-        validateServiceOverride('auth-service', 'dev', {
-          replicas: 3,
-        } as Record<string, unknown>),
+        validateServiceOverride(
+          'auth-service',
+          'dev',
+          {
+            replicas: 3,
+          } as Record<string, unknown>,
+          'gcp',
+        ),
       ).toThrow(mocks.CliError);
     });
 
     it('should include field name in error', () => {
       try {
-        validateServiceOverride('auth-service', 'dev', {
-          unknownField: true,
-        } as Record<string, unknown>);
+        validateServiceOverride(
+          'auth-service',
+          'dev',
+          {
+            unknownField: true,
+          } as Record<string, unknown>,
+          'gcp',
+        );
         expect.fail('Should have thrown');
       } catch (error) {
         expect((error as Error).message).toContain('unknownField');
@@ -139,21 +182,36 @@ describe('validateServiceOverride', () => {
   describe('minInstances validation', () => {
     it('should throw for negative minInstances', () => {
       expect(() =>
-        validateServiceOverride('auth-service', 'dev', { minInstances: -1 }),
+        validateServiceOverride(
+          'auth-service',
+          'dev',
+          { minInstances: -1 },
+          'gcp',
+        ),
       ).toThrow(mocks.CliError);
     });
 
     it('should throw for non-integer minInstances', () => {
       expect(() =>
-        validateServiceOverride('auth-service', 'dev', { minInstances: 1.5 }),
+        validateServiceOverride(
+          'auth-service',
+          'dev',
+          { minInstances: 1.5 },
+          'gcp',
+        ),
       ).toThrow(mocks.CliError);
     });
 
     it('should throw for string minInstances', () => {
       expect(() =>
-        validateServiceOverride('auth-service', 'dev', {
-          minInstances: '1',
-        } as unknown as Record<string, unknown>),
+        validateServiceOverride(
+          'auth-service',
+          'dev',
+          {
+            minInstances: '1',
+          } as unknown as Record<string, unknown>,
+          'gcp',
+        ),
       ).toThrow(mocks.CliError);
     });
   });
@@ -161,13 +219,23 @@ describe('validateServiceOverride', () => {
   describe('maxInstances validation', () => {
     it('should throw for maxInstances over limit', () => {
       expect(() =>
-        validateServiceOverride('auth-service', 'dev', { maxInstances: 1001 }),
+        validateServiceOverride(
+          'auth-service',
+          'dev',
+          { maxInstances: 1001 },
+          'gcp',
+        ),
       ).toThrow(mocks.CliError);
     });
 
     it('should throw for non-integer maxInstances', () => {
       expect(() =>
-        validateServiceOverride('auth-service', 'dev', { maxInstances: 5.5 }),
+        validateServiceOverride(
+          'auth-service',
+          'dev',
+          { maxInstances: 5.5 },
+          'gcp',
+        ),
       ).toThrow(mocks.CliError);
     });
   });
@@ -175,15 +243,20 @@ describe('validateServiceOverride', () => {
   describe('cpu validation', () => {
     it('should throw for invalid cpu value', () => {
       expect(() =>
-        validateServiceOverride('auth-service', 'dev', { cpu: '3' }),
+        validateServiceOverride('auth-service', 'dev', { cpu: '3' }, 'gcp'),
       ).toThrow(mocks.CliError);
     });
 
     it('should throw for numeric cpu', () => {
       expect(() =>
-        validateServiceOverride('auth-service', 'dev', {
-          cpu: 1,
-        } as unknown as Record<string, unknown>),
+        validateServiceOverride(
+          'auth-service',
+          'dev',
+          {
+            cpu: 1,
+          } as unknown as Record<string, unknown>,
+          'gcp',
+        ),
       ).toThrow(mocks.CliError);
     });
   });
@@ -191,15 +264,25 @@ describe('validateServiceOverride', () => {
   describe('memory validation', () => {
     it('should throw for invalid memory value', () => {
       expect(() =>
-        validateServiceOverride('auth-service', 'dev', { memory: '3Gi' }),
+        validateServiceOverride(
+          'auth-service',
+          'dev',
+          { memory: '3Gi' },
+          'gcp',
+        ),
       ).toThrow(mocks.CliError);
     });
 
     it('should throw for numeric memory', () => {
       expect(() =>
-        validateServiceOverride('auth-service', 'dev', {
-          memory: 512,
-        } as unknown as Record<string, unknown>),
+        validateServiceOverride(
+          'auth-service',
+          'dev',
+          {
+            memory: 512,
+          } as unknown as Record<string, unknown>,
+          'gcp',
+        ),
       ).toThrow(mocks.CliError);
     });
   });
@@ -207,19 +290,34 @@ describe('validateServiceOverride', () => {
   describe('timeout validation', () => {
     it('should throw for timeout without s suffix', () => {
       expect(() =>
-        validateServiceOverride('auth-service', 'dev', { timeout: '300' }),
+        validateServiceOverride(
+          'auth-service',
+          'dev',
+          { timeout: '300' },
+          'gcp',
+        ),
       ).toThrow(mocks.CliError);
     });
 
     it('should throw for timeout below minimum', () => {
       expect(() =>
-        validateServiceOverride('auth-service', 'dev', { timeout: '10s' }),
+        validateServiceOverride(
+          'auth-service',
+          'dev',
+          { timeout: '10s' },
+          'gcp',
+        ),
       ).toThrow(mocks.CliError);
     });
 
     it('should throw for timeout above maximum', () => {
       expect(() =>
-        validateServiceOverride('auth-service', 'dev', { timeout: '4000s' }),
+        validateServiceOverride(
+          'auth-service',
+          'dev',
+          { timeout: '4000s' },
+          'gcp',
+        ),
       ).toThrow(mocks.CliError);
     });
   });
@@ -227,19 +325,19 @@ describe('validateServiceOverride', () => {
   describe('port validation', () => {
     it('should throw for port below minimum', () => {
       expect(() =>
-        validateServiceOverride('auth-service', 'dev', { port: 0 }),
+        validateServiceOverride('auth-service', 'dev', { port: 0 }, 'gcp'),
       ).toThrow(mocks.CliError);
     });
 
     it('should throw for port above maximum', () => {
       expect(() =>
-        validateServiceOverride('auth-service', 'dev', { port: 70000 }),
+        validateServiceOverride('auth-service', 'dev', { port: 70000 }, 'gcp'),
       ).toThrow(mocks.CliError);
     });
 
     it('should throw for non-integer port', () => {
       expect(() =>
-        validateServiceOverride('auth-service', 'dev', { port: 8080.5 }),
+        validateServiceOverride('auth-service', 'dev', { port: 8080.5 }, 'gcp'),
       ).toThrow(mocks.CliError);
     });
   });
@@ -247,13 +345,23 @@ describe('validateServiceOverride', () => {
   describe('concurrency validation', () => {
     it('should throw for concurrency below minimum', () => {
       expect(() =>
-        validateServiceOverride('auth-service', 'dev', { concurrency: 0 }),
+        validateServiceOverride(
+          'auth-service',
+          'dev',
+          { concurrency: 0 },
+          'gcp',
+        ),
       ).toThrow(mocks.CliError);
     });
 
     it('should throw for concurrency above maximum', () => {
       expect(() =>
-        validateServiceOverride('auth-service', 'dev', { concurrency: 1001 }),
+        validateServiceOverride(
+          'auth-service',
+          'dev',
+          { concurrency: 1001 },
+          'gcp',
+        ),
       ).toThrow(mocks.CliError);
     });
   });
@@ -261,13 +369,150 @@ describe('validateServiceOverride', () => {
   describe('error context', () => {
     it('should include service name and environment in error', () => {
       try {
-        validateServiceOverride('bff-service', 'staging', {
-          unknownField: true,
-        } as Record<string, unknown>);
+        validateServiceOverride(
+          'bff-service',
+          'staging',
+          {
+            unknownField: true,
+          } as Record<string, unknown>,
+          'gcp',
+        );
         expect.fail('Should have thrown');
       } catch (error) {
         expect((error as Error).message).toContain('staging.bff-service');
       }
+    });
+  });
+
+  describe('provider-specific CPU/memory validation', () => {
+    describe('GCP', () => {
+      it('should accept cpu 8 (GCP-only value)', () => {
+        expect(() =>
+          validateServiceOverride('auth-service', 'dev', { cpu: '8' }, 'gcp'),
+        ).not.toThrow();
+      });
+
+      it('should accept memory 256Mi', () => {
+        expect(() =>
+          validateServiceOverride(
+            'auth-service',
+            'dev',
+            { memory: '256Mi' },
+            'gcp',
+          ),
+        ).not.toThrow();
+      });
+    });
+
+    describe('AWS', () => {
+      it('should reject cpu 8 (not valid for AWS)', () => {
+        expect(() =>
+          validateServiceOverride('auth-service', 'dev', { cpu: '8' }, 'aws'),
+        ).toThrow(mocks.CliError);
+      });
+
+      it('should reject memory 256Mi (not valid for AWS)', () => {
+        expect(() =>
+          validateServiceOverride(
+            'auth-service',
+            'dev',
+            { memory: '256Mi' },
+            'aws',
+          ),
+        ).toThrow(mocks.CliError);
+      });
+
+      it('should accept memory 16Gi (AWS-only value)', () => {
+        expect(() =>
+          validateServiceOverride(
+            'auth-service',
+            'dev',
+            { memory: '16Gi' },
+            'aws',
+          ),
+        ).not.toThrow();
+      });
+
+      it('should accept valid AWS cpu', () => {
+        expect(() =>
+          validateServiceOverride('auth-service', 'dev', { cpu: '4' }, 'aws'),
+        ).not.toThrow();
+      });
+    });
+
+    describe('Azure', () => {
+      it('should reject cpu 8 (not valid for Azure)', () => {
+        expect(() =>
+          validateServiceOverride('auth-service', 'dev', { cpu: '8' }, 'azure'),
+        ).toThrow(mocks.CliError);
+      });
+
+      it('should reject memory 512Mi (Azure requires Gi units)', () => {
+        expect(() =>
+          validateServiceOverride(
+            'auth-service',
+            'dev',
+            { memory: '512Mi' },
+            'azure',
+          ),
+        ).toThrow(mocks.CliError);
+      });
+
+      it('should accept valid Azure memory', () => {
+        expect(() =>
+          validateServiceOverride(
+            'auth-service',
+            'dev',
+            { memory: '2Gi' },
+            'azure',
+          ),
+        ).not.toThrow();
+      });
+
+      it('should accept valid Azure cpu/memory pair', () => {
+        expect(() =>
+          validateServiceOverride(
+            'auth-service',
+            'dev',
+            {
+              cpu: '1',
+              memory: '2Gi',
+            },
+            'azure',
+          ),
+        ).not.toThrow();
+      });
+
+      it('should reject invalid Azure cpu/memory pair', () => {
+        expect(() =>
+          validateServiceOverride(
+            'auth-service',
+            'dev',
+            {
+              cpu: '1',
+              memory: '0.5Gi',
+            },
+            'azure',
+          ),
+        ).toThrow(mocks.CliError);
+      });
+
+      it('should not trigger pair validation when only cpu is set', () => {
+        expect(() =>
+          validateServiceOverride('auth-service', 'dev', { cpu: '1' }, 'azure'),
+        ).not.toThrow();
+      });
+
+      it('should not trigger pair validation when only memory is set', () => {
+        expect(() =>
+          validateServiceOverride(
+            'auth-service',
+            'dev',
+            { memory: '2Gi' },
+            'azure',
+          ),
+        ).not.toThrow();
+      });
     });
   });
 });

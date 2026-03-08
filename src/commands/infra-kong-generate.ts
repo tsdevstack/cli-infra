@@ -11,9 +11,9 @@ import { execSync } from 'node:child_process';
 import { getContext } from '../context';
 import { toServiceEnvVarName } from '@tsdevstack/infra-core';
 import { setupInfraCommand } from '../utils/setup/setup-infra-command';
-import { addAwsUpstreamsToKongConfig } from '../utils/kong/add-aws-upstreams-to-kong-config';
+import { addAwsUpstreamsToKongConfig } from '../utils/kong/aws/add-aws-upstreams-to-kong-config';
 import { addRedisTlsToKongConfig } from '../utils/kong/add-redis-tls-to-kong-config';
-import { addAzureHealthToKongConfig } from '../utils/kong/add-azure-health-to-kong-config';
+import { addAzureHealthToKongConfig } from '../utils/kong/azure/add-azure-health-to-kong-config';
 import type {
   KongTemplate,
   ServiceRouteConfig,

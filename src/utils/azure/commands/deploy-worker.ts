@@ -9,12 +9,10 @@
 import path from 'node:path';
 import { getContext } from '../../../context';
 import { buildRuntime } from '../../build-runtime';
-import { getTerraformOutput } from '../terraform';
+import { getAcrIdentityOutputs, getTerraformOutput } from '../terraform';
 import {
   buildAzureTerraformEnv,
-  createOrUpdateContainerApp,
-  waitForContainerAppActivation,
-  waitForContainerAppReady,
+  deployWithActivationCheck,
 } from '@tsdevstack/infra-core';
 import type {
   AzureCredentials,
@@ -90,16 +88,7 @@ export async function azureDeployWorker(
   }
 
   // Managed identity for ACR pull (falls back to password if not provisioned)
-  let acrManagedIdentityId: string | undefined;
-  try {
-    acrManagedIdentityId = getTerraformOutput(
-      terraformDir,
-      'container_apps_acr_identity_id',
-      tfEnv,
-    );
-  } catch {
-    // Old Terraform state — fall back to password-based auth
-  }
+  const { acrManagedIdentityId } = getAcrIdentityOutputs(terraformDir, tfEnv);
 
   // Workers use the base service image
   const imageUri = `${acrLoginServer}/${baseService.name}:${imageTag}`;
@@ -118,101 +107,42 @@ export async function azureDeployWorker(
     !!acrManagedIdentityId && params.minReplicas === 0;
   const deployMinReplicas = needsActivationCheck ? 1 : params.minReplicas;
 
-  const MAX_ACTIVATION_RETRIES = 6;
-  const ACTIVATION_RETRY_DELAY_MS = 15_000;
+  logger.info('Deploying worker Container App...');
 
-  const createOptions = {
+  const deployResult = await deployWithActivationCheck({
+    runtime,
     credentials,
     resourceGroupName,
     containerAppName,
-    containerAppsEnvId,
-    image: imageUri,
-    command: ['node', 'dist/worker.js'],
-    envVars: params.envVars,
-    secrets: params.secrets,
-    secretEnvVars: params.secretEnvVars,
-    // No ingress — workers don't accept HTTP
-    minReplicas: deployMinReplicas,
-    maxReplicas: params.maxReplicas,
-    cpu: params.cpu,
-    memory: params.memory,
-    acrLoginServer,
-    acrManagedIdentityId,
-  };
-
-  logger.info('Deploying worker Container App...');
-
-  let activated = false;
-
-  for (
-    let attempt = 1;
-    attempt <= (needsActivationCheck ? MAX_ACTIVATION_RETRIES : 1);
-    attempt++
-  ) {
-    try {
-      await createOrUpdateContainerApp(runtime, createOptions);
-
-      logger.info('Waiting for worker to be ready...');
-      await waitForContainerAppReady(runtime, {
-        credentials,
-        resourceGroupName,
-        containerAppName,
-        timeoutMs: 300000,
-      });
-    } catch (err) {
-      if (err instanceof CliError) throw err;
-      throw new CliError(
-        `Failed to deploy worker ${worker.name}`,
-        'infra:worker-deploy',
-        err instanceof Error ? err.message : 'Unknown error',
-      );
-    }
-
-    if (!needsActivationCheck) {
-      activated = true;
-      break;
-    }
-
-    const activation = await waitForContainerAppActivation(runtime, {
+    createOptions: {
       credentials,
       resourceGroupName,
       containerAppName,
-    });
+      containerAppsEnvId,
+      image: imageUri,
+      command: ['node', 'dist/worker.js'],
+      envVars: params.envVars,
+      secrets: params.secrets,
+      secretEnvVars: params.secretEnvVars,
+      // No ingress — workers don't accept HTTP
+      minReplicas: deployMinReplicas,
+      maxReplicas: params.maxReplicas,
+      cpu: params.cpu,
+      memory: params.memory,
+      acrLoginServer,
+      acrManagedIdentityId,
+    },
+    needsActivationCheck,
+    targetMinReplicas: params.minReplicas,
+    logger,
+  });
 
-    if (activation.healthy) {
-      activated = true;
-      break;
-    }
-
-    if (attempt < MAX_ACTIVATION_RETRIES) {
-      logger.warn(
-        `  ACR identity RBAC propagating, retry ${attempt}/${MAX_ACTIVATION_RETRIES} in ${ACTIVATION_RETRY_DELAY_MS / 1000}s... (${activation.error})`,
-      );
-      await new Promise((resolve) =>
-        setTimeout(resolve, ACTIVATION_RETRY_DELAY_MS),
-      );
-    } else {
-      throw new CliError(
-        `Worker ${worker.name} activation failed after ${MAX_ACTIVATION_RETRIES} retries`,
-        'infra:worker-deploy',
-        activation.error ?? 'Unknown activation error',
-      );
-    }
-  }
-
-  // Scale back to minReplicas=0 now that image pull is verified
-  if (activated && needsActivationCheck) {
-    logger.info(`Scaling worker to minReplicas=${params.minReplicas}...`);
-    try {
-      await createOrUpdateContainerApp(runtime, {
-        ...createOptions,
-        minReplicas: params.minReplicas,
-      });
-    } catch {
-      logger.warn(
-        `Could not scale worker to minReplicas=${params.minReplicas}`,
-      );
-    }
+  if (!deployResult.activated) {
+    throw new CliError(
+      `Failed to deploy worker ${worker.name}`,
+      'infra:worker-deploy',
+      deployResult.error ?? 'Unknown error',
+    );
   }
 
   logger.newline();

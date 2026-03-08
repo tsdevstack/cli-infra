@@ -35,7 +35,7 @@ rs.mock('./deploy-apprunner-services', () => ({
   deployAppRunnerServices: rs.fn(),
 }));
 
-rs.mock('./kong-deploy', () => ({
+rs.mock('./deploy-kong', () => ({
   awsKongDeploy: rs.fn(),
 }));
 
@@ -102,7 +102,7 @@ import { createStateBackend } from '../bootstrap/create-state-backend';
 import { generateTerraformFiles } from './generate-terraform-files';
 import { deployEcsServices } from './deploy-ecs-services';
 import { deployAppRunnerServices } from './deploy-apprunner-services';
-import { awsKongDeploy } from './kong-deploy';
+import { awsKongDeploy } from './deploy-kong';
 import { detectDeployedOrigins } from '../detect-deployed-origins';
 import { buildAndPushDbInit } from './build-and-push-db-init';
 import { buildAndPushDbDelete } from './build-and-push-db-delete';

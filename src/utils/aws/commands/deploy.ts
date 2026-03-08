@@ -28,7 +28,7 @@ import { setSecretViaCli } from '../../credentials/set-secret-via-cli';
 import { generateTerraformFiles } from './generate-terraform-files';
 import { deployEcsServices } from './deploy-ecs-services';
 import { deployAppRunnerServices } from './deploy-apprunner-services';
-import { awsKongDeploy } from './kong-deploy';
+import { awsKongDeploy } from './deploy-kong';
 import { getGitSha } from '../../docker';
 import { infraKongGenerate } from '../../../commands/infra-kong-generate';
 import { infraKongBuild } from '../../../commands/infra-kong-build';

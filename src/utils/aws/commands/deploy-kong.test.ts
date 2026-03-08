@@ -34,7 +34,7 @@ rs.mock('../../build-runtime', () => ({
   buildRuntime: () => ({}),
 }));
 
-import { awsKongDeploy } from './kong-deploy';
+import { awsKongDeploy } from './deploy-kong';
 import { getTerraformOutput } from '../../terraform';
 import { buildAwsTerraformEnv, waitForEcsStable } from '@tsdevstack/infra-core';
 

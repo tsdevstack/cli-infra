@@ -15,8 +15,12 @@ import {
   VALID_SERVICE_TYPES_AWS,
   VALID_SERVICE_TYPES_AZURE,
   VALID_APP_SERVICE_SKUS,
-  VALID_CPU_VALUES,
-  VALID_MEMORY_VALUES,
+  VALID_CPU_VALUES_GCP,
+  VALID_CPU_VALUES_AWS,
+  VALID_CPU_VALUES_AZURE,
+  VALID_MEMORY_VALUES_GCP,
+  VALID_MEMORY_VALUES_AWS,
+  VALID_MEMORY_VALUES_AZURE,
 } from '../../constants';
 
 export type SchemaProvider = 'gcp' | 'aws' | 'azure';
@@ -36,6 +40,12 @@ export interface ProviderSchemaConfig {
   kongDescription: string;
   scheduledJobDescription: string;
   serviceTypeDescription: string;
+  /** Valid CPU values for services and Kong */
+  cpuValues: readonly string[];
+  /** Valid memory values for services and Kong */
+  memoryValues: readonly string[];
+  cpuDescription: string;
+  memoryDescription: string;
   /** Valid CPU values for migration jobs */
   migrationJobCpuValues: readonly string[];
   /** Valid memory values for migration jobs */
@@ -63,6 +73,10 @@ export function getProviderSchemaConfig(
       scheduledJobDescription: 'Scheduled job configuration for EventBridge',
       serviceTypeDescription:
         "Service type: 'nestjs' (ECS), 'nextjs' (App Runner), 'spa' (S3+CloudFront), or 'worker' (ECS background)",
+      cpuValues: VALID_CPU_VALUES_AWS,
+      memoryValues: VALID_MEMORY_VALUES_AWS,
+      cpuDescription: 'CPU allocation per instance in vCPU',
+      memoryDescription: "Memory allocation (e.g., '1Gi', '2Gi')",
       migrationJobCpuValues: ['256', '512', '1024', '2048', '4096'],
       migrationJobMemoryValues: [
         '512',
@@ -97,8 +111,12 @@ export function getProviderSchemaConfig(
         'Scheduled job configuration for Container Apps Jobs',
       serviceTypeDescription:
         "Service type: 'nestjs' (Container Apps), 'nextjs' (App Service), 'spa' (Blob Storage), or 'worker' (Container Apps background)",
-      migrationJobCpuValues: [...VALID_CPU_VALUES],
-      migrationJobMemoryValues: [...VALID_MEMORY_VALUES],
+      cpuValues: VALID_CPU_VALUES_AZURE,
+      memoryValues: VALID_MEMORY_VALUES_AZURE,
+      cpuDescription: 'CPU allocation per instance in vCPU',
+      memoryDescription: "Memory allocation in Gi units (e.g., '1Gi', '2Gi')",
+      migrationJobCpuValues: [...VALID_CPU_VALUES_AZURE],
+      migrationJobMemoryValues: [...VALID_MEMORY_VALUES_AZURE],
       migrationJobDescription:
         'Migration job resource configuration (Container Apps Job)',
       migrationJobCpuDescription:
@@ -124,8 +142,12 @@ export function getProviderSchemaConfig(
     scheduledJobDescription: 'Scheduled job configuration for Cloud Scheduler',
     serviceTypeDescription:
       "Hosting type: 'cloudrun' (Cloud Run) or 'spa' (Cloud Storage + CDN)",
-    migrationJobCpuValues: [...VALID_CPU_VALUES],
-    migrationJobMemoryValues: [...VALID_MEMORY_VALUES],
+    cpuValues: VALID_CPU_VALUES_GCP,
+    memoryValues: VALID_MEMORY_VALUES_GCP,
+    cpuDescription: 'CPU allocation per instance in vCPU',
+    memoryDescription: "Memory allocation (e.g., '512Mi', '1Gi', '2Gi')",
+    migrationJobCpuValues: [...VALID_CPU_VALUES_GCP],
+    migrationJobMemoryValues: [...VALID_MEMORY_VALUES_GCP],
     migrationJobDescription:
       'Migration job resource configuration (Cloud Run Job)',
     migrationJobCpuDescription:

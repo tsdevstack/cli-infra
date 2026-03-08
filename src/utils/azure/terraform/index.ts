@@ -16,3 +16,7 @@ export type {
   TerraformExecuteOptions,
   TerraformResult,
 } from '../../terraform';
+
+// Azure-specific terraform utilities
+export { getAcrIdentityOutputs } from './get-acr-identity-outputs';
+export type { AcrIdentityOutputs } from './get-acr-identity-outputs';

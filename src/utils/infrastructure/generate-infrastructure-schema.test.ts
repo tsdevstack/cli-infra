@@ -1,8 +1,12 @@
 import { describe, it, expect } from '@rstest/core';
 import { generateInfrastructureSchema } from './generate-infrastructure-schema';
 import {
-  VALID_CPU_VALUES,
-  VALID_MEMORY_VALUES,
+  VALID_CPU_VALUES_GCP,
+  VALID_CPU_VALUES_AWS,
+  VALID_CPU_VALUES_AZURE,
+  VALID_MEMORY_VALUES_GCP,
+  VALID_MEMORY_VALUES_AWS,
+  VALID_MEMORY_VALUES_AZURE,
   VALID_DATABASE_TIERS_GCP,
   VALID_DATABASE_TIERS_AWS,
   VALID_DATABASE_TIERS_AZURE,
@@ -38,19 +42,17 @@ describe('generateInfrastructureSchema', () => {
   });
 
   describe('ServiceOverride definition', () => {
-    it('should include cpu enum from constants', () => {
+    it('should include cpu enum from GCP constants (default)', () => {
       const result = JSON.parse(generateInfrastructureSchema());
       const cpuEnum = result.definitions.ServiceOverride.properties.cpu.enum;
-      expect(cpuEnum).toEqual(expect.arrayContaining([...VALID_CPU_VALUES]));
+      expect(cpuEnum).toEqual([...VALID_CPU_VALUES_GCP]);
     });
 
-    it('should include memory enum from constants', () => {
+    it('should include memory enum from GCP constants (default)', () => {
       const result = JSON.parse(generateInfrastructureSchema());
       const memoryEnum =
         result.definitions.ServiceOverride.properties.memory.enum;
-      expect(memoryEnum).toEqual(
-        expect.arrayContaining([...VALID_MEMORY_VALUES]),
-      );
+      expect(memoryEnum).toEqual([...VALID_MEMORY_VALUES_GCP]);
     });
 
     it('should have minInstances and maxInstances constraints', () => {
@@ -256,6 +258,19 @@ describe('generateInfrastructureSchema', () => {
         expect(typeEnum).toEqual([...VALID_SERVICE_TYPES_GCP]);
       });
 
+      it('should use GCP cpu values', () => {
+        const result = JSON.parse(generateInfrastructureSchema('gcp'));
+        const cpuEnum = result.definitions.ServiceOverride.properties.cpu.enum;
+        expect(cpuEnum).toEqual([...VALID_CPU_VALUES_GCP]);
+      });
+
+      it('should use GCP memory values', () => {
+        const result = JSON.parse(generateInfrastructureSchema('gcp'));
+        const memoryEnum =
+          result.definitions.ServiceOverride.properties.memory.enum;
+        expect(memoryEnum).toEqual([...VALID_MEMORY_VALUES_GCP]);
+      });
+
       it('should have GCP-specific descriptions', () => {
         const result = JSON.parse(generateInfrastructureSchema('gcp'));
         expect(result.definitions.DatabaseOverride.description).toContain(
@@ -308,6 +323,19 @@ describe('generateInfrastructureSchema', () => {
         expect(typeEnum).toEqual([...VALID_SERVICE_TYPES_AWS]);
       });
 
+      it('should use AWS cpu values', () => {
+        const result = JSON.parse(generateInfrastructureSchema('aws'));
+        const cpuEnum = result.definitions.ServiceOverride.properties.cpu.enum;
+        expect(cpuEnum).toEqual([...VALID_CPU_VALUES_AWS]);
+      });
+
+      it('should use AWS memory values', () => {
+        const result = JSON.parse(generateInfrastructureSchema('aws'));
+        const memoryEnum =
+          result.definitions.ServiceOverride.properties.memory.enum;
+        expect(memoryEnum).toEqual([...VALID_MEMORY_VALUES_AWS]);
+      });
+
       it('should have AWS-specific descriptions', () => {
         const result = JSON.parse(generateInfrastructureSchema('aws'));
         expect(result.definitions.DatabaseOverride.description).toContain(
@@ -356,6 +384,19 @@ describe('generateInfrastructureSchema', () => {
         const typeEnum =
           result.definitions.ServiceOverride.properties.type.enum;
         expect(typeEnum).toEqual([...VALID_SERVICE_TYPES_AZURE]);
+      });
+
+      it('should use Azure cpu values', () => {
+        const result = JSON.parse(generateInfrastructureSchema('azure'));
+        const cpuEnum = result.definitions.ServiceOverride.properties.cpu.enum;
+        expect(cpuEnum).toEqual([...VALID_CPU_VALUES_AZURE]);
+      });
+
+      it('should use Azure memory values', () => {
+        const result = JSON.parse(generateInfrastructureSchema('azure'));
+        const memoryEnum =
+          result.definitions.ServiceOverride.properties.memory.enum;
+        expect(memoryEnum).toEqual([...VALID_MEMORY_VALUES_AZURE]);
       });
 
       it('should have Azure-specific descriptions', () => {

@@ -6,12 +6,14 @@ import { describe, it, expect, rs, beforeEach, afterEach } from '@rstest/core';
 
 const mockBeginCreateOrUpdateAndWait = rs.fn();
 const mockBeginStartAndWait = rs.fn();
+const mockBuildAcrAuthConfig = rs.fn();
 
 rs.mock('../../build-runtime', () => ({ buildRuntime: () => ({}) }));
 
-// Mock infra-core (includes Azure credential helper)
+// Mock infra-core (includes Azure credential helper and ACR auth)
 rs.mock('@tsdevstack/infra-core', () => ({
   createAzureCredential: rs.fn(() => ({})),
+  buildAcrAuthConfig: (...args: unknown[]) => mockBuildAcrAuthConfig(...args),
 }));
 
 // Mock Azure Container Apps client
@@ -58,6 +60,12 @@ const baseOptions = {
 describe('executeContainerJob', () => {
   beforeEach(() => {
     rs.clearAllMocks();
+    // Default: no ACR auth (no acrLoginServer)
+    mockBuildAcrAuthConfig.mockResolvedValue({
+      registries: undefined,
+      identity: undefined,
+      secrets: [],
+    });
   });
 
   afterEach(() => {
@@ -157,6 +165,21 @@ describe('executeContainerJob', () => {
     it('should use managed identity for registry when acrManagedIdentityId is provided', async () => {
       mockBeginCreateOrUpdateAndWait.mockResolvedValue({});
       mockBeginStartAndWait.mockResolvedValue({});
+      mockBuildAcrAuthConfig.mockResolvedValue({
+        registries: [
+          {
+            server: 'myacr.azurecr.io',
+            identity: '/subscriptions/sub/identity/ca-id',
+          },
+        ],
+        identity: {
+          type: 'UserAssigned',
+          userAssignedIdentities: {
+            '/subscriptions/sub/identity/ca-id': {},
+          },
+        },
+        secrets: [],
+      });
 
       await executeContainerJob({
         ...baseOptions,
@@ -183,6 +206,21 @@ describe('executeContainerJob', () => {
     it('should not include acr-password secret when using managed identity', async () => {
       mockBeginCreateOrUpdateAndWait.mockResolvedValue({});
       mockBeginStartAndWait.mockResolvedValue({});
+      mockBuildAcrAuthConfig.mockResolvedValue({
+        registries: [
+          {
+            server: 'myacr.azurecr.io',
+            identity: '/subscriptions/sub/identity/ca-id',
+          },
+        ],
+        identity: {
+          type: 'UserAssigned',
+          userAssignedIdentities: {
+            '/subscriptions/sub/identity/ca-id': {},
+          },
+        },
+        secrets: [],
+      });
 
       await executeContainerJob({
         ...baseOptions,
@@ -200,6 +238,17 @@ describe('executeContainerJob', () => {
     it('should configure registry credentials when acrLoginServer is provided', async () => {
       mockBeginCreateOrUpdateAndWait.mockResolvedValue({});
       mockBeginStartAndWait.mockResolvedValue({});
+      mockBuildAcrAuthConfig.mockResolvedValue({
+        registries: [
+          {
+            server: 'myacr.azurecr.io',
+            username: 'test-client-id',
+            passwordSecretRef: 'acr-password',
+          },
+        ],
+        identity: undefined,
+        secrets: [{ name: 'acr-password', value: 'test-client-secret' }],
+      });
 
       await executeContainerJob({
         ...baseOptions,

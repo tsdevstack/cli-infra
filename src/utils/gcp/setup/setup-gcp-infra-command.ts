@@ -5,9 +5,9 @@
  * and returns a properly typed GCPCommandContext.
  */
 
-import { getContext } from '../../context';
-import { setupInfraCommand } from './setup-infra-command';
-import type { GCPCommandContext } from '../gcp/commands/types';
+import { getContext } from '../../../context';
+import { setupInfraCommand } from '../../setup/setup-infra-command';
+import type { GCPCommandContext } from '../commands/types';
 
 interface CommandOptions {
   env?: string;

@@ -20,7 +20,7 @@ import fs from 'node:fs';
 import { execSync } from 'node:child_process';
 import inquirer from 'inquirer';
 import { getContext } from '../context';
-import { setupGCPInfraCommand } from '../utils/setup/setup-gcp-infra-command';
+import { setupGCPInfraCommand } from '../utils/gcp/setup/setup-gcp-infra-command';
 import { buildGcpTerraformEnv, gcp } from '@tsdevstack/infra-core';
 import {
   executeTerraform,

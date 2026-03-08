@@ -18,20 +18,19 @@ rs.mock('../../build-runtime', () => ({ buildRuntime: () => ({}) }));
 
 rs.mock('../terraform', () => ({
   getTerraformOutput: rs.fn(),
+  getAcrIdentityOutputs: rs.fn(),
 }));
 
 rs.mock('@tsdevstack/infra-core', () => ({
   buildAzureTerraformEnv: rs.fn(),
-  createOrUpdateContainerApp: rs.fn(),
-  waitForContainerAppReady: rs.fn(),
+  deployWithActivationCheck: rs.fn(),
 }));
 
 import { azureDeployWorker } from './deploy-worker';
-import { getTerraformOutput } from '../terraform';
+import { getTerraformOutput, getAcrIdentityOutputs } from '../terraform';
 import {
   buildAzureTerraformEnv,
-  createOrUpdateContainerApp,
-  waitForContainerAppReady,
+  deployWithActivationCheck,
 } from '@tsdevstack/infra-core';
 
 const testCredentials = {
@@ -82,10 +81,13 @@ describe('azureDeployWorker', () => {
       },
     );
 
-    rs.mocked(createOrUpdateContainerApp).mockResolvedValue({});
+    rs.mocked(getAcrIdentityOutputs).mockReturnValue({
+      acrManagedIdentityId: undefined,
+      managedIdentityClientId: undefined,
+    });
 
-    rs.mocked(waitForContainerAppReady).mockResolvedValue({
-      status: 'Succeeded',
+    rs.mocked(deployWithActivationCheck).mockResolvedValue({
+      activated: true,
     });
   });
 
@@ -93,34 +95,30 @@ describe('azureDeployWorker', () => {
     it('should deploy worker with base service image', async () => {
       await azureDeployWorker(baseParams);
 
-      expect(createOrUpdateContainerApp).toHaveBeenCalledWith(
-        {},
+      expect(deployWithActivationCheck).toHaveBeenCalledWith(
         expect.objectContaining({
-          image: 'myacr.azurecr.io/auth-service:abc123',
           containerAppName: 'myapp-email-worker',
+          createOptions: expect.objectContaining({
+            image: 'myacr.azurecr.io/auth-service:abc123',
+            containerAppName: 'myapp-email-worker',
+          }),
         }),
       );
     });
 
     it('should pass acrManagedIdentityId when available from Terraform output', async () => {
-      rs.mocked(getTerraformOutput).mockImplementation(
-        (_dir: string, name: string) => {
-          const outputs: Record<string, string> = {
-            acr_login_server: 'myacr.azurecr.io',
-            resource_group_name: 'myapp-dev-rg',
-            container_apps_env_id: '/subscriptions/sub/envs/env',
-            container_apps_acr_identity_id: '/subscriptions/sub/identity/ca-id',
-          };
-          return outputs[name] || '';
-        },
-      );
+      rs.mocked(getAcrIdentityOutputs).mockReturnValue({
+        acrManagedIdentityId: '/subscriptions/sub/identity/ca-id',
+        managedIdentityClientId: undefined,
+      });
 
       await azureDeployWorker(baseParams);
 
-      expect(createOrUpdateContainerApp).toHaveBeenCalledWith(
-        {},
+      expect(deployWithActivationCheck).toHaveBeenCalledWith(
         expect.objectContaining({
-          acrManagedIdentityId: '/subscriptions/sub/identity/ca-id',
+          createOptions: expect.objectContaining({
+            acrManagedIdentityId: '/subscriptions/sub/identity/ca-id',
+          }),
         }),
       );
     });
@@ -128,17 +126,18 @@ describe('azureDeployWorker', () => {
     it('should fall back to no managed identity when Terraform output not found', async () => {
       await azureDeployWorker(baseParams);
 
-      const callArgs = rs.mocked(createOrUpdateContainerApp).mock.calls[0][1];
-      expect(callArgs.acrManagedIdentityId).toBeFalsy();
+      const callArgs = rs.mocked(deployWithActivationCheck).mock.calls[0][0];
+      expect(callArgs.createOptions.acrManagedIdentityId).toBeFalsy();
     });
 
     it('should deploy worker with worker command', async () => {
       await azureDeployWorker(baseParams);
 
-      expect(createOrUpdateContainerApp).toHaveBeenCalledWith(
-        {},
+      expect(deployWithActivationCheck).toHaveBeenCalledWith(
         expect.objectContaining({
-          command: ['node', 'dist/worker.js'],
+          createOptions: expect.objectContaining({
+            command: ['node', 'dist/worker.js'],
+          }),
         }),
       );
     });
@@ -146,19 +145,22 @@ describe('azureDeployWorker', () => {
     it('should pass env vars, secrets, and scaling params through', async () => {
       await azureDeployWorker(baseParams);
 
-      expect(createOrUpdateContainerApp).toHaveBeenCalledWith(
-        {},
+      expect(deployWithActivationCheck).toHaveBeenCalledWith(
         expect.objectContaining({
-          envVars: [
-            { name: 'NODE_ENV', value: 'production' },
-            { name: 'DB_POOL_MAX', value: '4' },
-          ],
-          secrets: [{ name: 'database-url', value: 'postgresql://...' }],
-          secretEnvVars: [{ name: 'DATABASE_URL', secretRef: 'database-url' }],
-          minReplicas: 1,
-          maxReplicas: 3,
-          cpu: 0.5,
-          memory: '1Gi',
+          createOptions: expect.objectContaining({
+            envVars: [
+              { name: 'NODE_ENV', value: 'production' },
+              { name: 'DB_POOL_MAX', value: '4' },
+            ],
+            secrets: [{ name: 'database-url', value: 'postgresql://...' }],
+            secretEnvVars: [
+              { name: 'DATABASE_URL', secretRef: 'database-url' },
+            ],
+            minReplicas: 1,
+            maxReplicas: 3,
+            cpu: 0.5,
+            memory: '1Gi',
+          }),
         }),
       );
     });
@@ -166,21 +168,8 @@ describe('azureDeployWorker', () => {
     it('should deploy worker without ingress', async () => {
       await azureDeployWorker(baseParams);
 
-      const callArgs = rs.mocked(createOrUpdateContainerApp).mock.calls[0][1];
-      expect(callArgs.ingressPort).toBeUndefined();
-    });
-
-    it('should wait for worker to be ready', async () => {
-      await azureDeployWorker(baseParams);
-
-      expect(waitForContainerAppReady).toHaveBeenCalledWith(
-        {},
-        expect.objectContaining({
-          containerAppName: 'myapp-email-worker',
-          resourceGroupName: 'myapp-dev-rg',
-          timeoutMs: 300000,
-        }),
-      );
+      const callArgs = rs.mocked(deployWithActivationCheck).mock.calls[0][0];
+      expect(callArgs.createOptions.ingressPort).toBeUndefined();
     });
 
     it('should log success on completion', async () => {
@@ -203,20 +192,11 @@ describe('azureDeployWorker', () => {
       );
     });
 
-    it('should throw CliError when Container App creation fails', async () => {
-      rs.mocked(createOrUpdateContainerApp).mockRejectedValue(
-        new Error('Quota exceeded'),
-      );
-
-      await expect(azureDeployWorker(baseParams)).rejects.toThrow(
-        mocks.CliError,
-      );
-    });
-
-    it('should throw CliError when worker fails to stabilize', async () => {
-      rs.mocked(waitForContainerAppReady).mockRejectedValue(
-        new Error('Container App reached Failed state'),
-      );
+    it('should throw CliError when deployment fails', async () => {
+      rs.mocked(deployWithActivationCheck).mockResolvedValue({
+        activated: false,
+        error: 'Quota exceeded',
+      });
 
       await expect(azureDeployWorker(baseParams)).rejects.toThrow(
         mocks.CliError,

@@ -18,14 +18,9 @@ rs.mock('../check-aws-permissions', () => ({
   checkAWSPermissions: rs.fn(),
 }));
 
-rs.mock('../grant-aws-permissions', () => ({
-  grantAWSPermissions: rs.fn(),
-}));
-
 import { awsBootstrap } from './bootstrap';
 import { verifyAWSCredentials } from '../verify-aws-credentials';
 import { checkAWSPermissions } from '../check-aws-permissions';
-import { grantAWSPermissions } from '../grant-aws-permissions';
 
 describe('awsBootstrap', () => {
   const mockCtx = {
@@ -60,12 +55,6 @@ describe('awsBootstrap', () => {
       allowed: ['ecs:*', 's3:*'],
       denied: [],
     });
-
-    rs.mocked(grantAWSPermissions).mockResolvedValue({
-      success: true,
-      policiesAttached: [],
-      policiesFailed: [],
-    });
   });
 
   it('should verify credentials', async () => {
@@ -92,45 +81,20 @@ describe('awsBootstrap', () => {
     );
   });
 
-  it('should grant permissions when denied actions exist', async () => {
+  it('should throw when denied actions exist', async () => {
     rs.mocked(checkAWSPermissions).mockResolvedValue({
       success: true,
       allowed: ['ecs:*'],
       denied: ['s3:CreateBucket'],
     });
 
-    rs.mocked(grantAWSPermissions).mockResolvedValue({
-      success: true,
-      policiesAttached: ['arn:aws:iam::aws:policy/AmazonS3FullAccess'],
-      policiesFailed: [],
-    });
-
-    await awsBootstrap(mockCtx);
-
-    expect(grantAWSPermissions).toHaveBeenCalled();
-  });
-
-  it('should skip granting when all permissions are allowed', async () => {
-    await awsBootstrap(mockCtx);
-
-    expect(grantAWSPermissions).not.toHaveBeenCalled();
-    expect(mocks.logger.complete).toHaveBeenCalledWith('Bootstrap complete!');
-  });
-
-  it('should throw when granting fails and denied permissions exist', async () => {
-    rs.mocked(checkAWSPermissions).mockResolvedValue({
-      success: true,
-      allowed: [],
-      denied: ['ecs:CreateCluster'],
-    });
-
-    rs.mocked(grantAWSPermissions).mockResolvedValue({
-      success: false,
-      policiesAttached: [],
-      policiesFailed: ['arn:aws:iam::aws:policy/AmazonECS_FullAccess'],
-    });
-
     await expect(awsBootstrap(mockCtx)).rejects.toThrow(mocks.CliError);
+  });
+
+  it('should succeed when all permissions are allowed', async () => {
+    await awsBootstrap(mockCtx);
+
+    expect(mocks.logger.complete).toHaveBeenCalledWith('Bootstrap complete!');
   });
 
   it('should continue when permission check itself fails', async () => {
@@ -141,15 +105,9 @@ describe('awsBootstrap', () => {
       denied: [],
     });
 
-    rs.mocked(grantAWSPermissions).mockResolvedValue({
-      success: true,
-      policiesAttached: ['arn:aws:iam::aws:policy/SomePolicy'],
-      policiesFailed: [],
-    });
-
     await awsBootstrap(mockCtx);
 
-    expect(grantAWSPermissions).toHaveBeenCalled();
+    expect(mocks.logger.warn).toHaveBeenCalled();
     expect(mocks.logger.complete).toHaveBeenCalledWith('Bootstrap complete!');
   });
 });

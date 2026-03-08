@@ -29,7 +29,7 @@ export {
   gcpRemoveDetachedWorker,
   selectWorkerInteractiveGcp,
 } from './remove-detached-worker';
-export { gcpKongDeploy } from './kong-deploy';
+export { gcpKongDeploy } from './deploy-kong';
 export { getGcpKongRegistryInfo, pushGcpKongImage } from './kong-build';
 export {
   gcpServiceStatus,

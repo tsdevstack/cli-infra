@@ -10,7 +10,7 @@ import { pollContainerJobStatus } from './poll-container-job-status';
 import { buildRuntime } from '../../build-runtime';
 import {
   createAzureCredential,
-  getAcrRefreshToken,
+  buildAcrAuthConfig,
 } from '@tsdevstack/infra-core';
 import type { AzureCredentials } from '@tsdevstack/cli/plugin';
 
@@ -84,43 +84,13 @@ export async function executeContainerJob(
   let client = createClient(credentials);
 
   // ACR registry auth: prefer managed identity, fall back to password
-  let secrets: Array<{ name: string; value: string }> | undefined;
-  let registries: Array<Record<string, string>> | undefined;
-  let identity:
-    | {
-        type: string;
-        userAssignedIdentities?: Record<string, Record<string, never>>;
-      }
-    | undefined;
-
-  const { acrManagedIdentityId } = options;
-
-  if (acrLoginServer && acrManagedIdentityId) {
-    // Managed identity — no tokens to expire
-    registries = [{ server: acrLoginServer, identity: acrManagedIdentityId }];
-    identity = {
-      type: 'UserAssigned',
-      userAssignedIdentities: { [acrManagedIdentityId]: {} },
-    };
-  } else if (acrLoginServer) {
-    // Fallback: password-based auth (short-lived tokens)
-    let acrUsername: string;
-    if (credentials.clientSecret) {
-      secrets = [{ name: 'acr-password', value: credentials.clientSecret }];
-      acrUsername = credentials.clientId;
-    } else {
-      const refreshToken = await getAcrRefreshToken(acrLoginServer);
-      secrets = [{ name: 'acr-password', value: refreshToken }];
-      acrUsername = '00000000-0000-0000-0000-000000000000';
-    }
-    registries = [
-      {
-        server: acrLoginServer,
-        username: acrUsername,
-        passwordSecretRef: 'acr-password',
-      },
-    ];
-  }
+  const acrAuth = await buildAcrAuthConfig({
+    acrLoginServer,
+    acrManagedIdentityId: options.acrManagedIdentityId,
+    credentials,
+  });
+  const { registries, identity } = acrAuth;
+  const secrets = acrAuth.secrets.length > 0 ? acrAuth.secrets : undefined;
 
   const jobDefinition = {
     location: credentials.location,

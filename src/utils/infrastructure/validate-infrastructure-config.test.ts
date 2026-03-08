@@ -214,4 +214,91 @@ describe('validateInfrastructureConfig', () => {
       ).not.toThrow();
     });
   });
+
+  describe('provider-aware validation', () => {
+    it('should reject Azure-invalid memory when provider is azure', () => {
+      mocks.loadFrameworkConfig.mockReturnValue({
+        project: { name: 'test-project' },
+        cloud: { provider: 'azure' },
+        services: [{ name: 'auth-service' }],
+      });
+
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: {
+            'auth-service': { memory: '512Mi' },
+          },
+        }),
+      ).toThrow(mocks.CliError);
+    });
+
+    it('should accept Azure-valid memory when provider is azure', () => {
+      mocks.loadFrameworkConfig.mockReturnValue({
+        project: { name: 'test-project' },
+        cloud: { provider: 'azure' },
+        services: [{ name: 'auth-service' }],
+      });
+
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: {
+            'auth-service': { memory: '2Gi' },
+          },
+        }),
+      ).not.toThrow();
+    });
+
+    it('should reject invalid Azure cpu/memory pair', () => {
+      mocks.loadFrameworkConfig.mockReturnValue({
+        project: { name: 'test-project' },
+        cloud: { provider: 'azure' },
+        services: [{ name: 'auth-service' }],
+      });
+
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: {
+            'auth-service': { cpu: '1', memory: '0.5Gi' },
+          },
+        }),
+      ).toThrow(mocks.CliError);
+    });
+
+    it('should accept GCP-specific values when provider is gcp', () => {
+      mocks.loadFrameworkConfig.mockReturnValue({
+        project: { name: 'test-project' },
+        cloud: { provider: 'gcp' },
+        services: [{ name: 'auth-service' }],
+      });
+
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: {
+            'auth-service': { cpu: '8', memory: '256Mi' },
+          },
+        }),
+      ).not.toThrow();
+    });
+
+    it('should default to gcp when provider is null', () => {
+      mocks.loadFrameworkConfig.mockReturnValue({
+        project: { name: 'test-project' },
+        cloud: { provider: null },
+        services: [{ name: 'auth-service' }],
+      });
+
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: {
+            'auth-service': { cpu: '8', memory: '256Mi' },
+          },
+        }),
+      ).not.toThrow();
+    });
+  });
 });

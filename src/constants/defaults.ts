@@ -121,10 +121,6 @@ export const VALID_CPU_VALUES_GCP = [
 export const VALID_CPU_VALUES_AWS = ['0.25', '0.5', '1', '2', '4'] as const;
 export const VALID_CPU_VALUES_AZURE = ['0.25', '0.5', '1', '2', '4'] as const;
 
-// TODO(phase-28): Replace with provider-specific values in validate-service-override.ts,
-// generate-infrastructure-schema.ts, get-provider-schema-config.ts
-export const VALID_CPU_VALUES = VALID_CPU_VALUES_GCP;
-
 /**
  * Valid memory values per provider
  *
@@ -157,9 +153,6 @@ export const VALID_MEMORY_VALUES_AZURE = [
   '2Gi',
   '4Gi',
 ] as const;
-
-// TODO(phase-28): Replace with provider-specific values
-export const VALID_MEMORY_VALUES = VALID_MEMORY_VALUES_GCP;
 
 /**
  * Supported infrastructure.json versions

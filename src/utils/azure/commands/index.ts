@@ -31,7 +31,7 @@ export { deployContainerAppServices } from './deploy-container-app-services';
 export { deploySpaServices } from './deploy-spa-services';
 export { getAzureKongRegistryInfo } from './get-kong-registry-info';
 export { pushAzureKongImage } from './push-kong-image';
-export { azureKongDeploy } from './kong-deploy';
+export { azureKongDeploy } from './deploy-kong';
 export { azureDeployWorker } from './deploy-worker';
 export { buildAzureBackendEnv } from './build-azure-backend-env';
 export {

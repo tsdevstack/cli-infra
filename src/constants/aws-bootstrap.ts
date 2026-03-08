@@ -142,28 +142,29 @@ export const AWS_REQUIRED_ACTIONS = [
   'servicediscovery:CreateService',
   'servicediscovery:GetNamespace',
 
+  // Route 53 - DNS management
+  'route53:CreateHostedZone',
+  'route53:ChangeResourceRecordSets',
+  'route53:GetHostedZone',
+  'route53:ListHostedZones',
+
+  // WAF - Web Application Firewall
+  'wafv2:CreateWebACL',
+  'wafv2:GetWebACL',
+  'wafv2:UpdateWebACL',
+  'wafv2:AssociateWebACL',
+
+  // KMS - Encryption keys
+  'kms:CreateKey',
+  'kms:DescribeKey',
+  'kms:CreateAlias',
+
+  // CloudTrail - Audit logging
+  'cloudtrail:CreateTrail',
+  'cloudtrail:StartLogging',
+  'cloudtrail:GetTrail',
+  'cloudtrail:DescribeTrails',
+
   // STS - for identity verification
   'sts:GetCallerIdentity',
-] as const;
-
-/**
- * AWS managed policies that cover most required permissions
- * These are used when trying to grant permissions automatically.
- */
-export const AWS_MANAGED_POLICIES = [
-  'arn:aws:iam::aws:policy/AmazonS3FullAccess',
-  'arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess',
-  'arn:aws:iam::aws:policy/SecretsManagerReadWrite',
-  'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryFullAccess',
-  'arn:aws:iam::aws:policy/AmazonECS_FullAccess',
-  'arn:aws:iam::aws:policy/AmazonRDSFullAccess',
-  'arn:aws:iam::aws:policy/AmazonElastiCacheFullAccess',
-  'arn:aws:iam::aws:policy/AmazonVPCFullAccess',
-  'arn:aws:iam::aws:policy/ElasticLoadBalancingFullAccess',
-  'arn:aws:iam::aws:policy/CloudFrontFullAccess',
-  'arn:aws:iam::aws:policy/AWSCertificateManagerFullAccess',
-  'arn:aws:iam::aws:policy/AWSLambda_FullAccess',
-  'arn:aws:iam::aws:policy/AmazonEventBridgeFullAccess',
-  'arn:aws:iam::aws:policy/CloudWatchLogsFullAccess',
-  'arn:aws:iam::aws:policy/IAMFullAccess',
 ] as const;
