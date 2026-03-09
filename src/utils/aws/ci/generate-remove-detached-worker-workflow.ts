@@ -112,6 +112,12 @@ jobs:
       - name: Generate Terraform
         run: npx tsdevstack infra:generate --env \${{ inputs.environment }}
 
+      # Initialize Terraform to read outputs (ECS cluster name)
+      - name: Initialize Terraform
+        run: |
+          cd infrastructure/terraform/\${{ inputs.environment }}
+          terraform init
+
       - name: Remove worker from cloud
         run: |
           npx tsdevstack infra:remove-detached-worker --env \${{ inputs.environment }} --worker \${{ inputs.worker_name }} --confirm
