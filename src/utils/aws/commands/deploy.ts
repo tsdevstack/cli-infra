@@ -437,11 +437,6 @@ export async function awsDeploy(
       logger.success(`  ✓ ${urlKey} = ${url}`);
     }
 
-    // Kong Gateway URL follows the same Cloud Map pattern
-    const kongUrl = `http://kong.${ctx.projectName}.local:8080`;
-    setSecretViaCli('KONG_INTERNAL_URL', kongUrl, ctx.targetEnv);
-    logger.success(`  ✓ KONG_INTERNAL_URL = ${kongUrl}`);
-
     logger.newline();
     logger.complete('Service URLs synced to Secrets Manager');
   } catch (error) {

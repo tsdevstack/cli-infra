@@ -62,6 +62,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build
+        run: npm run build
+
+      - name: Link CLI
+        run: npm rebuild @tsdevstack/cli 2>/dev/null || true
+
       # Authenticate to Azure via OIDC
       - uses: azure/login@v2
         with:

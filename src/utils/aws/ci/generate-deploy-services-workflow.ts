@@ -123,6 +123,10 @@ jobs:
         with:
           terraform_version: 1.9.0
 
+      # Generate Terraform files for this environment (CI-only mode: committed files may not match CI project)
+      - name: Generate Terraform
+        run: npx tsdevstack infra:generate --env \${{ inputs.environment }}
+
       # Initialize Terraform to read outputs (ECR registry URL)
       - name: Initialize Terraform
         run: |

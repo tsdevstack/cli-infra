@@ -77,6 +77,21 @@ jobs:
           role-to-assume: \${{ secrets[env.AWS_ROLE_ARN_NAME] }}
           aws-region: \${{ secrets[env.AWS_REGION_NAME] }}
 
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+
+      # Generate Terraform files for this environment (CI-only mode: committed files may not match CI project)
+      - name: Generate Terraform
+        run: npx tsdevstack infra:generate --env \${{ inputs.environment }}
+
+      # Initialize Terraform to read outputs (ECR registry URL, VPC, service accounts)
+      - name: Initialize Terraform
+        run: |
+          cd infrastructure/terraform/\${{ inputs.environment }}
+          terraform init
+
       # Enable containerd for BuildKit cache export support
       - name: Enable containerd image store
         run: |

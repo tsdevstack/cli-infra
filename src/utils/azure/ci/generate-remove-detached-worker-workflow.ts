@@ -93,6 +93,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build
+        run: npm run build
+
+      - name: Link CLI
+        run: npm rebuild @tsdevstack/cli 2>/dev/null || true
+
       # Authenticate to Azure via OIDC
       - uses: azure/login@v2
         with:
@@ -116,6 +122,10 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.9.0
+
+      # Generate Terraform files for this environment (needed for state sync)
+      - name: Generate Terraform
+        run: npx tsdevstack infra:generate --env \${{ inputs.environment }}
 
       - name: Remove worker from cloud
         run: |

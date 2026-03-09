@@ -60,6 +60,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build
+        run: npm run build
+
+      - name: Link CLI
+        run: npm rebuild @tsdevstack/cli 2>/dev/null || true
+
       # Authenticate to AWS via OIDC
       - uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -70,6 +76,10 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.9.0
+
+      # Generate Terraform files for this environment (CLI runs its own terraform init/apply)
+      - name: Generate Terraform
+        run: npx tsdevstack infra:generate --env \${{ inputs.environment }}
 
       - name: Deploy Scheduled Jobs
         run: npx tsdevstack infra:deploy-schedulers --env \${{ inputs.environment }} --auto-approve
