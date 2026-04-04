@@ -12,7 +12,21 @@ import {
 } from '@tsdevstack/infra-core';
 import { executeTerraform } from '../terraform';
 import { buildRuntime } from '../../build-runtime';
+import { disableDeletionProtection } from '../disable-deletion-protection';
 import type { GCPCommandContext, DestroyOptions } from './types';
+
+/**
+ * Check if any service in the project has a database
+ */
+function projectHasDatabase(): boolean {
+  const { loadFrameworkConfig } = getContext();
+  try {
+    const config = loadFrameworkConfig();
+    return config.services.some((s) => s.hasDatabase);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Destroy GCP infrastructure
@@ -47,10 +61,26 @@ export async function gcpDestroy(
   logger.info(`Region: ${ctx.credentials.region}`);
   logger.newline();
 
+  const hasDatabase = projectHasDatabase();
+
   // Confirm
   if (!options.autoApprove && !ctx.runningInCI) {
     logger.warn('This will DESTROY all infrastructure resources!');
     logger.newline();
+
+    if (hasDatabase) {
+      logger.warn(
+        'This includes the PostgreSQL database instance (ALL databases for ALL services).',
+      );
+      logger.warn('DATABASE DATA WILL BE PERMANENTLY LOST.');
+      logger.newline();
+      logger.info('Back up your databases before proceeding:');
+      logger.info(
+        `  Console: https://console.cloud.google.com/sql/instances/${ctx.projectName}-postgres/backups`,
+      );
+      logger.info('  Or use pg_dump for individual databases.');
+      logger.newline();
+    }
 
     const { confirm } = await inquirer.prompt([
       {
@@ -65,6 +95,33 @@ export async function gcpDestroy(
       logger.info('Destroy cancelled by user');
       return;
     }
+  }
+
+  // Disable deletion protection before terraform destroy
+  if (hasDatabase) {
+    const instanceName = `${ctx.projectName}-postgres`;
+    logger.info('Disabling database deletion protection...');
+
+    const result = await disableDeletionProtection({
+      instanceName,
+      projectId: ctx.credentials.project_id,
+      credentials: ctx.credentials,
+    });
+
+    if (!result.success) {
+      throw new CliError(
+        `Failed to disable deletion protection: ${result.error}`,
+        'infra:destroy',
+        'Disable deletion protection manually via Cloud Console, then retry',
+      );
+    }
+
+    if (result.wasAlreadyDisabled) {
+      logger.info('  Deletion protection already disabled.');
+    } else {
+      logger.info('  Deletion protection disabled.');
+    }
+    logger.newline();
   }
 
   // Build Terraform environment
@@ -107,4 +164,14 @@ export async function gcpDestroy(
   logger.newline();
   logger.success('Infrastructure destroyed successfully!');
   logger.newline();
+
+  // Post-destroy recovery hints
+  if (hasDatabase) {
+    logger.info('Data recovery:');
+    logger.info(
+      '  Cloud SQL backups are retained for 7 days after instance deletion.',
+    );
+    logger.info('  Console: https://console.cloud.google.com/sql/backups');
+    logger.newline();
+  }
 }

@@ -52,6 +52,7 @@ describe('azureGenerate', () => {
         },
         redis: { tier: 'Basic' },
         servicesWithDatabase: [],
+        storageBuckets: [],
         baseDomain: '',
         services: {},
         workers: {},

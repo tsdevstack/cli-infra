@@ -16,7 +16,11 @@ import path from 'node:path';
 import fs from 'node:fs';
 import inquirer from 'inquirer';
 import { getContext } from '../../../context';
-import { executeTerraform, getTerraformOutput } from '../terraform';
+import {
+  executeTerraform,
+  getTerraformOutput,
+  getTerraformOutputJson,
+} from '../terraform';
 import {
   buildAwsTerraformEnv,
   checkTerraformInstalled,
@@ -27,16 +31,18 @@ import { createStateBackend } from '../bootstrap/create-state-backend';
 import { setSecretViaCli } from '../../credentials/set-secret-via-cli';
 import { generateTerraformFiles } from './generate-terraform-files';
 import { deployEcsServices } from './deploy-ecs-services';
-import { deployAppRunnerServices } from './deploy-apprunner-services';
+import { deployNextjsServices } from './deploy-nextjs-services';
 import { awsKongDeploy } from './deploy-kong';
 import { getGitSha } from '../../docker';
 import { infraKongGenerate } from '../../../commands/infra-kong-generate';
 import { infraKongBuild } from '../../../commands/infra-kong-build';
 import { detectDeployedOrigins } from '../detect-deployed-origins';
+import { cleanupAppRunnerServices } from './cleanup-apprunner-services';
 import { deploySpaAws } from '../deploy/deploy-spa-aws';
 import { buildAndPushDbInit } from './build-and-push-db-init';
 import { buildAndPushDbDelete } from './build-and-push-db-delete';
 import { runDbInit } from './run-db-init';
+import { recoverCnameConflicts } from './recover-cname-conflicts';
 import type { AWSCommandContext, DeployOptions } from './types';
 
 /**
@@ -88,10 +94,8 @@ export async function awsDeploy(
   logger.newline();
 
   // Generate all Terraform files using shared function
-  const { outputDir, servicesWithDatabase } = generateTerraformFiles(
-    ctx,
-    'infra:deploy',
-  );
+  const { outputDir, generateConfig, servicesWithDatabase } =
+    generateTerraformFiles(ctx, 'infra:deploy');
 
   logger.complete('Configuration generated');
   logger.newline();
@@ -100,29 +104,22 @@ export async function awsDeploy(
   // The db-init ECS task creates per-service databases/users and stores
   // DATABASE_URL directly in Secrets Manager after Terraform runs.
 
-  // Detect deployed origins for conditional CloudFront creation
-  // CloudFront is only created when App Runner services or SPA buckets exist
+  // Detect deployed SPA buckets for conditional CloudFront creation
   const { loadFrameworkConfig } = getContext();
   const frameworkConfig = loadFrameworkConfig();
-
-  const nextjsServices = frameworkConfig.services
-    .filter((s) => s.type === 'nextjs')
-    .map((s) => s.name);
 
   const spaServices = frameworkConfig.services
     .filter((s) => s.type === 'spa')
     .map((s) => s.name);
 
-  if (nextjsServices.length > 0 || spaServices.length > 0) {
-    logger.info('Detecting deployed origins for CloudFront...');
-    const { nextjsOrigins, nextjsServiceArns, spaBucketsReady } =
-      await detectDeployedOrigins({
-        credentials: ctx.credentials,
-        projectName: ctx.projectName,
-        environment: ctx.targetEnv,
-        nextjsServices,
-        spaServices,
-      });
+  if (spaServices.length > 0) {
+    logger.info('Detecting deployed SPA buckets for CloudFront...');
+    const { spaBucketsReady } = await detectDeployedOrigins({
+      credentials: ctx.credentials,
+      projectName: ctx.projectName,
+      environment: ctx.targetEnv,
+      spaServices,
+    });
 
     // For full deploy (not --infra-only), we know SPAs will be deployed,
     // so tell Terraform to create CloudFront unconditionally
@@ -136,32 +133,26 @@ export async function awsDeploy(
       'detected-origins.auto.tfvars.json',
     );
     const originsVars = {
-      nextjs_origins: nextjsOrigins,
-      nextjs_service_arns: nextjsServiceArns,
       spa_buckets_ready: spaBucketsForTerraform,
     };
     fs.writeFileSync(detectedOriginsFile, JSON.stringify(originsVars, null, 2));
 
-    const nextjsCount = Object.keys(nextjsOrigins).length;
     const spaCount = Object.values(spaBucketsReady).filter(Boolean).length;
 
     if (options.infraOnly) {
-      if (nextjsCount > 0 || spaCount > 0) {
-        logger.success(
-          `  ✓ Found ${nextjsCount} App Runner origin(s), ${spaCount} SPA bucket(s) with content`,
-        );
+      if (spaCount > 0) {
+        logger.success(`  ✓ Found ${spaCount} SPA bucket(s) with content`);
         logger.info('  CloudFront distributions will be created for these');
       } else {
-        logger.info('  No deployed origins found - CloudFront will be skipped');
+        logger.info(
+          '  No deployed SPA origins found - SPA CloudFront will be skipped',
+        );
         logger.info('  Run infra:deploy again after deploying services');
       }
     } else {
       logger.info(
         `  ✓ Will create CloudFront for ${spaServices.length} SPA(s)`,
       );
-      if (nextjsCount > 0) {
-        logger.info(`  ✓ Found ${nextjsCount} App Runner origin(s)`);
-      }
     }
     logger.newline();
   }
@@ -257,6 +248,24 @@ export async function awsDeploy(
     }
   }
 
+  // Migration: clean up legacy App Runner services before Terraform apply.
+  // App Runner was replaced with ECS Fargate — Terraform can't delete
+  // auto-scaling config while App Runner services still reference it.
+  const nextjsServiceNames = frameworkConfig.services
+    .filter((s) => s.type === 'nextjs')
+    .map((s) => s.name);
+
+  if (nextjsServiceNames.length > 0) {
+    logger.info('Checking for legacy App Runner services...');
+    await cleanupAppRunnerServices({
+      projectName: ctx.projectName,
+      targetEnv: ctx.targetEnv,
+      credentials: ctx.credentials,
+      nextjsServiceNames,
+    });
+    logger.newline();
+  }
+
   logger.newline();
   logger.info('Applying changes...');
   logger.newline();
@@ -268,11 +277,42 @@ export async function awsDeploy(
   });
 
   if (!applyResult.success) {
-    throw new CliError(
-      'Deployment failed',
-      'infra:deploy',
-      applyResult.error || 'Check the output above for details',
-    );
+    // Attempt to recover from CloudFront CNAME conflicts
+    const recovery = await recoverCnameConflicts({
+      applyOutput: applyResult.output,
+      workDir: outputDir,
+      tfEnv,
+      credentials: ctx.credentials,
+      generateConfig,
+    });
+
+    if (recovery.recovered) {
+      logger.newline();
+      logger.info(
+        `Imported ${recovery.importedCount} orphaned distribution(s) — retrying apply...`,
+      );
+      logger.newline();
+
+      const retryResult = await executeTerraform('apply', {
+        workDir: outputDir,
+        autoApprove: true,
+        env: tfEnv,
+      });
+
+      if (!retryResult.success) {
+        throw new CliError(
+          'Deployment failed after CNAME recovery',
+          'infra:deploy',
+          retryResult.error || 'Check the output above for details',
+        );
+      }
+    } else {
+      throw new CliError(
+        'Deployment failed',
+        'infra:deploy',
+        applyResult.error || 'Check the output above for details',
+      );
+    }
   }
 
   logger.newline();
@@ -316,6 +356,13 @@ export async function awsDeploy(
     setSecretViaCli('ALB_INTERNAL_DNS', albInternalDns, ctx.targetEnv);
     logger.success('  ✓ ALB_INTERNAL_DNS');
 
+    // KONG_INTERNAL_URL for Next.js SSR calls to Kong
+    // Uses the public API URL (through CloudFront) because the ALB's internal DNS
+    // doesn't match the ACM certificate, causing TLS verification failures in Node.js.
+    const apiUrl = getTerraformOutput(outputDir, 'api_url', tfEnv);
+    setSecretViaCli('KONG_INTERNAL_URL', apiUrl, ctx.targetEnv);
+    logger.success(`  ✓ KONG_INTERNAL_URL = ${apiUrl}`);
+
     logger.newline();
     logger.complete('Infrastructure secrets synced to Secrets Manager');
   } catch (error) {
@@ -334,6 +381,42 @@ export async function awsDeploy(
     logger.info(
       `  npx tsdevstack cloud-secrets:set <KEY> --value <value> --env ${ctx.targetEnv} --overwrite`,
     );
+  }
+
+  // Sync storage bucket secrets to Secrets Manager
+  if (frameworkConfig.storage?.buckets?.length) {
+    logger.newline();
+    logger.info('Syncing storage bucket secrets to Secrets Manager...');
+
+    try {
+      const storageBuckets = getTerraformOutputJson<
+        Record<string, { name: string }>
+      >(outputDir, 'storage_buckets', tfEnv);
+
+      for (const bucket of frameworkConfig.storage.buckets) {
+        const secretKey = `STORAGE_BUCKET_${bucket.replace(/-/g, '_').toUpperCase()}`;
+        const bucketName = storageBuckets[bucket].name;
+        setSecretViaCli(secretKey, bucketName, ctx.targetEnv);
+        logger.success(`  ✓ ${secretKey}`);
+      }
+
+      logger.newline();
+      logger.complete('Storage bucket secrets synced to Secrets Manager');
+    } catch (error) {
+      logger.newline();
+      logger.warn('Failed to sync storage bucket secrets automatically');
+      logger.error(
+        `Error: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      logger.info('Run manually:');
+      logger.info(
+        `  terraform -chdir="${outputDir}" output -json storage_buckets`,
+      );
+      logger.info('Then set each with:');
+      logger.info(
+        `  npx tsdevstack cloud-secrets:set STORAGE_BUCKET_<NAME> --value <bucket> --env ${ctx.targetEnv} --overwrite`,
+      );
+    }
   }
 
   // ============================================
@@ -427,9 +510,7 @@ export async function awsDeploy(
   logger.info('Syncing service URLs to Secrets Manager...');
 
   try {
-    const config = loadFrameworkConfig();
-
-    for (const service of config.services) {
+    for (const service of frameworkConfig.services) {
       if (!service.port) continue;
       const urlKey = `${service.name.replace(/-/g, '_').toUpperCase()}_URL`;
       const url = `http://${service.name}.${ctx.projectName}.local:8080`;
@@ -475,74 +556,14 @@ export async function awsDeploy(
   await deployEcsServices(ctx, { tag: options.tag });
 
   // ============================================
-  // Phase 3: Deploy Next.js Services to App Runner
+  // Phase 3: Deploy Next.js Services to ECS
   // ============================================
   logger.newline();
   logger.info('════════════════════════════════════════════');
-  logger.info('Phase 3: Deploying Next.js Services to App Runner...');
+  logger.info('Phase 3: Deploying Next.js Services to ECS...');
   logger.info('════════════════════════════════════════════');
 
-  await deployAppRunnerServices(ctx, { tag: options.tag });
-
-  // ============================================
-  // Phase 3b: Update CloudFront for Next.js (if App Runner was deployed)
-  // ============================================
-  if (nextjsServices.length > 0) {
-    logger.newline();
-    logger.info('════════════════════════════════════════════');
-    logger.info('Phase 3b: Creating CloudFront for Next.js...');
-    logger.info('════════════════════════════════════════════');
-
-    // Re-detect App Runner origins (now they exist)
-    const {
-      nextjsOrigins: newNextjsOrigins,
-      nextjsServiceArns: newNextjsServiceArns,
-    } = await detectDeployedOrigins({
-      credentials: ctx.credentials,
-      projectName: ctx.projectName,
-      environment: ctx.targetEnv,
-      nextjsServices,
-      spaServices: [],
-    });
-
-    if (Object.keys(newNextjsOrigins).length > 0) {
-      // Update detected origins file with App Runner URLs and ARNs (for WAF)
-      const detectedOriginsFile = path.join(
-        outputDir,
-        'detected-origins.auto.tfvars.json',
-      );
-      const currentOrigins = JSON.parse(
-        fs.readFileSync(detectedOriginsFile, 'utf-8'),
-      );
-      currentOrigins.nextjs_origins = newNextjsOrigins;
-      currentOrigins.nextjs_service_arns = newNextjsServiceArns;
-      fs.writeFileSync(
-        detectedOriginsFile,
-        JSON.stringify(currentOrigins, null, 2),
-      );
-
-      logger.info(
-        `  Found ${Object.keys(newNextjsOrigins).length} App Runner origin(s)`,
-      );
-      logger.info('  Applying Terraform to create CloudFront...');
-      logger.newline();
-
-      const cfApplyResult = await executeTerraform('apply', {
-        workDir: outputDir,
-        autoApprove: true,
-        env: tfEnv,
-      });
-
-      if (!cfApplyResult.success) {
-        logger.warn(
-          'CloudFront creation failed - services still accessible via App Runner URLs',
-        );
-      } else {
-        logger.success('  ✓ CloudFront distributions created');
-      }
-    }
-    logger.newline();
-  }
+  await deployNextjsServices(ctx, { tag: options.tag });
 
   // ============================================
   // Phase 4: Deploy Kong Gateway

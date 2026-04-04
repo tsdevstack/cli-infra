@@ -127,10 +127,10 @@ describe('generateInfrastructureSchema', () => {
       expect(kong.memory.enum).toBeDefined();
     });
 
-    it('should have empty properties for Azure (Kong uses App Service)', () => {
+    it('should only have maxUploadSize for Azure (Kong uses App Service)', () => {
       const result = JSON.parse(generateInfrastructureSchema('azure'));
       const kong = result.definitions.KongOverride.properties;
-      expect(Object.keys(kong)).toHaveLength(0);
+      expect(Object.keys(kong)).toEqual(['maxUploadSize']);
     });
 
     it('should reject additional properties for Azure', () => {
@@ -218,21 +218,82 @@ describe('generateInfrastructureSchema', () => {
     });
   });
 
-  describe('WafCustomRule definition', () => {
-    it('should require name, priority, action, expression', () => {
-      const result = JSON.parse(generateInfrastructureSchema());
+  describe('WAF schema (provider-aware)', () => {
+    it('should show GCP customRules with CEL expression for GCP', () => {
+      const result = JSON.parse(generateInfrastructureSchema('gcp'));
+      const waf = result.definitions.WafOverride.properties;
+      expect(waf.customRules).toBeDefined();
+      expect(waf.rateLimit).toBeDefined();
+      expect(waf.awsCustomRules).toBeUndefined();
+      expect(waf.azureCustomRules).toBeUndefined();
+
       const rule = result.definitions.WafCustomRule;
       expect(rule.required).toEqual(
         expect.arrayContaining(['name', 'priority', 'action', 'expression']),
       );
+      expect(rule.properties.action.enum).toContain('allow');
+      expect(rule.properties.action.enum).toContain('deny(403)');
+      expect(rule.properties.action.enum).toContain('throttle');
     });
 
-    it('should have action enum with allow and deny options', () => {
-      const result = JSON.parse(generateInfrastructureSchema());
-      const action = result.definitions.WafCustomRule.properties.action;
-      expect(action.enum).toContain('allow');
-      expect(action.enum).toContain('deny(403)');
-      expect(action.enum).toContain('throttle');
+    it('should show AWS awsCustomRules with byte match for AWS', () => {
+      const result = JSON.parse(generateInfrastructureSchema('aws'));
+      const waf = result.definitions.WafOverride.properties;
+      expect(waf.awsCustomRules).toBeDefined();
+      expect(waf.rateLimit).toBeDefined();
+      expect(waf.customRules).toBeUndefined();
+      expect(waf.azureCustomRules).toBeUndefined();
+
+      const rule = result.definitions.AwsWafCustomRule;
+      expect(rule.required).toEqual(
+        expect.arrayContaining(['name', 'priority', 'action', 'matchType']),
+      );
+      expect(rule.properties.matchType.enum).toContain('byte_match');
+      expect(rule.properties.matchType.enum).toContain('rate_based');
+      expect(rule.properties.matchType.enum).toContain('geo_match');
+
+      expect(result.definitions.AwsWafByteMatchConfig).toBeDefined();
+      expect(result.definitions.AwsWafGeoMatchConfig).toBeDefined();
+    });
+
+    it('should show Azure azureCustomRules with match conditions for Azure', () => {
+      const result = JSON.parse(generateInfrastructureSchema('azure'));
+      const waf = result.definitions.WafOverride.properties;
+      expect(waf.azureCustomRules).toBeDefined();
+      expect(waf.rateLimit).toBeDefined();
+      expect(waf.customRules).toBeUndefined();
+      expect(waf.awsCustomRules).toBeUndefined();
+
+      const rule = result.definitions.AzureWafCustomRule;
+      expect(rule.required).toEqual(
+        expect.arrayContaining([
+          'name',
+          'type',
+          'priority',
+          'action',
+          'matchConditions',
+        ]),
+      );
+      expect(rule.properties.type.enum).toContain('MatchRule');
+      expect(rule.properties.type.enum).toContain('RateLimitRule');
+      expect(rule.properties.action.enum).toContain('Block');
+      expect(rule.properties.action.enum).toContain('Allow');
+      expect(rule.properties.action.enum).toContain('Log');
+
+      expect(result.definitions.AzureWafMatchCondition).toBeDefined();
+    });
+
+    it('should include WafRateLimitConfig for all providers', () => {
+      for (const provider of ['gcp', 'aws', 'azure'] as const) {
+        const result = JSON.parse(generateInfrastructureSchema(provider));
+        expect(result.definitions.WafRateLimitConfig).toBeDefined();
+        expect(
+          result.definitions.WafRateLimitConfig.properties.count,
+        ).toBeDefined();
+        expect(
+          result.definitions.WafRateLimitConfig.properties.intervalSec,
+        ).toBeDefined();
+      }
     });
   });
 

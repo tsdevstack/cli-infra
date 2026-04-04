@@ -17,6 +17,7 @@ interface BuildAzureBackendEnvConfig {
   credentials: AzureCredentials;
   serviceName: string;
   hasDatabase: boolean;
+  hasStorage: boolean;
   poolMax: number;
   /** Managed identity client ID (from Terraform). When set, container uses MI for Key Vault. */
   managedIdentityClientId?: string;
@@ -87,6 +88,16 @@ export function buildAzureBackendEnv(
       });
     }
     logger.info('  Injecting SP credentials for SecretsProvider');
+  }
+
+  // Azure Storage Account name for StorageModule
+  if (config.hasStorage) {
+    const storageAccountName = `${projectName.replace(/[^a-z0-9]/g, '')}${targetEnv}storage`;
+    envVars.push({
+      name: 'AZURE_STORAGE_ACCOUNT_NAME',
+      value: storageAccountName,
+    });
+    logger.info('  Injecting storage account name for StorageModule');
   }
 
   // DATABASE_URL for services with databases

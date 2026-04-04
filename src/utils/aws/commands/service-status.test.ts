@@ -54,7 +54,6 @@ describe('awsServiceStatus', () => {
       ecsRunningCount: 1,
       ecsDesiredCount: 1,
       ecsStatus: 'ACTIVE',
-      appRunnerService: false,
       spaBucket: false,
       spaBucketName: '',
       secrets: ['DATABASE_URL'],
@@ -68,29 +67,9 @@ describe('awsServiceStatus', () => {
     );
   });
 
-  it('should display App Runner status', async () => {
-    rs.mocked(discoverServiceResources).mockResolvedValue({
-      ecsService: false,
-      appRunnerService: true,
-      appRunnerStatus: 'RUNNING',
-      appRunnerUrl: 'https://abc.us-east-1.awsapprunner.com',
-      spaBucket: false,
-      spaBucketName: '',
-      secrets: [],
-      inferredType: 'nextjs',
-    });
-
-    await awsServiceStatus(mockParams);
-
-    expect(mocks.logger.success).toHaveBeenCalledWith(
-      expect.stringContaining('App Runner'),
-    );
-  });
-
   it('should display SPA bucket status', async () => {
     rs.mocked(discoverServiceResources).mockResolvedValue({
       ecsService: false,
-      appRunnerService: false,
       spaBucket: true,
       spaBucketName: 'my-app-dev-landing',
       secrets: [],
@@ -107,7 +86,6 @@ describe('awsServiceStatus', () => {
   it('should show not found for missing resources', async () => {
     rs.mocked(discoverServiceResources).mockResolvedValue({
       ecsService: false,
-      appRunnerService: false,
       spaBucket: false,
       spaBucketName: '',
       secrets: [],
@@ -141,7 +119,7 @@ describe('selectServiceInteractiveAws', () => {
           status: 'ACTIVE',
           resources: {
             ecsService: true,
-            appRunnerService: false,
+
             spaBucket: false,
           },
         },
@@ -151,7 +129,7 @@ describe('selectServiceInteractiveAws', () => {
           status: 'ACTIVE',
           resources: {
             ecsService: true,
-            appRunnerService: false,
+
             spaBucket: false,
           },
         },

@@ -60,7 +60,10 @@ export async function deployContainerAppServices(
     targetEnv,
     'azure',
   );
-  const totalWorkerMax = getTotalWorkerMaxInstances(config.services);
+  const totalWorkerMax = getTotalWorkerMaxInstances(config.services, {
+    infraConfig,
+    targetEnv,
+  });
   const tfEnv = buildAzureTerraformEnv(runtime, credentials);
   const terraformDir = path.join(
     projectRoot,
@@ -259,6 +262,7 @@ export async function deployContainerAppServices(
         credentials,
         serviceName: service.name,
         hasDatabase: service.hasDatabase ?? false,
+        hasStorage: (config.storage?.buckets?.length ?? 0) > 0,
         poolMax,
         managedIdentityClientId,
       });

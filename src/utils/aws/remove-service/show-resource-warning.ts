@@ -37,9 +37,6 @@ export function showResourceWarning(options: ShowResourceWarningOptions): void {
   if (discovered.ecsService) {
     logger.info(`   ECS Service:     ${serviceName}`);
   }
-  if (discovered.appRunnerService) {
-    logger.info(`   App Runner:      ${serviceName}`);
-  }
   if (discovered.spaBucket) {
     logger.info(`   S3 Bucket:       ${discovered.spaBucketName}`);
   }

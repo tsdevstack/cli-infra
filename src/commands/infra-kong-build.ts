@@ -16,6 +16,8 @@ import { fetchSecret } from '../utils/credentials/fetch-secret';
 import { extractPlaceholders } from '../utils/kong/extract-placeholders';
 import { resolveEnvVarsStrict } from '../utils/kong/resolve-env-vars-strict';
 import { generateKongDockerfile } from '../utils/kong/generate-kong-dockerfile';
+import { loadInfrastructureConfig } from '../utils/infrastructure/load-infrastructure-config';
+import { getKongConfig } from '../utils/infrastructure/get-kong-config';
 import {
   getGcpKongRegistryInfo,
   pushGcpKongImage,
@@ -265,9 +267,19 @@ export async function infraKongBuild(
       yaml.dump(resolvedConfig, { lineWidth: -1 }),
     );
 
+    // Load infrastructure config for Kong settings (maxUploadSize)
+    const infraConfig = loadInfrastructureConfig();
+    const kongConfig = getKongConfig(infraConfig, targetEnv, provider);
+
     // Write Dockerfile
     const dockerfilePath = path.join(tempDir, 'Dockerfile');
-    fs.writeFileSync(dockerfilePath, generateKongDockerfile({ provider }));
+    fs.writeFileSync(
+      dockerfilePath,
+      generateKongDockerfile({
+        provider,
+        maxUploadSize: kongConfig.maxUploadSize,
+      }),
+    );
 
     logger.success('Build context prepared');
 

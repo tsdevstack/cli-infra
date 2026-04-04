@@ -39,6 +39,7 @@ describe('buildAzureBackendEnv', () => {
     },
     serviceName: 'auth-service',
     hasDatabase: true,
+    hasStorage: false,
     poolMax: 15,
   };
 
@@ -226,6 +227,48 @@ describe('buildAzureBackendEnv', () => {
     });
   });
 
+  describe('AZURE_STORAGE_ACCOUNT_NAME injection', () => {
+    it('should inject storage account name when hasStorage is true', () => {
+      const result = buildAzureBackendEnv({
+        ...baseConfig,
+        hasStorage: true,
+      });
+
+      expect(result.envVars).toEqual(
+        expect.arrayContaining([
+          { name: 'AZURE_STORAGE_ACCOUNT_NAME', value: 'myappdevstorage' },
+        ]),
+      );
+    });
+
+    it('should NOT inject storage account name when hasStorage is false', () => {
+      const result = buildAzureBackendEnv(baseConfig);
+
+      expect(result.envVars).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: 'AZURE_STORAGE_ACCOUNT_NAME' }),
+        ]),
+      );
+    });
+
+    it('should strip non-alphanumeric chars from project name in storage account', () => {
+      const result = buildAzureBackendEnv({
+        ...baseConfig,
+        projectName: 'my-cool-app',
+        hasStorage: true,
+      });
+
+      expect(result.envVars).toEqual(
+        expect.arrayContaining([
+          {
+            name: 'AZURE_STORAGE_ACCOUNT_NAME',
+            value: 'mycoolappdevstorage',
+          },
+        ]),
+      );
+    });
+  });
+
   describe('Logging', () => {
     it('should log SP credentials injection when no managedIdentityClientId', () => {
       buildAzureBackendEnv(baseConfig);
@@ -243,6 +286,14 @@ describe('buildAzureBackendEnv', () => {
 
       expect(mocks.logger.info).toHaveBeenCalledWith(
         '  Injecting managed identity credentials for SecretsProvider',
+      );
+    });
+
+    it('should log storage account injection when hasStorage is true', () => {
+      buildAzureBackendEnv({ ...baseConfig, hasStorage: true });
+
+      expect(mocks.logger.info).toHaveBeenCalledWith(
+        '  Injecting storage account name for StorageModule',
       );
     });
 

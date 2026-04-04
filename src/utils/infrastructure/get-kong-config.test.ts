@@ -22,6 +22,7 @@ describe('getKongConfig', () => {
           maxInstances: KONG_DEFAULTS_GCP.maxInstances,
           cpu: KONG_DEFAULTS_GCP.cpu,
           memory: KONG_DEFAULTS_GCP.memory,
+          maxUploadSize: '10m',
         });
       });
 
@@ -85,6 +86,7 @@ describe('getKongConfig', () => {
           maxInstances: 20,
           cpu: '2',
           memory: '2Gi',
+          maxUploadSize: '10m',
         });
       });
 
@@ -109,6 +111,7 @@ describe('getKongConfig', () => {
           maxInstances: KONG_DEFAULTS_GCP.maxInstances,
           cpu: KONG_DEFAULTS_GCP.cpu,
           memory: KONG_DEFAULTS_GCP.memory,
+          maxUploadSize: '10m',
         });
       });
 
@@ -139,6 +142,7 @@ describe('getKongConfig', () => {
           maxInstances: KONG_DEFAULTS_AWS.maxInstances,
           cpu: KONG_DEFAULTS_AWS.cpu,
           memory: KONG_DEFAULTS_AWS.memory,
+          maxUploadSize: '10m',
         });
       });
     });

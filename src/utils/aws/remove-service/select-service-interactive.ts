@@ -7,7 +7,6 @@
 import inquirer from 'inquirer';
 import { getContext } from '../../../context';
 import { listEcsServices } from '../discovery/list-ecs-services';
-import { listAppRunnerServices } from '../discovery/list-apprunner-services';
 import type { AWSCredentials } from '@tsdevstack/cli/plugin';
 
 export interface SelectServiceInteractiveOptions {
@@ -27,15 +26,9 @@ export async function selectServiceInteractive(
 
   const clusterName = `${projectName}-cluster`;
 
-  // List ECS services
+  // List ECS services (includes backends, workers, and Next.js)
   const ecsResult = await listEcsServices({
     clusterName,
-    credentials,
-  });
-
-  // List App Runner services
-  const appRunnerResult = await listAppRunnerServices({
-    projectName,
     credentials,
   });
 
@@ -44,19 +37,11 @@ export async function selectServiceInteractive(
   // Extract service names from ECS
   if (ecsResult.success && ecsResult.services) {
     for (const serviceInfo of ecsResult.services) {
-      // Use the serviceName field which already has the project prefix removed
       const name = serviceInfo.serviceName;
       // Skip kong
       if (name !== 'kong') {
         serviceNames.add(name);
       }
-    }
-  }
-
-  // Extract service names from App Runner
-  if (appRunnerResult.success && appRunnerResult.services) {
-    for (const serviceInfo of appRunnerResult.services) {
-      serviceNames.add(serviceInfo.serviceName);
     }
   }
 

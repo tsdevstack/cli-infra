@@ -139,7 +139,10 @@ export async function infraWorkerDeploy(
       targetEnv,
       'azure',
     );
-    const totalWorkerMax = getTotalWorkerMaxInstances(config.services);
+    const totalWorkerMax = getTotalWorkerMaxInstances(config.services, {
+      infraConfig,
+      targetEnv,
+    });
 
     const { poolMax: workerPoolMax } = calculatePoolSize({
       dbTier,
@@ -162,6 +165,7 @@ export async function infraWorkerDeploy(
       credentials: azureCredentials,
       serviceName: baseService.name,
       hasDatabase: baseService.hasDatabase ?? false,
+      hasStorage: (config.storage?.buckets?.length ?? 0) > 0,
       poolMax: workerPoolMax,
       managedIdentityClientId,
     });

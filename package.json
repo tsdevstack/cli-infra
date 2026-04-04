@@ -50,7 +50,6 @@
     "commander": "^12.0.0"
   },
   "dependencies": {
-    "@tsdevstack/infra-core": "*",
     "@aws-sdk/client-apprunner": "^3.984.0",
     "@aws-sdk/client-cloudfront": "^3.984.0",
     "@aws-sdk/client-cloudwatch-logs": "^3.984.0",
@@ -58,6 +57,7 @@
     "@aws-sdk/client-ecr": "^3.984.0",
     "@aws-sdk/client-ecs": "^3.984.0",
     "@aws-sdk/client-iam": "^3.984.0",
+    "@aws-sdk/client-rds": "^3.1007.0",
     "@aws-sdk/client-s3": "^3.984.0",
     "@aws-sdk/client-scheduler": "^3.984.0",
     "@aws-sdk/client-servicediscovery": "^3.984.0",
@@ -77,6 +77,7 @@
     "@google-cloud/secret-manager": "^6.1.1",
     "@google-cloud/service-usage": "^4.0.0",
     "@google-cloud/storage": "^7.18.0",
+    "@tsdevstack/infra-core": "*",
     "google-auth-library": "^10.5.0",
     "googleapis": "^169.0.0",
     "inquirer": "^12.10.0",

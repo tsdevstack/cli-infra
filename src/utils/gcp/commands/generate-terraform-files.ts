@@ -136,6 +136,7 @@ export function generateTerraformFiles(
     frontends: {},
     spas: {},
     workers: {},
+    storageBuckets: frameworkConfig.storage?.buckets ?? [],
     scheduledJobs: {},
     allDeployables: {},
   };
@@ -236,6 +237,7 @@ export function generateTerraformFiles(
       apiDomain,
       frontendServices,
       customWafRules: securityConfig?.waf?.customRules,
+      rateLimit: securityConfig?.waf?.rateLimit,
       redirectDomains: loadBalancerConfig?.redirectDomains,
       canonicalDomain: baseDomain,
       noIndex: accessControl?.noIndex,
@@ -253,6 +255,15 @@ export function generateTerraformFiles(
       gcp.generateCloudSchedulerTf(scheduledJobs),
     );
     logFile('cloud-scheduler.tf');
+  }
+
+  // Generate storage.tf when storage buckets are configured
+  if (generateConfig.storageBuckets.length > 0) {
+    writeTextFile(
+      path.join(outputDir, 'storage.tf'),
+      gcp.generateGcsStorageTf(generateConfig),
+    );
+    logFile('storage.tf');
   }
 
   return {

@@ -142,7 +142,10 @@ export function generateTerraformFiles(
     ctx.targetEnv,
     'aws',
   );
-  const totalWorkerMax = getTotalWorkerMaxInstances(frameworkConfig.services);
+  const totalWorkerMax = getTotalWorkerMaxInstances(frameworkConfig.services, {
+    infraConfig,
+    targetEnv: ctx.targetEnv,
+  });
   const { poolMax: computedPoolMax } = calculatePoolSize({
     dbTier,
     provider: 'aws',
@@ -238,10 +241,15 @@ export function generateTerraformFiles(
         workerOverride?.cpu !== undefined ||
         workerOverride?.memory !== undefined;
 
+      // Workers must always have at least 1 instance (they poll Redis)
+      const workerMinInstances = Math.max(1, resolved.minInstances);
+
       if (hasWorkerOverride) {
         workers[s.name] = {
           cpu: parseCpuToNumber(resolved.cpu),
           memory: String(parseMemoryToNumber(resolved.memory)),
+          minInstances: workerMinInstances,
+          maxInstances: resolved.maxInstances,
           service: s.baseService ?? s.name.replace(/-worker$/, ''),
           dbPoolMax: computedPoolMax,
         };
@@ -249,6 +257,8 @@ export function generateTerraformFiles(
         workers[s.name] = {
           cpu: FARGATE_DEFAULT.cpu,
           memory: String(FARGATE_DEFAULT.memory),
+          minInstances: workerMinInstances,
+          maxInstances: resolved.maxInstances,
           service: s.baseService ?? s.name.replace(/-worker$/, ''),
           dbPoolMax: computedPoolMax,
         };
@@ -357,6 +367,7 @@ export function generateTerraformFiles(
     allDeployables,
     spas,
     frontends,
+    storageBuckets: frameworkConfig.storage?.buckets ?? [],
     scheduledJobs,
   };
 
@@ -441,15 +452,22 @@ export function generateTerraformFiles(
   writeTextFile(path.join(outputDir, 'ecs.tf'), aws.generateEcsTf());
   logFile('ecs.tf');
 
+  writeTextFile(path.join(outputDir, 'logging.tf'), aws.generateLoggingTf());
+  logFile('logging.tf');
+
   writeTextFile(path.join(outputDir, 'alb.tf'), aws.generateAlbTf());
   logFile('alb.tf');
 
-  // WAF with optional custom rules from infrastructure.json
+  // WAF with optional custom rules and rate limit from infrastructure.json
   const securityConfig = envConfig?.security as SecurityOverride | undefined;
   const awsCustomWafRules = securityConfig?.waf?.awsCustomRules;
+  const wafRateLimit = securityConfig?.waf?.rateLimit;
   writeTextFile(
     path.join(outputDir, 'waf.tf'),
-    aws.generateWafTf({ customRules: awsCustomWafRules }),
+    aws.generateWafTf({
+      customRules: awsCustomWafRules,
+      rateLimit: wafRateLimit,
+    }),
   );
   logFile('waf.tf');
 
@@ -486,12 +504,6 @@ export function generateTerraformFiles(
 
   writeTextFile(path.join(outputDir, 's3-spa.tf'), aws.generateS3SpaTf());
   logFile('s3-spa.tf');
-
-  writeTextFile(
-    path.join(outputDir, 'apprunner.tf'),
-    aws.generateAppRunnerTf(),
-  );
-  logFile('apprunner.tf');
 
   writeTextFile(
     path.join(outputDir, 'cloudfront-nextjs.tf'),
@@ -568,6 +580,15 @@ export function generateTerraformFiles(
   logFile('db-delete/package.json');
   writeTextFile(path.join(dbDeleteDir, 'index.js'), dbDeleteFiles.indexJs);
   logFile('db-delete/index.js');
+
+  // Generate storage.tf when storage buckets are configured
+  if (generateConfig.storageBuckets.length > 0) {
+    writeTextFile(
+      path.join(outputDir, 'storage.tf'),
+      aws.generateS3StorageTf(generateConfig),
+    );
+    logFile('storage.tf');
+  }
 
   return {
     outputDir,

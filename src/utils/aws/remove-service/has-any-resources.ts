@@ -9,7 +9,6 @@ import type { DiscoveredResources } from '../discovery';
 export function hasAnyResources(discovered: DiscoveredResources): boolean {
   return (
     discovered.ecsService ||
-    discovered.appRunnerService ||
     discovered.spaBucket ||
     discovered.secrets.length > 0
   );

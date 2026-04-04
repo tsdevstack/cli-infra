@@ -96,7 +96,22 @@ rs.mock('../utils/kong/resolve-env-vars-strict', () => ({
 
 const mockGenerateKongDockerfile = rs.fn();
 rs.mock('../utils/kong/generate-kong-dockerfile', () => ({
-  generateKongDockerfile: () => mockGenerateKongDockerfile(),
+  generateKongDockerfile: (...args: unknown[]) =>
+    mockGenerateKongDockerfile(...args),
+}));
+
+rs.mock('../utils/infrastructure/load-infrastructure-config', () => ({
+  loadInfrastructureConfig: rs.fn(() => null),
+}));
+
+rs.mock('../utils/infrastructure/get-kong-config', () => ({
+  getKongConfig: rs.fn(() => ({
+    minInstances: 0,
+    maxInstances: 5,
+    cpu: '1',
+    memory: '512Mi',
+    maxUploadSize: '10m',
+  })),
 }));
 
 const mockGetAzureKongRegistryInfo = rs.fn();

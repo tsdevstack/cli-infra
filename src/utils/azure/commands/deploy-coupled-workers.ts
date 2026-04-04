@@ -72,7 +72,10 @@ export async function deployCoupledWorkers(
     ctx.targetEnv,
     'azure',
   );
-  const totalWorkerMax = getTotalWorkerMaxInstances(config.services);
+  const totalWorkerMax = getTotalWorkerMaxInstances(config.services, {
+    infraConfig,
+    targetEnv: ctx.targetEnv,
+  });
   const imageTag = tag ?? getGitSha();
 
   const { poolMax: workerPoolMax } = calculatePoolSize({
@@ -96,6 +99,7 @@ export async function deployCoupledWorkers(
       credentials: ctx.credentials,
       serviceName: baseService.name,
       hasDatabase: baseService.hasDatabase ?? false,
+      hasStorage: (config.storage?.buckets?.length ?? 0) > 0,
       poolMax: workerPoolMax,
       managedIdentityClientId,
     });

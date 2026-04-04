@@ -3,6 +3,7 @@
  */
 
 import { execSync } from 'node:child_process';
+import { getContext } from '../../context';
 
 /**
  * Fetch a single secret using the CLI command
@@ -27,7 +28,14 @@ export function fetchSecret(
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     return result.trim();
-  } catch {
+  } catch (error) {
+    const { logger } = getContext();
+    const stderr =
+      error instanceof Error && 'stderr' in error
+        ? String((error as { stderr: unknown }).stderr).trim()
+        : '';
+    const message = error instanceof Error ? error.message : String(error);
+    logger.warn(`fetchSecret("${key}"): ${stderr || message}`);
     return null;
   }
 }

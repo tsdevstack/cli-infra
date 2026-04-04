@@ -7,7 +7,11 @@
 
 import path from 'node:path';
 import { getContext } from '../../../context';
-import { azure, type AzureInfraConfig } from '@tsdevstack/infra-core';
+import {
+  azure,
+  type AzureInfraConfig,
+  type WafConfig,
+} from '@tsdevstack/infra-core';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
 import {
   getScheduledJobs,
@@ -16,6 +20,7 @@ import {
   getServiceConfig,
   getAppServiceConfig,
 } from '../../infrastructure/merge-with-defaults';
+import type { SecurityOverride } from '../../infrastructure/types';
 import type { AzureCommandContext } from './types';
 
 interface GenerateOptions {
@@ -185,7 +190,9 @@ export function generateTerraformFiles(
     allDeployables,
     spas,
     frontends,
+    storageBuckets: config.storage?.buckets ?? [],
     scheduledJobs: buildScheduledJobsMap(ctx.targetEnv),
+    waf: getWafConfig(infraConfig, ctx.targetEnv),
     noIndex: getNoIndex(infraConfig, ctx.targetEnv),
     frontdoorPremium: getFrontdoorPremium(infraConfig, ctx.targetEnv),
     skipCustomDomainAssociations: options.skipCustomDomainAssociations,
@@ -240,6 +247,14 @@ export function generateTerraformFiles(
     files.push({
       name: 'scheduled-jobs.tf',
       content: scheduledJobsContent,
+    });
+  }
+
+  // Add storage.tf when storage buckets are configured
+  if (generateConfig.storageBuckets.length > 0) {
+    files.push({
+      name: 'storage.tf',
+      content: azure.generateBlobStorageTf(generateConfig),
     });
   }
 
@@ -345,4 +360,22 @@ function getFrontdoorPremium(
   return (
     (envConfig as { frontdoorPremium?: boolean }).frontdoorPremium ?? false
   );
+}
+
+/**
+ * Get WAF config from raw infrastructure config
+ */
+function getWafConfig(
+  config: { [env: string]: unknown } | null,
+  env: string,
+): WafConfig | undefined {
+  if (!config) return undefined;
+  const envConfig = config[env];
+  if (!envConfig || typeof envConfig !== 'object') return undefined;
+  const security = (envConfig as { security?: SecurityOverride }).security;
+  if (!security?.waf) return undefined;
+  return {
+    azureCustomRules: security.waf.azureCustomRules,
+    rateLimit: security.waf.rateLimit,
+  };
 }

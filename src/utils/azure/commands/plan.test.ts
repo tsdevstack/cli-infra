@@ -79,6 +79,7 @@ describe('azurePlan', () => {
         },
         redis: { tier: 'Basic' },
         servicesWithDatabase: [],
+        storageBuckets: [],
         baseDomain: '',
         services: {},
         workers: {},

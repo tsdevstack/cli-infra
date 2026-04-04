@@ -96,4 +96,19 @@ describe('generateKongDockerfile', () => {
     expect(azureResult).not.toContain('WAKEUP_LAMBDA_URL');
     expect(azureResult).not.toContain('WAKEUP_SECRET');
   });
+
+  it('should set default max upload size to 10m', () => {
+    const result = generateKongDockerfile();
+    expect(result).toContain('KONG_NGINX_HTTP_CLIENT_MAX_BODY_SIZE=10m');
+  });
+
+  it('should use custom max upload size when provided', () => {
+    const result = generateKongDockerfile({ maxUploadSize: '50m' });
+    expect(result).toContain('KONG_NGINX_HTTP_CLIENT_MAX_BODY_SIZE=50m');
+  });
+
+  it('should allow unlimited upload size with 0', () => {
+    const result = generateKongDockerfile({ maxUploadSize: '0' });
+    expect(result).toContain('KONG_NGINX_HTTP_CLIENT_MAX_BODY_SIZE=0');
+  });
 });

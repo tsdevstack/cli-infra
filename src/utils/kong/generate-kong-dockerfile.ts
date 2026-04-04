@@ -8,6 +8,8 @@ import type { CloudProvider } from '@tsdevstack/cli/plugin';
 
 interface GenerateKongDockerfileOptions {
   provider?: CloudProvider;
+  /** Max upload size for traditional file uploads (nginx client_max_body_size). Default: "10m" */
+  maxUploadSize?: string;
 }
 
 /**
@@ -20,6 +22,8 @@ export function generateKongDockerfile(
     options?.provider === 'aws'
       ? buildAwsHealthCheckScript()
       : buildBasicHealthCheckScript();
+
+  const maxUploadSize = options?.maxUploadSize ?? '10m';
 
   return `FROM kong:3.8
 
@@ -69,6 +73,9 @@ ENV KONG_LMDB_MAP_SIZE=2048m
 # Faster cold starts
 ENV KONG_DB_CACHE_WARMUP_ENTITIES=services
 ENV KONG_NGINX_WORKER_PROCESSES=2
+
+# Max upload size for traditional file uploads (default: 10m)
+ENV KONG_NGINX_HTTP_CLIENT_MAX_BODY_SIZE=${maxUploadSize}
 
 # Client IP detection behind Load Balancer
 ENV KONG_TRUSTED_IPS="10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"

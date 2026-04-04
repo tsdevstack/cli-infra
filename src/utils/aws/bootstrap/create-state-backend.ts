@@ -123,6 +123,17 @@ export async function createStateBackend(
             ],
           }),
         );
+
+        // Wait for table to become ACTIVE before Terraform tries to use it
+        let status = 'CREATING';
+        while (status !== 'ACTIVE') {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          const desc = await dynamodb.send(
+            new DescribeTableCommand({ TableName: tableName }),
+          );
+          status = desc.Table?.TableStatus ?? 'CREATING';
+        }
+
         tableCreated = true;
       } else {
         throw err;

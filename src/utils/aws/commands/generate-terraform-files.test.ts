@@ -26,6 +26,7 @@ rs.mock('@tsdevstack/infra-core', () => ({
     generateDatabaseTf: rs.fn(() => '# database.tf'),
     generateRedisTf: rs.fn(() => '# redis.tf'),
     generateEcsTf: rs.fn(() => '# ecs.tf'),
+    generateLoggingTf: rs.fn(() => '# logging.tf'),
     generateAlbTf: rs.fn(() => '# alb.tf'),
     generateWafTf: rs.fn(() => '# waf.tf'),
     generateCloudfrontTf: rs.fn(() => '# cloudfront.tf'),
@@ -197,6 +198,7 @@ describe('generateTerraformFiles', () => {
     expect(writeCalls).toContain('database.tf');
     expect(writeCalls).toContain('redis.tf');
     expect(writeCalls).toContain('ecs.tf');
+    expect(writeCalls).toContain('logging.tf');
     expect(writeCalls).toContain('alb.tf');
     expect(writeCalls).toContain('waf.tf');
     expect(writeCalls).toContain('cloudfront.tf');

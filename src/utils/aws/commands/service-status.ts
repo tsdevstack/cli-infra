@@ -78,16 +78,6 @@ export async function awsServiceStatus(
     logger.info(`  ECS Service:      ✗ not found`);
   }
 
-  // App Runner
-  if (discovered.appRunnerService) {
-    const status = discovered.appRunnerStatus ?? 'UNKNOWN';
-    const url = discovered.appRunnerUrl ?? 'URL not available';
-    logger.success(`  App Runner:       ✓ ${status}`);
-    logger.info(`    URL:            ${url}`);
-  } else {
-    logger.info(`  App Runner:       ✗ not found`);
-  }
-
   // SPA Bucket
   if (discovered.spaBucket) {
     logger.success(`  SPA Bucket:       ✓ ${discovered.spaBucketName}`);

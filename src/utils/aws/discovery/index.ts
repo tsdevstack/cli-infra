@@ -12,13 +12,6 @@ export type {
   EcsServiceInfo,
 } from './list-ecs-services';
 
-export { listAppRunnerServices } from './list-apprunner-services';
-export type {
-  ListAppRunnerServicesOptions,
-  ListAppRunnerServicesResult,
-  AppRunnerServiceInfo,
-} from './list-apprunner-services';
-
 export { listSpaBuckets } from './list-spa-buckets';
 export type {
   ListSpaBucketsOptions,
@@ -45,13 +38,6 @@ export type {
   GetEcsServiceResult,
   EcsServiceDetails,
 } from './get-ecs-service';
-
-export { getAppRunnerService } from './get-apprunner-service';
-export type {
-  GetAppRunnerServiceOptions,
-  GetAppRunnerServiceResult,
-  AppRunnerServiceDetails,
-} from './get-apprunner-service';
 
 export { bucketExists } from './bucket-exists';
 export type { BucketExistsOptions, BucketExistsResult } from './bucket-exists';

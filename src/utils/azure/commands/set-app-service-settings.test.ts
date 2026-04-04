@@ -124,22 +124,40 @@ describe('setAppServiceSettings', () => {
   });
 
   describe('Error cases', () => {
-    it('should throw CliError when SDK call fails', async () => {
+    it('should throw CliError after all retries exhausted', async () => {
       mockListApplicationSettings.mockRejectedValue(new Error('Access denied'));
 
       await expect(
-        setAppServiceSettings(testCredentials, 'rg', 'app', { KEY: 'value' }),
+        setAppServiceSettings(
+          testCredentials,
+          'rg',
+          'app',
+          { KEY: 'value' },
+          0,
+        ),
       ).rejects.toThrow(mocks.CliError);
+
+      // Should have retried MAX_RETRIES times
+      expect(mockListApplicationSettings).toHaveBeenCalledTimes(5);
     });
 
-    it('should throw CliError when update fails', async () => {
-      mockUpdateApplicationSettings.mockRejectedValue(
-        new Error('Update failed'),
+    it('should succeed on retry after transient failure', async () => {
+      mockListApplicationSettings
+        .mockRejectedValueOnce(new Error('Network error'))
+        .mockResolvedValue({ properties: {} });
+
+      await setAppServiceSettings(
+        testCredentials,
+        'rg',
+        'app',
+        {
+          KEY: 'value',
+        },
+        0,
       );
 
-      await expect(
-        setAppServiceSettings(testCredentials, 'rg', 'app', { KEY: 'value' }),
-      ).rejects.toThrow(mocks.CliError);
+      expect(mockListApplicationSettings).toHaveBeenCalledTimes(2);
+      expect(mockUpdateApplicationSettings).toHaveBeenCalled();
     });
   });
 });

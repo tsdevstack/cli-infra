@@ -16,6 +16,292 @@ import {
 } from './get-provider-schema-config';
 
 /**
+ * Build WAF-related schema definitions based on provider
+ */
+function buildWafSchemaDefinitions(
+  provider: SchemaProvider,
+): Record<string, unknown> {
+  const rateLimitConfig = {
+    WafRateLimitConfig: {
+      type: 'object',
+      description:
+        'Global rate limit configuration (applied across all providers)',
+      required: ['count', 'intervalSec'],
+      properties: {
+        count: {
+          type: 'integer',
+          minimum: 1,
+          description: 'Requests allowed per interval',
+        },
+        intervalSec: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 3600,
+          description: 'Interval in seconds',
+        },
+      },
+      additionalProperties: false,
+    },
+  };
+
+  if (provider === 'gcp') {
+    return {
+      WafOverride: {
+        type: 'object',
+        description: 'WAF configuration (GCP Cloud Armor)',
+        properties: {
+          customRules: {
+            type: 'array',
+            description: 'Custom WAF rules for Cloud Armor',
+            items: { $ref: '#/definitions/WafCustomRule' },
+          },
+          rateLimit: { $ref: '#/definitions/WafRateLimitConfig' },
+        },
+        additionalProperties: false,
+      },
+      WafCustomRule: {
+        type: 'object',
+        description: 'Custom Cloud Armor WAF rule (CEL expression)',
+        required: ['name', 'priority', 'action', 'expression'],
+        properties: {
+          name: {
+            type: 'string',
+            description: 'Unique rule identifier',
+          },
+          priority: {
+            type: 'integer',
+            minimum: 1,
+            maximum: 2147483646,
+            description: 'Rule priority (use 800-899 for custom rules)',
+          },
+          action: {
+            type: 'string',
+            enum: ['allow', 'deny(403)', 'deny(404)', 'deny(429)', 'throttle'],
+            description: 'Action to take when rule matches',
+          },
+          expression: {
+            type: 'string',
+            description: 'CEL expression (validated by Terraform/GCP)',
+          },
+          description: {
+            type: 'string',
+            description: 'Human-readable description',
+          },
+          rateLimit: { $ref: '#/definitions/WafRateLimitConfig' },
+        },
+        additionalProperties: false,
+      },
+      ...rateLimitConfig,
+    };
+  }
+
+  if (provider === 'aws') {
+    return {
+      WafOverride: {
+        type: 'object',
+        description: 'WAF configuration (AWS WAF v2)',
+        properties: {
+          awsCustomRules: {
+            type: 'array',
+            description: 'Custom WAF rules for AWS WAF v2',
+            items: { $ref: '#/definitions/AwsWafCustomRule' },
+          },
+          rateLimit: { $ref: '#/definitions/WafRateLimitConfig' },
+        },
+        additionalProperties: false,
+      },
+      AwsWafCustomRule: {
+        type: 'object',
+        description: 'Custom AWS WAF v2 rule',
+        required: ['name', 'priority', 'action', 'matchType'],
+        properties: {
+          name: {
+            type: 'string',
+            description: 'Unique rule identifier',
+          },
+          priority: {
+            type: 'integer',
+            minimum: 100,
+            maximum: 899,
+            description: 'Rule priority (100-899, managed rules use 1-99)',
+          },
+          action: {
+            type: 'string',
+            enum: ['block', 'allow', 'count'],
+            description: 'Action when rule matches',
+          },
+          description: {
+            type: 'string',
+            description: 'Human-readable description',
+          },
+          matchType: {
+            type: 'string',
+            enum: ['byte_match', 'rate_based', 'geo_match'],
+            description: 'Rule type',
+          },
+          byteMatch: { $ref: '#/definitions/AwsWafByteMatchConfig' },
+          geoMatch: { $ref: '#/definitions/AwsWafGeoMatchConfig' },
+          rateLimit: {
+            type: 'integer',
+            minimum: 100,
+            description:
+              'Requests per 5-minute window (required when matchType is rate_based)',
+          },
+        },
+        additionalProperties: false,
+      },
+      AwsWafByteMatchConfig: {
+        type: 'object',
+        description: 'AWS WAF byte match configuration',
+        required: ['searchString', 'fieldToMatch', 'positionalConstraint'],
+        properties: {
+          searchString: {
+            type: 'string',
+            description: 'String to search for',
+          },
+          fieldToMatch: {
+            type: 'string',
+            enum: ['uri_path', 'query_string', 'body', 'header'],
+            description: 'Part of the request to inspect',
+          },
+          headerName: {
+            type: 'string',
+            description: 'Header name (required when fieldToMatch is header)',
+          },
+          positionalConstraint: {
+            type: 'string',
+            enum: ['CONTAINS', 'STARTS_WITH', 'ENDS_WITH', 'EXACTLY'],
+            description: 'How to match the string',
+          },
+        },
+        additionalProperties: false,
+      },
+      AwsWafGeoMatchConfig: {
+        type: 'object',
+        description: 'AWS WAF geo match configuration',
+        required: ['countryCodes'],
+        properties: {
+          countryCodes: {
+            type: 'array',
+            description:
+              'ISO 3166-1 alpha-2 country codes (e.g., ["US", "CA"])',
+            items: { type: 'string' },
+          },
+        },
+        additionalProperties: false,
+      },
+      ...rateLimitConfig,
+    };
+  }
+
+  // Azure
+  return {
+    WafOverride: {
+      type: 'object',
+      description: 'WAF configuration (Azure Front Door)',
+      properties: {
+        azureCustomRules: {
+          type: 'array',
+          description: 'Custom WAF rules for Azure Front Door',
+          items: { $ref: '#/definitions/AzureWafCustomRule' },
+        },
+        rateLimit: { $ref: '#/definitions/WafRateLimitConfig' },
+      },
+      additionalProperties: false,
+    },
+    AzureWafCustomRule: {
+      type: 'object',
+      description: 'Custom Azure Front Door WAF rule',
+      required: ['name', 'type', 'priority', 'action', 'matchConditions'],
+      properties: {
+        name: {
+          type: 'string',
+          description: 'Unique rule name (alphanumeric only)',
+        },
+        type: {
+          type: 'string',
+          enum: ['MatchRule', 'RateLimitRule'],
+          description: 'Rule type',
+        },
+        priority: {
+          type: 'integer',
+          minimum: 1000,
+          description:
+            'Rule priority (use 1000+ to avoid conflicts with framework rules)',
+        },
+        action: {
+          type: 'string',
+          enum: ['Block', 'Allow', 'Log'],
+          description: 'Action when rule matches',
+        },
+        matchConditions: {
+          type: 'array',
+          description: 'Match conditions (all must match)',
+          items: { $ref: '#/definitions/AzureWafMatchCondition' },
+        },
+        description: {
+          type: 'string',
+          description: 'Human-readable description',
+        },
+        rateLimitDurationInMinutes: {
+          type: 'integer',
+          minimum: 1,
+          description:
+            'Rate limit duration in minutes (required for RateLimitRule)',
+        },
+        rateLimitThreshold: {
+          type: 'integer',
+          minimum: 1,
+          description: 'Rate limit threshold (required for RateLimitRule)',
+        },
+      },
+      additionalProperties: false,
+    },
+    AzureWafMatchCondition: {
+      type: 'object',
+      description: 'Azure Front Door WAF match condition',
+      required: ['matchVariable', 'operator', 'matchValues'],
+      properties: {
+        matchVariable: {
+          type: 'string',
+          enum: [
+            'RequestUri',
+            'RequestMethod',
+            'RequestHeader',
+            'RequestBody',
+            'SocketAddr',
+            'QueryString',
+          ],
+          description: 'Part of the request to inspect',
+        },
+        operator: {
+          type: 'string',
+          enum: ['Contains', 'Equal', 'IPMatch', 'GreaterThan'],
+          description: 'Comparison operator',
+        },
+        matchValues: {
+          type: 'array',
+          description: 'Values to match against',
+          items: { type: 'string' },
+        },
+        transforms: {
+          type: 'array',
+          description: 'Text transforms (e.g., ["Lowercase", "UrlDecode"])',
+          items: { type: 'string' },
+        },
+        selector: {
+          type: 'string',
+          description:
+            'Header name (required when matchVariable is RequestHeader)',
+        },
+      },
+      additionalProperties: false,
+    },
+    ...rateLimitConfig,
+  };
+}
+
+/**
  * Generate the infrastructure.schema.json content
  * Uses actual constants for enums and constraints
  */
@@ -203,32 +489,40 @@ export function generateInfrastructureSchema(
       KongOverride: {
         type: 'object',
         description: providerConfig.kongDescription,
-        properties: providerConfig.kongUsesAppService
-          ? {}
-          : {
-              minInstances: {
-                type: 'integer',
-                minimum: VALIDATION_CONSTRAINTS.minInstances.min,
-                maximum: VALIDATION_CONSTRAINTS.minInstances.max,
-                description: 'Minimum number of instances',
-              },
-              maxInstances: {
-                type: 'integer',
-                minimum: VALIDATION_CONSTRAINTS.maxInstances.min,
-                maximum: VALIDATION_CONSTRAINTS.maxInstances.max,
-                description: 'Maximum number of instances',
-              },
-              cpu: {
-                type: 'string',
-                enum: [...providerConfig.cpuValues],
-                description: providerConfig.cpuDescription,
-              },
-              memory: {
-                type: 'string',
-                enum: [...providerConfig.memoryValues],
-                description: providerConfig.memoryDescription,
-              },
-            },
+        properties: {
+          ...(providerConfig.kongUsesAppService
+            ? {}
+            : {
+                minInstances: {
+                  type: 'integer',
+                  minimum: VALIDATION_CONSTRAINTS.minInstances.min,
+                  maximum: VALIDATION_CONSTRAINTS.minInstances.max,
+                  description: 'Minimum number of instances',
+                },
+                maxInstances: {
+                  type: 'integer',
+                  minimum: VALIDATION_CONSTRAINTS.maxInstances.min,
+                  maximum: VALIDATION_CONSTRAINTS.maxInstances.max,
+                  description: 'Maximum number of instances',
+                },
+                cpu: {
+                  type: 'string',
+                  enum: [...providerConfig.cpuValues],
+                  description: providerConfig.cpuDescription,
+                },
+                memory: {
+                  type: 'string',
+                  enum: [...providerConfig.memoryValues],
+                  description: providerConfig.memoryDescription,
+                },
+              }),
+          maxUploadSize: {
+            type: 'string',
+            pattern: '^[0-9]+(m|k|g)$',
+            description:
+              "Max upload size for traditional file uploads through Kong (e.g., '10m', '50m'). Default: '10m'. Set '0' for unlimited.",
+          },
+        },
         additionalProperties: false,
       },
       LoadBalancerOverride: {
@@ -272,70 +566,7 @@ export function generateInfrastructureSchema(
         },
         additionalProperties: false,
       },
-      WafOverride: {
-        type: 'object',
-        description: 'Cloud Armor WAF configuration',
-        properties: {
-          customRules: {
-            type: 'array',
-            description: 'Custom WAF rules to add to Cloud Armor policy',
-            items: { $ref: '#/definitions/WafCustomRule' },
-          },
-        },
-        additionalProperties: false,
-      },
-      WafCustomRule: {
-        type: 'object',
-        description: 'Custom Cloud Armor WAF rule',
-        required: ['name', 'priority', 'action', 'expression'],
-        properties: {
-          name: {
-            type: 'string',
-            description: 'Unique rule identifier',
-          },
-          priority: {
-            type: 'integer',
-            minimum: 1,
-            maximum: 2147483646,
-            description: 'Rule priority (use 800-899 for custom rules)',
-          },
-          action: {
-            type: 'string',
-            enum: ['allow', 'deny(403)', 'deny(404)', 'deny(429)', 'throttle'],
-            description: 'Action to take when rule matches',
-          },
-          expression: {
-            type: 'string',
-            description: 'CEL expression (validated by Terraform/GCP)',
-          },
-          description: {
-            type: 'string',
-            description: 'Human-readable description',
-          },
-          rateLimit: { $ref: '#/definitions/WafRateLimitConfig' },
-        },
-        additionalProperties: false,
-      },
-      WafRateLimitConfig: {
-        type: 'object',
-        description:
-          "Rate limit configuration (required if action is 'throttle')",
-        required: ['count', 'intervalSec'],
-        properties: {
-          count: {
-            type: 'integer',
-            minimum: 1,
-            description: 'Requests allowed per interval',
-          },
-          intervalSec: {
-            type: 'integer',
-            minimum: 1,
-            maximum: 3600,
-            description: 'Interval in seconds',
-          },
-        },
-        additionalProperties: false,
-      },
+      ...buildWafSchemaDefinitions(provider),
       ScheduledJobConfig: {
         type: 'object',
         description: providerConfig.scheduledJobDescription,

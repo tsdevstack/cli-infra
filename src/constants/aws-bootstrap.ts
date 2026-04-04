@@ -131,12 +131,6 @@ export const AWS_REQUIRED_ACTIONS = [
   'application-autoscaling:DescribeScalableTargets',
   'application-autoscaling:ListTagsForResource',
 
-  // App Runner - for Next.js frontend services
-  'apprunner:CreateService',
-  'apprunner:UpdateService',
-  'apprunner:DescribeService',
-  'apprunner:ListServices',
-
   // Service Discovery (Cloud Map) - for ECS service connect
   'servicediscovery:CreatePrivateDnsNamespace',
   'servicediscovery:CreateService',

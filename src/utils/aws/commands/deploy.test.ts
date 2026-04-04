@@ -31,8 +31,8 @@ rs.mock('./deploy-ecs-services', () => ({
   deployEcsServices: rs.fn(),
 }));
 
-rs.mock('./deploy-apprunner-services', () => ({
-  deployAppRunnerServices: rs.fn(),
+rs.mock('./deploy-nextjs-services', () => ({
+  deployNextjsServices: rs.fn(),
 }));
 
 rs.mock('./deploy-kong', () => ({
@@ -101,7 +101,7 @@ import { extractLockId, buildAwsTerraformEnv } from '@tsdevstack/infra-core';
 import { createStateBackend } from '../bootstrap/create-state-backend';
 import { generateTerraformFiles } from './generate-terraform-files';
 import { deployEcsServices } from './deploy-ecs-services';
-import { deployAppRunnerServices } from './deploy-apprunner-services';
+import { deployNextjsServices } from './deploy-nextjs-services';
 import { awsKongDeploy } from './deploy-kong';
 import { detectDeployedOrigins } from '../detect-deployed-origins';
 import { buildAndPushDbInit } from './build-and-push-db-init';
@@ -178,8 +178,6 @@ describe('awsDeploy', () => {
     );
 
     rs.mocked(detectDeployedOrigins).mockResolvedValue({
-      nextjsOrigins: {},
-      nextjsServiceArns: {},
       spaBucketsReady: {},
     });
 
@@ -187,7 +185,7 @@ describe('awsDeploy', () => {
     rs.mocked(buildAndPushDbDelete).mockResolvedValue(undefined);
     rs.mocked(runDbInit).mockResolvedValue(undefined);
     rs.mocked(deployEcsServices).mockResolvedValue(undefined);
-    rs.mocked(deployAppRunnerServices).mockResolvedValue(undefined);
+    rs.mocked(deployNextjsServices).mockResolvedValue(undefined);
     rs.mocked(awsKongDeploy).mockResolvedValue(undefined);
   });
 
@@ -297,11 +295,11 @@ describe('awsDeploy', () => {
     expect(runDbInit).toHaveBeenCalled();
   });
 
-  it('should deploy ECS and App Runner services', async () => {
+  it('should deploy ECS and Next.js services', async () => {
     await awsDeploy(mockCtx, { autoApprove: true });
 
     expect(deployEcsServices).toHaveBeenCalled();
-    expect(deployAppRunnerServices).toHaveBeenCalled();
+    expect(deployNextjsServices).toHaveBeenCalled();
   });
 
   it('should deploy Kong Gateway', async () => {
@@ -319,7 +317,7 @@ describe('awsDeploy', () => {
     await awsDeploy(mockCtx, { autoApprove: true, infraOnly: true });
 
     expect(deployEcsServices).not.toHaveBeenCalled();
-    expect(deployAppRunnerServices).not.toHaveBeenCalled();
+    expect(deployNextjsServices).not.toHaveBeenCalled();
     expect(awsKongDeploy).not.toHaveBeenCalled();
   });
 

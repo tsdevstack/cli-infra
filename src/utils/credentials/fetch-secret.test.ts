@@ -5,6 +5,11 @@ rs.mock('node:child_process', () => ({
   execSync: (...args: unknown[]) => mockExecSync(...args),
 }));
 
+const mockLogger = { warn: rs.fn() };
+rs.mock('../../context', () => ({
+  getContext: () => ({ logger: mockLogger }),
+}));
+
 import { fetchSecret } from './fetch-secret';
 
 describe('fetchSecret', () => {

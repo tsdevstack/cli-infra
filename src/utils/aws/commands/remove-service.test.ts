@@ -71,7 +71,6 @@ describe('awsRemoveService', () => {
 
     rs.mocked(discoverServiceResources).mockResolvedValue({
       ecsService: true,
-      appRunnerService: false,
       spaBucket: false,
       spaBucketName: '',
       secrets: ['DATABASE_URL'],
@@ -159,16 +158,16 @@ describe('awsRemoveService', () => {
   it('should execute deletion steps on confirm', async () => {
     rs.mocked(discoverServiceResources).mockResolvedValue({
       ecsService: true,
-      appRunnerService: false,
       spaBucket: false,
       spaBucketName: '',
       secrets: [],
-      inferredType: 'nextjs',
+      inferredType: 'backend',
     });
 
     rs.mocked(inquirer.prompt)
       .mockReset()
       .mockResolvedValueOnce({ runMode: 'delete' })
+      .mockResolvedValueOnce({ backedUp: true })
       .mockResolvedValueOnce({ confirmation: 'auth-service' });
 
     await awsRemoveService(mockParams);
@@ -180,16 +179,16 @@ describe('awsRemoveService', () => {
   it('should throw when deletion step fails', async () => {
     rs.mocked(discoverServiceResources).mockResolvedValue({
       ecsService: true,
-      appRunnerService: false,
       spaBucket: false,
       spaBucketName: '',
       secrets: [],
-      inferredType: 'nextjs',
+      inferredType: 'backend',
     });
 
     rs.mocked(inquirer.prompt)
       .mockReset()
       .mockResolvedValueOnce({ runMode: 'delete' })
+      .mockResolvedValueOnce({ backedUp: true })
       .mockResolvedValueOnce({ confirmation: 'auth-service' });
 
     rs.mocked(executeSteps).mockResolvedValue({
@@ -204,16 +203,16 @@ describe('awsRemoveService', () => {
   it('should return service name on successful removal', async () => {
     rs.mocked(discoverServiceResources).mockResolvedValue({
       ecsService: true,
-      appRunnerService: false,
       spaBucket: false,
       spaBucketName: '',
       secrets: [],
-      inferredType: 'nextjs',
+      inferredType: 'backend',
     });
 
     rs.mocked(inquirer.prompt)
       .mockReset()
       .mockResolvedValueOnce({ runMode: 'delete' })
+      .mockResolvedValueOnce({ backedUp: true })
       .mockResolvedValueOnce({ confirmation: 'auth-service' });
 
     const result = await awsRemoveService(mockParams);

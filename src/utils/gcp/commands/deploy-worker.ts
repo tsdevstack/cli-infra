@@ -21,6 +21,7 @@ import {
 } from '@tsdevstack/infra-core';
 import { getTotalServiceMaxInstances } from '../../deploy/get-total-service-max-instances';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
+import { getServiceConfig } from '../../infrastructure/get-service-config';
 import type { EnvironmentOverrides } from '../../infrastructure/types';
 import type { GCPCredentials, FrameworkService } from '@tsdevstack/cli/plugin';
 
@@ -146,7 +147,10 @@ export async function gcpDeployWorker(
     targetEnv,
     'gcp',
   );
-  const totalWorkerMax = getTotalWorkerMaxInstances(config.services);
+  const totalWorkerMax = getTotalWorkerMaxInstances(config.services, {
+    infraConfig,
+    targetEnv,
+  });
   const poolResult = calculatePoolSize({
     dbTier,
     provider: 'gcp',
@@ -169,7 +173,16 @@ export async function gcpDeployWorker(
     buildSecretName,
   );
 
+  // Read worker scaling config from infrastructure.json (with defaults)
+  const workerConfig = getServiceConfig(
+    infraConfig,
+    worker.name,
+    targetEnv,
+    'gcp',
+  );
+
   // Deploy worker to Cloud Run
+  // Explicit params override infrastructure.json, which overrides defaults
   const result = await deployCloudRunService(runtime, {
     projectId: credentials.project_id,
     region: credentials.region,
@@ -179,12 +192,12 @@ export async function gcpDeployWorker(
     vpcSubnet,
     serviceAccount: runtimeServiceAccount,
     credentials,
-    minInstances: params.minInstances ?? 1,
-    maxInstances: params.maxInstances ?? 3,
-    cpu: params.cpu ?? '1',
-    memory: params.memory ?? '512Mi',
-    timeout: params.timeout ?? '300',
-    concurrency: params.concurrency ?? 1,
+    minInstances: params.minInstances ?? Math.max(1, workerConfig.minInstances),
+    maxInstances: params.maxInstances ?? workerConfig.maxInstances,
+    cpu: params.cpu ?? workerConfig.cpu,
+    memory: params.memory ?? workerConfig.memory,
+    timeout: params.timeout ?? workerConfig.timeout,
+    concurrency: params.concurrency ?? workerConfig.concurrency,
     envVars,
     secrets,
     ingress: 'INGRESS_TRAFFIC_INTERNAL_ONLY',

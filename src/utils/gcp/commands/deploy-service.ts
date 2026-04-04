@@ -156,7 +156,10 @@ export async function gcpDeployService(
       targetEnv,
       'gcp',
     );
-    const totalWorkerMax = getTotalWorkerMaxInstances(config.services);
+    const totalWorkerMax = getTotalWorkerMaxInstances(config.services, {
+      infraConfig,
+      targetEnv,
+    });
     const poolResult = calculatePoolSize({
       dbTier,
       provider: 'gcp',

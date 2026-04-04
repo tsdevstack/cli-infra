@@ -17,7 +17,7 @@ describe('showResourceWarning', () => {
     it('should show warning for ECS service', () => {
       const discovered: DiscoveredResources = {
         ecsService: true,
-        appRunnerService: false,
+
         spaBucket: false,
         spaBucketName: '',
         secrets: [],
@@ -44,7 +44,7 @@ describe('showResourceWarning', () => {
     it('should show dry run message', () => {
       const discovered: DiscoveredResources = {
         ecsService: true,
-        appRunnerService: false,
+
         spaBucket: false,
         spaBucketName: '',
         secrets: [],
@@ -68,7 +68,7 @@ describe('showResourceWarning', () => {
     it('should show coupled workers', () => {
       const discovered: DiscoveredResources = {
         ecsService: true,
-        appRunnerService: false,
+
         spaBucket: false,
         spaBucketName: '',
         secrets: [],
@@ -89,34 +89,10 @@ describe('showResourceWarning', () => {
       );
     });
 
-    it('should show App Runner service', () => {
-      const discovered: DiscoveredResources = {
-        ecsService: false,
-        appRunnerService: true,
-        spaBucket: false,
-        spaBucketName: '',
-        secrets: [],
-        inferredType: 'nextjs',
-      };
-
-      showResourceWarning({
-        serviceName: 'test-service',
-        discovered,
-        coupledWorkers: [],
-        targetEnv: 'dev',
-        dryRun: false,
-        logger: mockLogger,
-      });
-
-      expect(mockLogger.info).toHaveBeenCalledWith(
-        expect.stringContaining('App Runner'),
-      );
-    });
-
     it('should show SPA bucket', () => {
       const discovered: DiscoveredResources = {
         ecsService: false,
-        appRunnerService: false,
+
         spaBucket: true,
         spaBucketName: 'my-spa-bucket',
         secrets: [],
@@ -140,7 +116,7 @@ describe('showResourceWarning', () => {
     it('should show secrets count', () => {
       const discovered: DiscoveredResources = {
         ecsService: true,
-        appRunnerService: false,
+
         spaBucket: false,
         spaBucketName: '',
         secrets: ['secret1', 'secret2', 'secret3'],

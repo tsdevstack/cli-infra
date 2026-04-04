@@ -222,6 +222,23 @@ export async function azureRemoveService(
   );
   logger.newline();
 
+  // Database recovery hints (if database was removed)
+  if (discovered.hasDatabase) {
+    logger.info(
+      `Database "${resolvedServiceName}" has been dropped from the shared PostgreSQL Flexible Server.`,
+    );
+    logger.newline();
+    logger.info('Data recovery options:');
+    logger.info(
+      '  Backups are retained for the configured retention period (7-35 days).',
+    );
+    logger.info('  Portal: PostgreSQL Flexible Server → Backups → Restore');
+    logger.info(
+      '  Note: Point-in-time restore restores the entire server, not a single database.',
+    );
+    logger.newline();
+  }
+
   // Check if service is in config.json
   let isInConfig = false;
   try {

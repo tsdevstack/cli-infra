@@ -97,6 +97,8 @@ export interface KongOverride {
   maxInstances?: number;
   cpu?: string;
   memory?: string;
+  /** Max upload size for traditional file uploads through Kong (e.g., "10m", "50m"). Default: "10m". Set to "0" for unlimited. */
+  maxUploadSize?: string;
 }
 
 /**
@@ -198,6 +200,54 @@ export interface AwsWafCustomRule {
 }
 
 /**
+ * Azure WAF match condition
+ *
+ * Uses Azure Front Door native match constructs.
+ */
+export interface AzureWafMatchCondition {
+  /** Part of the request to inspect */
+  matchVariable:
+    | 'RequestUri'
+    | 'RequestMethod'
+    | 'RequestHeader'
+    | 'RequestBody'
+    | 'SocketAddr'
+    | 'QueryString';
+  /** Comparison operator */
+  operator: 'Contains' | 'Equal' | 'IPMatch' | 'GreaterThan';
+  /** Values to match against */
+  matchValues: string[];
+  /** Text transforms applied before matching (e.g., ['Lowercase', 'UrlDecode']) */
+  transforms?: string[];
+  /** Header name (required when matchVariable is 'RequestHeader') */
+  selector?: string;
+}
+
+/**
+ * Custom WAF rule configuration (Azure Front Door)
+ *
+ * Uses Azure Front Door native rule constructs.
+ */
+export interface AzureWafCustomRule {
+  /** Unique rule name (alphanumeric only) */
+  name: string;
+  /** Rule type */
+  type: 'MatchRule' | 'RateLimitRule';
+  /** Rule priority (use 1000+ to avoid conflicts with framework rules) */
+  priority: number;
+  /** Action when rule matches */
+  action: 'Block' | 'Allow' | 'Log';
+  /** Match conditions (all must match for the rule to trigger) */
+  matchConditions: AzureWafMatchCondition[];
+  /** Human-readable description */
+  description?: string;
+  /** Rate limit duration in minutes (required when type is 'RateLimitRule') */
+  rateLimitDurationInMinutes?: number;
+  /** Rate limit threshold (required when type is 'RateLimitRule') */
+  rateLimitThreshold?: number;
+}
+
+/**
  * WAF security configuration override
  */
 export interface WafOverride {
@@ -205,6 +255,10 @@ export interface WafOverride {
   customRules?: WafCustomRule[];
   /** Custom WAF rules for AWS WAF v2 */
   awsCustomRules?: AwsWafCustomRule[];
+  /** Custom WAF rules for Azure Front Door */
+  azureCustomRules?: AzureWafCustomRule[];
+  /** Global rate limit (applied across all providers). Default: { count: 1000, intervalSec: 60 } */
+  rateLimit?: WafRateLimitConfig;
 }
 
 /**
@@ -330,6 +384,7 @@ export interface ResolvedKongConfig {
   maxInstances: number;
   cpu: string;
   memory: string;
+  maxUploadSize: string;
 }
 
 /**

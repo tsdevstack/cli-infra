@@ -225,6 +225,24 @@ export async function awsRemoveService(
   );
   logger.newline();
 
+  // Database recovery hints (if database was removed)
+  if (hasDatabase) {
+    logger.info(
+      `Database "${resolvedServiceName}" has been dropped from the shared RDS instance.`,
+    );
+    logger.newline();
+    logger.info('Data recovery options:');
+    logger.info('  RDS automated backups are retained for 7 days.');
+    logger.info('  Console: RDS → Automated backups');
+    logger.info(
+      '  Point-in-time restore: aws rds restore-db-instance-to-point-in-time',
+    );
+    logger.info(
+      '  Note: Restoring creates a NEW instance — you will need to extract the specific database.',
+    );
+    logger.newline();
+  }
+
   // Check if service is in config.json
   let isInConfig = false;
   try {

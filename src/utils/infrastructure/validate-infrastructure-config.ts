@@ -55,7 +55,7 @@ export function validateInfrastructureConfig(
     for (const [itemKey, override] of Object.entries(envOverrides)) {
       if (override === undefined) continue;
 
-      // Check if it's a reserved key (like "database", "redis")
+      // Check if it's a reserved key (like "database", "redis", "kong")
       if (
         RESERVED_ENVIRONMENT_KEYS.includes(
           itemKey as (typeof RESERVED_ENVIRONMENT_KEYS)[number],

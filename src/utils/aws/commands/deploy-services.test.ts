@@ -14,8 +14,8 @@ rs.mock('./deploy-ecs-services', () => ({
   deployEcsServices: rs.fn(),
 }));
 
-rs.mock('./deploy-apprunner-services', () => ({
-  deployAppRunnerServices: rs.fn(),
+rs.mock('./deploy-nextjs-services', () => ({
+  deployNextjsServices: rs.fn(),
 }));
 
 rs.mock('./deploy-spa-services', () => ({
@@ -24,7 +24,7 @@ rs.mock('./deploy-spa-services', () => ({
 
 import { awsDeployServices } from './deploy-services';
 import { deployEcsServices } from './deploy-ecs-services';
-import { deployAppRunnerServices } from './deploy-apprunner-services';
+import { deployNextjsServices } from './deploy-nextjs-services';
 import { deploySpaServices } from './deploy-spa-services';
 
 describe('awsDeployServices', () => {
@@ -53,7 +53,7 @@ describe('awsDeployServices', () => {
     rs.resetAllMocks();
     mocks.loadFrameworkConfig.mockReturnValue(mockConfig);
     rs.mocked(deployEcsServices).mockResolvedValue(undefined);
-    rs.mocked(deployAppRunnerServices).mockResolvedValue(undefined);
+    rs.mocked(deployNextjsServices).mockResolvedValue(undefined);
     rs.mocked(deploySpaServices).mockResolvedValue(undefined);
   });
 
@@ -61,7 +61,7 @@ describe('awsDeployServices', () => {
     await awsDeployServices(mockCtx, {});
 
     expect(deployEcsServices).toHaveBeenCalled();
-    expect(deployAppRunnerServices).toHaveBeenCalled();
+    expect(deployNextjsServices).toHaveBeenCalled();
     expect(deploySpaServices).toHaveBeenCalled();
   });
 
@@ -74,14 +74,14 @@ describe('awsDeployServices', () => {
         service: 'auth-service',
       }),
     );
-    expect(deployAppRunnerServices).not.toHaveBeenCalled();
+    expect(deployNextjsServices).not.toHaveBeenCalled();
     expect(deploySpaServices).not.toHaveBeenCalled();
   });
 
-  it('should only deploy App Runner when specific nextjs service requested', async () => {
+  it('should only deploy Next.js ECS when specific nextjs service requested', async () => {
     await awsDeployServices(mockCtx, { service: 'frontend' });
 
-    expect(deployAppRunnerServices).toHaveBeenCalled();
+    expect(deployNextjsServices).toHaveBeenCalled();
     expect(deployEcsServices).not.toHaveBeenCalled();
     expect(deploySpaServices).not.toHaveBeenCalled();
   });
@@ -96,7 +96,7 @@ describe('awsDeployServices', () => {
       }),
     );
     expect(deployEcsServices).not.toHaveBeenCalled();
-    expect(deployAppRunnerServices).not.toHaveBeenCalled();
+    expect(deployNextjsServices).not.toHaveBeenCalled();
   });
 
   it('should throw when service not found', async () => {
@@ -113,7 +113,7 @@ describe('awsDeployServices', () => {
     await awsDeployServices(mockCtx, {});
 
     expect(deployEcsServices).not.toHaveBeenCalled();
-    expect(deployAppRunnerServices).toHaveBeenCalled();
+    expect(deployNextjsServices).toHaveBeenCalled();
   });
 
   it('should log completion when deploying all', async () => {

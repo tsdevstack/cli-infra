@@ -10,7 +10,6 @@
 
 import type { AWSCredentials } from '@tsdevstack/cli/plugin';
 import { getEcsService } from './get-ecs-service';
-import { getAppRunnerService } from './get-apprunner-service';
 import { bucketExists } from './bucket-exists';
 import { listSecretsByPrefix } from './list-secrets-by-prefix';
 
@@ -22,7 +21,7 @@ export interface DiscoverServiceResourcesOptions {
 }
 
 export interface DiscoveredResources {
-  // ECS Service (backends, workers, kong)
+  // ECS Service (backends, workers, kong, nextjs)
   ecsService: boolean;
   ecsStatus?: string;
   ecsRunningCount?: number;
@@ -33,11 +32,6 @@ export interface DiscoveredResources {
     message: string;
     createdAt?: Date;
   }>;
-
-  // App Runner (Next.js)
-  appRunnerService: boolean;
-  appRunnerStatus?: string;
-  appRunnerUrl?: string;
 
   // S3 SPA Bucket
   spaBucket: boolean;
@@ -58,11 +52,10 @@ export interface DiscoveredResources {
    * - 'backend': ECS service with "-service" suffix
    * - 'worker': ECS service with "-worker" suffix
    * - 'kong': ECS service named "kong"
-   * - 'nextjs': App Runner service
    * - 'spa': Only SPA bucket exists
    * - 'unknown': No resources found
    */
-  inferredType: 'backend' | 'worker' | 'kong' | 'nextjs' | 'spa' | 'unknown';
+  inferredType: 'backend' | 'worker' | 'kong' | 'spa' | 'unknown';
 }
 
 /**
@@ -71,39 +64,30 @@ export interface DiscoveredResources {
 export async function discoverServiceResources(
   options: DiscoverServiceResourcesOptions,
 ): Promise<DiscoveredResources> {
-  const { serviceName, projectName, targetEnv, credentials } = options;
+  const { serviceName, projectName, credentials } = options;
 
   const clusterName = `${projectName}-cluster`;
   const spaBucketName = `${projectName}-${serviceName}-spa`;
   const secretPrefix = `${projectName}-${serviceName}-`;
 
   // Run all discovery calls in parallel for performance
-  const [ecsResult, appRunnerResult, bucketResult, secretsResult] =
-    await Promise.all([
-      getEcsService({
-        clusterName,
-        serviceName,
-        credentials,
-      }),
-      getAppRunnerService({
-        projectName,
-        targetEnv,
-        serviceName,
-        credentials,
-      }),
-      bucketExists({
-        bucketName: spaBucketName,
-        credentials,
-      }),
-      listSecretsByPrefix({
-        prefix: secretPrefix,
-        credentials,
-      }),
-    ]);
+  const [ecsResult, bucketResult, secretsResult] = await Promise.all([
+    getEcsService({
+      clusterName,
+      serviceName,
+      credentials,
+    }),
+    bucketExists({
+      bucketName: spaBucketName,
+      credentials,
+    }),
+    listSecretsByPrefix({
+      prefix: secretPrefix,
+      credentials,
+    }),
+  ]);
 
   const hasEcs = ecsResult.success && ecsResult.service.exists;
-  const hasAppRunner =
-    appRunnerResult.success && appRunnerResult.service.exists;
   const hasBucket = bucketResult.exists;
 
   // Infer type from discovered resources and service name
@@ -116,8 +100,6 @@ export async function discoverServiceResources(
     } else {
       inferredType = 'backend';
     }
-  } else if (hasAppRunner) {
-    inferredType = 'nextjs';
   } else if (hasBucket) {
     inferredType = 'spa';
   }
@@ -133,10 +115,6 @@ export async function discoverServiceResources(
       : undefined,
     ecsEvents: hasEcs ? ecsResult.service.events : undefined,
 
-    appRunnerService: hasAppRunner,
-    appRunnerStatus: hasAppRunner ? appRunnerResult.service.status : undefined,
-    appRunnerUrl: hasAppRunner ? appRunnerResult.service.serviceUrl : undefined,
-
     spaBucket: hasBucket,
     spaBucketName,
 
@@ -145,7 +123,7 @@ export async function discoverServiceResources(
       : undefined,
 
     secrets: secretsResult.success
-      ? secretsResult.secrets.map((s) => s.name)
+      ? secretsResult.secrets.map((s: { name: string }) => s.name)
       : [],
 
     inferredType,

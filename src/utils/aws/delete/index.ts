@@ -5,7 +5,6 @@
  */
 
 export { deleteEcsService } from './delete-ecs-service';
-export { deleteAppRunnerService } from './delete-apprunner-service';
 export { deleteS3Bucket } from './delete-s3-bucket';
 export { deleteSecretsByPrefix } from './delete-secrets-by-prefix';
 export { deleteSharedSecretsForService } from './delete-shared-secrets-for-service';

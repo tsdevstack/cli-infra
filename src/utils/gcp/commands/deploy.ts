@@ -14,7 +14,11 @@ import {
   checkTerraformInstalled,
   setSchedulerInvokerBindings,
 } from '@tsdevstack/infra-core';
-import { executeTerraform, getTerraformOutput } from '../terraform';
+import {
+  executeTerraform,
+  getTerraformOutput,
+  getTerraformOutputJson,
+} from '../terraform';
 import { buildRuntime } from '../../build-runtime';
 import { toTfVarSuffix } from '../../terraform';
 import { createBucket } from '../create-bucket';
@@ -284,6 +288,44 @@ export async function gcpDeploy(
     );
   }
 
+  // Sync storage bucket secrets to Secret Manager
+  const frameworkConfig = loadFrameworkConfig();
+
+  if (frameworkConfig.storage?.buckets?.length) {
+    logger.newline();
+    logger.info('Syncing storage bucket secrets to Secret Manager...');
+
+    try {
+      const storageBuckets = getTerraformOutputJson<
+        Record<string, { name: string }>
+      >(outputDir, 'storage_buckets', tfEnv);
+
+      for (const bucket of frameworkConfig.storage.buckets) {
+        const secretKey = `STORAGE_BUCKET_${bucket.replace(/-/g, '_').toUpperCase()}`;
+        const bucketName = storageBuckets[bucket].name;
+        setSecretViaCli(secretKey, bucketName, ctx.targetEnv);
+        logger.success(`  ✓ ${secretKey}`);
+      }
+
+      logger.newline();
+      logger.complete('Storage bucket secrets synced to Secret Manager');
+    } catch (error) {
+      logger.newline();
+      logger.warn('Failed to sync storage bucket secrets automatically');
+      logger.error(
+        `Error: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      logger.info('Run manually:');
+      logger.info(
+        `  terraform -chdir="${outputDir}" output -json storage_buckets`,
+      );
+      logger.info('Then set each with:');
+      logger.info(
+        `  npx tsdevstack cloud-secrets:set STORAGE_BUCKET_<NAME> --value <bucket> --env ${ctx.targetEnv} --overwrite`,
+      );
+    }
+  }
+
   // Sync deterministic service URLs to Secret Manager
   // Cloud Run URLs are deterministic: https://{service}-{projectNumber}.{region}.run.app
   logger.newline();
@@ -295,9 +337,8 @@ export async function gcpDeploy(
       'project_number',
       tfEnv,
     );
-    const config = loadFrameworkConfig();
 
-    for (const service of config.services) {
+    for (const service of frameworkConfig.services) {
       if (!service.port) continue;
       const urlKey = `${service.name.replace(/-/g, '_').toUpperCase()}_URL`;
       const url = `https://${service.name}-${projectNumber}.${ctx.credentials.region}.run.app`;

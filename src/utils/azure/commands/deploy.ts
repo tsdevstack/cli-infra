@@ -407,6 +407,44 @@ export async function azureDeploy(
   }
   logger.newline();
 
+  // Sync storage bucket secrets to Key Vault
+  const frameworkConfig = loadFrameworkConfig();
+
+  if (frameworkConfig.storage?.buckets?.length) {
+    logger.info('Syncing storage bucket secrets to Key Vault...');
+
+    try {
+      const storageBuckets = getTerraformOutputJson<
+        Record<string, { name: string }>
+      >(outputDir, 'storage_buckets', tfEnv);
+
+      for (const bucket of frameworkConfig.storage.buckets) {
+        const secretKey = `STORAGE_BUCKET_${bucket.replace(/-/g, '_').toUpperCase()}`;
+        const bucketName = storageBuckets[bucket].name;
+        setSecretViaCli(secretKey, bucketName, ctx.targetEnv);
+        logger.success(`  ✓ ${secretKey}`);
+      }
+
+      logger.newline();
+      logger.complete('Storage bucket secrets synced to Key Vault');
+    } catch (error) {
+      logger.newline();
+      logger.warn('Failed to sync storage bucket secrets automatically');
+      logger.error(
+        `Error: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      logger.info('Run manually:');
+      logger.info(
+        `  terraform -chdir="${outputDir}" output -json storage_buckets`,
+      );
+      logger.info('Then set each with:');
+      logger.info(
+        `  npx tsdevstack cloud-secrets:set STORAGE_BUCKET_<NAME> --value <bucket> --env ${ctx.targetEnv} --overwrite`,
+      );
+    }
+    logger.newline();
+  }
+
   // Sync DATABASE_URL per service
   const servicesWithDb = generateConfig.servicesWithDatabase.filter(
     (s) => s.hasDatabase,
@@ -462,9 +500,8 @@ export async function azureDeploy(
       'container_apps_env_default_domain',
       tfEnv,
     );
-    const config = loadFrameworkConfig();
 
-    for (const service of config.services) {
+    for (const service of frameworkConfig.services) {
       if (!service.port) continue;
       const urlKey = `${service.name.replace(/-/g, '_').toUpperCase()}_URL`;
       const url = `https://${ctx.projectName}-${service.name}.${caeDefaultDomain}`;

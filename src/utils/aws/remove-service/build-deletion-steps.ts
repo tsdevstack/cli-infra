@@ -20,7 +20,6 @@ import type { AWSCommandContext } from '../commands/types';
 import type { DiscoveredResources } from '../discovery';
 import {
   deleteEcsService,
-  deleteAppRunnerService,
   deleteS3Bucket,
   deleteSecretsByPrefix,
   deleteSharedSecretsForService,
@@ -57,7 +56,7 @@ export function buildDeletionSteps(
     serviceName,
     discovered,
     projectName,
-    targetEnv,
+    targetEnv: _targetEnv, // unused on AWS (kept for cross-provider interface parity)
     dbPasswords,
     coupledWorkers,
     hasDatabase,
@@ -90,20 +89,6 @@ export function buildDeletionSteps(
           credentials,
           clusterName,
           serviceName,
-        }),
-    });
-  }
-
-  if (discovered.appRunnerService) {
-    steps.push({
-      name: 'App Runner service',
-      resource: serviceName,
-      execute: () =>
-        deleteAppRunnerService({
-          projectName,
-          targetEnv,
-          serviceName,
-          credentials,
         }),
     });
   }

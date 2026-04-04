@@ -249,6 +249,25 @@ export async function gcpRemoveService(
   );
   logger.newline();
 
+  // Database recovery hints (if database was removed)
+  if (discovered.database) {
+    logger.info(
+      `Database "${resolvedServiceName}" has been dropped from the shared Cloud SQL instance.`,
+    );
+    logger.newline();
+    logger.info('Data recovery options:');
+    logger.info(
+      '  Automated backups are retained for 7 days (if backup was enabled).',
+    );
+    logger.info(
+      `  Console: https://console.cloud.google.com/sql/instances/${projectName}-postgres/backups`,
+    );
+    logger.info(
+      '  Note: Restoring a backup restores the ENTIRE instance, not a single database.',
+    );
+    logger.newline();
+  }
+
   // Check if service is in config.json (affects next steps messaging)
   let isInConfig = false;
   try {

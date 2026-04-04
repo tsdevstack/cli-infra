@@ -34,5 +34,6 @@ export function mergeKongWithDefaults(
     maxInstances: override?.maxInstances ?? defaults.maxInstances,
     cpu: override?.cpu ?? defaults.cpu,
     memory: override?.memory ?? defaults.memory,
+    maxUploadSize: override?.maxUploadSize ?? '10m',
   };
 }

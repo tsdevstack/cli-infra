@@ -26,6 +26,7 @@ describe('mergeKongWithDefaults', () => {
           maxInstances: KONG_DEFAULTS_GCP.maxInstances,
           cpu: KONG_DEFAULTS_GCP.cpu,
           memory: KONG_DEFAULTS_GCP.memory,
+          maxUploadSize: '10m',
         });
       });
     });
@@ -72,6 +73,7 @@ describe('mergeKongWithDefaults', () => {
           maxInstances: 3,
           cpu: '0.5',
           memory: '512Mi',
+          maxUploadSize: '10m',
         });
       });
     });
@@ -84,6 +86,7 @@ describe('mergeKongWithDefaults', () => {
           maxInstances: KONG_DEFAULTS_GCP.maxInstances,
           cpu: KONG_DEFAULTS_GCP.cpu,
           memory: KONG_DEFAULTS_GCP.memory,
+          maxUploadSize: '10m',
         });
       });
 
@@ -103,6 +106,7 @@ describe('mergeKongWithDefaults', () => {
           maxInstances: KONG_DEFAULTS_AWS.maxInstances,
           cpu: KONG_DEFAULTS_AWS.cpu,
           memory: KONG_DEFAULTS_AWS.memory,
+          maxUploadSize: '10m',
         });
       });
     });
@@ -123,6 +127,7 @@ describe('mergeKongWithDefaults', () => {
           maxInstances: 10,
           cpu: '2',
           memory: '4Gi',
+          maxUploadSize: '10m',
         });
       });
     });
@@ -137,6 +142,7 @@ describe('mergeKongWithDefaults', () => {
           maxInstances: KONG_DEFAULTS_AZURE.maxInstances,
           cpu: KONG_DEFAULTS_AZURE.cpu,
           memory: KONG_DEFAULTS_AZURE.memory,
+          maxUploadSize: '10m',
         });
       });
     });
@@ -157,6 +163,7 @@ describe('mergeKongWithDefaults', () => {
           maxInstances: 8,
           cpu: '1',
           memory: '2Gi',
+          maxUploadSize: '10m',
         });
       });
     });
@@ -177,6 +184,23 @@ describe('mergeKongWithDefaults', () => {
       expect(azureResult.memory).toBe('1Gi');
       expect(azureResult.minInstances).toBe(1);
       expect(azureResult.maxInstances).toBe(5);
+    });
+  });
+
+  describe('maxUploadSize', () => {
+    it('should default to 10m when not specified', () => {
+      const result = mergeKongWithDefaults(undefined, 'gcp');
+      expect(result.maxUploadSize).toBe('10m');
+    });
+
+    it('should use override when specified', () => {
+      const result = mergeKongWithDefaults({ maxUploadSize: '50m' }, 'gcp');
+      expect(result.maxUploadSize).toBe('50m');
+    });
+
+    it('should allow 0 for unlimited', () => {
+      const result = mergeKongWithDefaults({ maxUploadSize: '0' }, 'gcp');
+      expect(result.maxUploadSize).toBe('0');
     });
   });
 });

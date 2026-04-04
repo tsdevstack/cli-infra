@@ -11,7 +11,7 @@ describe('hasAnyResources', () => {
     it('should return false when no resources exist', () => {
       const discovered: DiscoveredResources = {
         ecsService: false,
-        appRunnerService: false,
+
         spaBucket: false,
         spaBucketName: '',
         secrets: [],
@@ -24,7 +24,7 @@ describe('hasAnyResources', () => {
     it('should return true when ECS service exists', () => {
       const discovered: DiscoveredResources = {
         ecsService: true,
-        appRunnerService: false,
+
         spaBucket: false,
         spaBucketName: '',
         secrets: [],
@@ -34,23 +34,10 @@ describe('hasAnyResources', () => {
       expect(hasAnyResources(discovered)).toBe(true);
     });
 
-    it('should return true when App Runner service exists', () => {
-      const discovered: DiscoveredResources = {
-        ecsService: false,
-        appRunnerService: true,
-        spaBucket: false,
-        spaBucketName: '',
-        secrets: [],
-        inferredType: 'nextjs',
-      };
-
-      expect(hasAnyResources(discovered)).toBe(true);
-    });
-
     it('should return true when SPA bucket exists', () => {
       const discovered: DiscoveredResources = {
         ecsService: false,
-        appRunnerService: false,
+
         spaBucket: true,
         spaBucketName: 'my-spa-bucket',
         secrets: [],
@@ -63,7 +50,7 @@ describe('hasAnyResources', () => {
     it('should return true when secrets exist', () => {
       const discovered: DiscoveredResources = {
         ecsService: false,
-        appRunnerService: false,
+
         spaBucket: false,
         spaBucketName: '',
         secrets: ['secret1', 'secret2'],
@@ -76,7 +63,7 @@ describe('hasAnyResources', () => {
     it('should return true when multiple resources exist', () => {
       const discovered: DiscoveredResources = {
         ecsService: true,
-        appRunnerService: false,
+
         spaBucket: true,
         spaBucketName: 'my-spa-bucket',
         secrets: ['secret1'],

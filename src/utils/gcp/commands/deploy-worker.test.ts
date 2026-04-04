@@ -37,6 +37,10 @@ rs.mock('../../infrastructure/load-infrastructure-config', () => ({
   loadInfrastructureConfig: rs.fn(),
 }));
 
+rs.mock('../../infrastructure/get-service-config', () => ({
+  getServiceConfig: rs.fn(),
+}));
+
 import { gcpDeployWorker } from './deploy-worker';
 import { getTerraformOutput, getTerraformOutputJson } from '../terraform';
 import {
@@ -49,6 +53,7 @@ import {
 } from '@tsdevstack/infra-core';
 import { getTotalServiceMaxInstances } from '../../deploy/get-total-service-max-instances';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
+import { getServiceConfig } from '../../infrastructure/get-service-config';
 
 describe('gcpDeployWorker', () => {
   const mockCredentials = {
@@ -112,6 +117,15 @@ describe('gcpDeployWorker', () => {
     });
 
     rs.mocked(loadInfrastructureConfig).mockReturnValue(null);
+    rs.mocked(getServiceConfig).mockReturnValue({
+      minInstances: 1,
+      maxInstances: 3,
+      cpu: '1',
+      memory: '512Mi',
+      timeout: '300',
+      port: 3000,
+      concurrency: 1,
+    });
     rs.mocked(calculatePoolSize).mockReturnValue({
       poolMax: 5,
       dbConnections: 50,

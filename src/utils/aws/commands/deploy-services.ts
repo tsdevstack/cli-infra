@@ -3,7 +3,7 @@
  *
  * Orchestrates the complete service deployment workflow for AWS:
  * - NestJS: Docker build → push → ECS
- * - Next.js: Docker build → push → App Runner
+ * - Next.js: Docker build → push → ECS
  * - Workers: Deployed alongside their base service (same Docker image)
  * - SPA: Build → upload to S3
  *
@@ -13,7 +13,7 @@
 
 import { getContext } from '../../../context';
 import { deployEcsServices } from './deploy-ecs-services';
-import { deployAppRunnerServices } from './deploy-apprunner-services';
+import { deployNextjsServices } from './deploy-nextjs-services';
 import { deploySpaServices } from './deploy-spa-services';
 import { discoverDeployedServices } from '../discovery';
 import {
@@ -138,14 +138,19 @@ export async function awsDeployServices(
     });
   }
 
-  // Deploy Next.js services to App Runner
+  // Deploy Next.js services to ECS
   if (nextjsServices.length > 0) {
     logger.newline();
     logger.info('════════════════════════════════════════════');
-    logger.info('Deploying Next.js Services to App Runner...');
+    logger.info('Deploying Next.js Services to ECS...');
     logger.info('════════════════════════════════════════════');
 
-    await deployAppRunnerServices(ctx, { tag: options.tag });
+    await deployNextjsServices(ctx, {
+      service: options.service,
+      tag: options.tag,
+      skipGenerate: options.skipGenerate,
+      maxParallel: options.maxParallel,
+    });
   }
 
   // Deploy SPA services to S3

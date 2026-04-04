@@ -15,6 +15,19 @@ import {
 import type { AzureCommandContext, DestroyOptions } from './types';
 
 /**
+ * Check if any service in the project has a database
+ */
+function projectHasDatabase(): boolean {
+  const { loadFrameworkConfig } = getContext();
+  try {
+    const config = loadFrameworkConfig();
+    return config.services.some((s) => s.hasDatabase);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Destroy Azure infrastructure
  */
 export async function azureDestroy(
@@ -46,10 +59,24 @@ export async function azureDestroy(
   logger.info(`Location: ${ctx.credentials.location}`);
   logger.newline();
 
+  const hasDatabase = projectHasDatabase();
+
   // Confirm
   if (!options.autoApprove && !ctx.runningInCI) {
     logger.warn('This will DESTROY all infrastructure resources!');
     logger.newline();
+
+    if (hasDatabase) {
+      logger.warn(
+        'This includes the PostgreSQL Flexible Server (ALL databases for ALL services).',
+      );
+      logger.warn('DATABASE DATA WILL BE PERMANENTLY LOST.');
+      logger.newline();
+      logger.info('Back up your databases before proceeding:');
+      logger.info('  Portal: PostgreSQL Flexible Server → Backups');
+      logger.info('  Or use pg_dump for individual databases.');
+      logger.newline();
+    }
 
     const { confirm } = await inquirer.prompt([
       {
@@ -65,6 +92,9 @@ export async function azureDestroy(
       return;
     }
   }
+
+  // Note: Azure PostgreSQL Flexible Server does not have a deletion_protection flag.
+  // Protection is handled via resource locks (out of scope for now).
 
   // Build Terraform environment
   const tfEnv = buildAzureTerraformEnv(runtime, ctx.credentials);
@@ -106,4 +136,14 @@ export async function azureDestroy(
   logger.newline();
   logger.success('Infrastructure destroyed successfully!');
   logger.newline();
+
+  // Post-destroy recovery hints
+  if (hasDatabase) {
+    logger.info('Data recovery:');
+    logger.info(
+      '  Backups retained for the configured retention period (7-35 days).',
+    );
+    logger.info('  Portal: PostgreSQL Flexible Server → Deleted servers');
+    logger.newline();
+  }
 }

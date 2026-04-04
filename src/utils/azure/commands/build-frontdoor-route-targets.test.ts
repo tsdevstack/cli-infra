@@ -20,6 +20,7 @@ function makeConfig(
     },
     redis: { tier: 'Basic' },
     servicesWithDatabase: [],
+    storageBuckets: [],
     baseDomain: 'example.com',
     services: {},
     workers: {},
