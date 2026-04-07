@@ -20,12 +20,20 @@ import {
   getTerraformOutputJson,
 } from '../terraform';
 import { buildRuntime } from '../../build-runtime';
-import { toTfVarSuffix } from '../../terraform';
+import { toTfVarSuffix, toTerraformId } from '../../terraform';
 import { createBucket } from '../create-bucket';
 import { getGcsLocationFromRegion } from '../get-gcs-location-from-region';
 import { fetchDbPasswordsFromSecretManager } from '../../credentials/fetch-db-passwords-from-secret-manager';
 import { setSecretViaCli } from '../../credentials/set-secret-via-cli';
 import { generateTerraformFiles } from './generate-terraform-files';
+import { toDnsAuthName } from '../terraform';
+import { padRight } from '../../display/pad-right';
+import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
+import { getFrontendServicesWithDomains } from '../../infrastructure/get-frontend-services-with-domains';
+import type {
+  EnvironmentOverrides,
+  LoadBalancerOverride,
+} from '../../infrastructure/types';
 import type { GCPCommandContext, DeployOptions } from './types';
 import { infraDeployServices } from '../../../commands/infra-deploy-services';
 import { infraKongGenerate } from '../../../commands/infra-kong-generate';
@@ -427,5 +435,140 @@ export async function gcpDeploy(
   logger.info('════════════════════════════════════════════');
   logger.complete('Full infrastructure deployment complete!');
   logger.info('════════════════════════════════════════════');
+
+  // Display DNS configuration table if load balancer is deployed
+  try {
+    const lbIp = getTerraformOutput(outputDir, 'load_balancer_ip', tfEnv);
+    const infraConfig = loadInfrastructureConfig();
+    const envOverrides = infraConfig?.[ctx.targetEnv] as
+      | EnvironmentOverrides
+      | undefined;
+    const frontendServices = getFrontendServicesWithDomains(
+      envOverrides,
+      frameworkConfig.services,
+    );
+
+    if (frontendServices.length > 0) {
+      const loadBalancerConfig = envOverrides?.loadBalancer as
+        | LoadBalancerOverride
+        | undefined;
+      const apiDomain =
+        loadBalancerConfig?.apiDomain ?? `api.${frontendServices[0].domain}`;
+      const redirectDomains = loadBalancerConfig?.redirectDomains;
+
+      logger.newline();
+      logger.info(`Load Balancer IP: ${lbIp}`);
+      logger.newline();
+      logger.info('DNS Configuration Required:');
+      logger.newline();
+
+      // A Records
+      const aRecords: Array<{ host: string; value: string }> = [
+        { host: apiDomain, value: lbIp },
+      ];
+      for (const service of frontendServices) {
+        aRecords.push({ host: service.domain, value: lbIp });
+      }
+
+      logger.info('  A Records (point to load balancer IP):');
+      logger.newline();
+      const aHostWidth = Math.max(...aRecords.map((r) => r.host.length));
+      logger.info(`    ${padRight('Host', aHostWidth)}  Value`);
+      logger.info(`    ${'─'.repeat(aHostWidth + 2 + lbIp.length)}`);
+      for (const record of aRecords) {
+        logger.info(
+          `    ${padRight(record.host, aHostWidth)}  ${record.value}`,
+        );
+      }
+
+      // SSL Certificate Validation CNAME records
+      interface DnsAuthRecord {
+        name: string;
+        type: string;
+        data: string;
+      }
+
+      const cnameRecords: Array<{ host: string; value: string }> = [];
+
+      try {
+        const apiAuth = getTerraformOutputJson<DnsAuthRecord>(
+          outputDir,
+          'dns_auth_api_record',
+          tfEnv,
+        );
+        cnameRecords.push({ host: apiAuth.name, value: apiAuth.data });
+
+        for (const service of frontendServices) {
+          const tfId = toTerraformId(service.name);
+          const serviceAuth = getTerraformOutputJson<DnsAuthRecord>(
+            outputDir,
+            `dns_auth_${tfId}_record`,
+            tfEnv,
+          );
+          cnameRecords.push({
+            host: serviceAuth.name,
+            value: serviceAuth.data,
+          });
+        }
+
+        if (redirectDomains && redirectDomains.length > 0) {
+          for (const domain of redirectDomains) {
+            const redirectTfId = toTerraformId(toDnsAuthName(domain));
+            const redirectAuth = getTerraformOutputJson<DnsAuthRecord>(
+              outputDir,
+              `dns_auth_redirect_${redirectTfId}_record`,
+              tfEnv,
+            );
+            cnameRecords.push({
+              host: redirectAuth.name,
+              value: redirectAuth.data,
+            });
+          }
+        }
+      } catch {
+        // SSL validation records may not exist on first deploy
+      }
+
+      if (cnameRecords.length > 0) {
+        logger.newline();
+        logger.info('  SSL Certificate Validation (CNAME records):');
+        logger.newline();
+        const cnameHostWidth = Math.max(
+          ...cnameRecords.map((r) => r.host.length),
+        );
+        const cnameValueWidth = Math.max(
+          ...cnameRecords.map((r) => r.value.length),
+        );
+        logger.info(`    ${padRight('Host', cnameHostWidth)}  Value`);
+        logger.info(`    ${'─'.repeat(cnameHostWidth + 2 + cnameValueWidth)}`);
+        for (const record of cnameRecords) {
+          logger.info(
+            `    ${padRight(record.host, cnameHostWidth)}  ${record.value}`,
+          );
+        }
+      }
+
+      if (redirectDomains && redirectDomains.length > 0) {
+        logger.newline();
+        logger.info('  Redirect Domains (A records):');
+        logger.newline();
+        const redirectHostWidth = Math.max(
+          ...redirectDomains.map((d) => d.length),
+          ...redirectDomains.map((d) => `*.${d}`.length),
+        );
+        logger.info(`    ${padRight('Host', redirectHostWidth)}  Value`);
+        logger.info(`    ${'─'.repeat(redirectHostWidth + 2 + lbIp.length)}`);
+        for (const domain of redirectDomains) {
+          logger.info(`    ${padRight(domain, redirectHostWidth)}  ${lbIp}`);
+          logger.info(
+            `    ${padRight(`*.${domain}`, redirectHostWidth)}  ${lbIp}`,
+          );
+        }
+      }
+    }
+  } catch {
+    // No load balancer deployed (API-only project) — skip DNS table
+  }
+
   logger.newline();
 }

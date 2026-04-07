@@ -28,6 +28,10 @@ rs.mock('../utils/gcp/bootstrap/upgrade-self-permissions', () => ({
     mockUpgradeSelfPermissions(...args),
 }));
 
+rs.mock('../utils/gcp/bootstrap/wait-for-api-propagation', () => ({
+  waitForApiPropagation: () => Promise.resolve(),
+}));
+
 const mockAwsBootstrap = rs.fn();
 rs.mock('../utils/aws/commands', () => ({
   awsBootstrap: (...args: unknown[]) => mockAwsBootstrap(...args),

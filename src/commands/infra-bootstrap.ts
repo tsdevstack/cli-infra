@@ -12,6 +12,7 @@ import { getContext } from '../context';
 import { setupInfraCommand } from '../utils/setup/setup-infra-command';
 import { enableRequiredApis } from '../utils/gcp/bootstrap/enable-required-apis';
 import { upgradeSelfPermissions } from '../utils/gcp/bootstrap/upgrade-self-permissions';
+import { waitForApiPropagation } from '../utils/gcp/bootstrap/wait-for-api-propagation';
 import { awsBootstrap } from '../utils/aws/commands';
 import { azureBootstrap } from '../utils/azure/commands';
 import type { AWSCommandContext } from '../utils/aws/commands';
@@ -41,6 +42,10 @@ export async function infraBootstrap(
     logger.info('Step 1/2: Enabling required APIs...');
     await enableRequiredApis(ctx as GCPCommandContext);
     logger.newline();
+
+    // Wait for GCP to finish creating service agents from API enablement
+    logger.info('Waiting for API service agents to settle...');
+    await waitForApiPropagation();
 
     // Step 2: Add roles to SA
     logger.info('Step 2/2: Adding infrastructure permissions...');
