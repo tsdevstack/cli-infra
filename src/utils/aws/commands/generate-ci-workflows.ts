@@ -28,6 +28,7 @@ import {
   generateRemoveServiceWorkflow,
   generateRemoveDetachedWorkerWorkflow,
 } from '../ci';
+import { hasProjectNpmrc } from '../../npm-auth';
 import type { CIConfig } from '../ci';
 
 /**
@@ -75,18 +76,24 @@ export async function awsGenerateCiWorkflows(): Promise<void> {
   const frameworkConfig = loadFrameworkConfig();
   const services = frameworkConfig.services;
 
+  // Auto-detect: if `.npmrc` exists at project root, expose `NPM_TOKEN`
+  // to every job in the generated workflows so private-registry installs
+  // (host `npm ci` and tsdevstack-spawned docker builds) can authenticate.
+  const npmAuth = hasProjectNpmrc(projectRoot);
+  const opts = { npmAuth };
+
   // Create workflows directory (in case it was deleted)
   const workflowsDir = path.join(projectRoot, GITHUB_WORKFLOWS_DIR);
   ensureDirectory(workflowsDir);
 
   // Regenerate PR workflow
   const prWorkflowPath = path.join(workflowsDir, PR_WORKFLOW_FILENAME);
-  writeTextFile(prWorkflowPath, generatePrWorkflow());
+  writeTextFile(prWorkflowPath, generatePrWorkflow(opts));
   logger.info(`  Updated ${GITHUB_WORKFLOWS_DIR}/${PR_WORKFLOW_FILENAME}`);
 
   // Regenerate full deploy workflow
   const deployWorkflowPath = path.join(workflowsDir, DEPLOY_WORKFLOW_FILENAME);
-  writeTextFile(deployWorkflowPath, generateDeployWorkflow(ciConfig));
+  writeTextFile(deployWorkflowPath, generateDeployWorkflow(ciConfig, opts));
   logger.info(`  Updated ${GITHUB_WORKFLOWS_DIR}/${DEPLOY_WORKFLOW_FILENAME}`);
 
   // Regenerate deploy-services workflow (with service booleans)
@@ -96,7 +103,7 @@ export async function awsGenerateCiWorkflows(): Promise<void> {
   );
   writeTextFile(
     deployServicesPath,
-    generateDeployServicesWorkflow(ciConfig, services),
+    generateDeployServicesWorkflow(ciConfig, services, opts),
   );
   logger.info(
     `  Updated ${GITHUB_WORKFLOWS_DIR}/${DEPLOY_SERVICES_WORKFLOW_FILENAME}`,
@@ -107,14 +114,14 @@ export async function awsGenerateCiWorkflows(): Promise<void> {
     workflowsDir,
     DEPLOY_INFRA_WORKFLOW_FILENAME,
   );
-  writeTextFile(deployInfraPath, generateDeployInfraWorkflow(ciConfig));
+  writeTextFile(deployInfraPath, generateDeployInfraWorkflow(ciConfig, opts));
   logger.info(
     `  Updated ${GITHUB_WORKFLOWS_DIR}/${DEPLOY_INFRA_WORKFLOW_FILENAME}`,
   );
 
   // Regenerate deploy-kong workflow
   const deployKongPath = path.join(workflowsDir, DEPLOY_KONG_WORKFLOW_FILENAME);
-  writeTextFile(deployKongPath, generateDeployKongWorkflow(ciConfig));
+  writeTextFile(deployKongPath, generateDeployKongWorkflow(ciConfig, opts));
   logger.info(
     `  Updated ${GITHUB_WORKFLOWS_DIR}/${DEPLOY_KONG_WORKFLOW_FILENAME}`,
   );
@@ -126,7 +133,7 @@ export async function awsGenerateCiWorkflows(): Promise<void> {
   );
   writeTextFile(
     deployScheduledJobsPath,
-    generateDeployScheduledJobsWorkflow(ciConfig),
+    generateDeployScheduledJobsWorkflow(ciConfig, opts),
   );
   logger.info(
     `  Updated ${GITHUB_WORKFLOWS_DIR}/${DEPLOY_SCHEDULED_JOBS_WORKFLOW_FILENAME}`,
@@ -137,7 +144,10 @@ export async function awsGenerateCiWorkflows(): Promise<void> {
     workflowsDir,
     REMOVE_SERVICE_WORKFLOW_FILENAME,
   );
-  writeTextFile(removeServicePath, generateRemoveServiceWorkflow(ciConfig));
+  writeTextFile(
+    removeServicePath,
+    generateRemoveServiceWorkflow(ciConfig, opts),
+  );
   logger.info(
     `  Updated ${GITHUB_WORKFLOWS_DIR}/${REMOVE_SERVICE_WORKFLOW_FILENAME}`,
   );
@@ -149,7 +159,7 @@ export async function awsGenerateCiWorkflows(): Promise<void> {
   );
   writeTextFile(
     removeDetachedWorkerPath,
-    generateRemoveDetachedWorkerWorkflow(ciConfig),
+    generateRemoveDetachedWorkerWorkflow(ciConfig, opts),
   );
   logger.info(
     `  Updated ${GITHUB_WORKFLOWS_DIR}/${REMOVE_DETACHED_WORKER_WORKFLOW_FILENAME}`,

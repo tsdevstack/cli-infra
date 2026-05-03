@@ -126,6 +126,7 @@ describe('azureInitCi', () => {
           provider: 'github',
           environments: ['dev', 'prod'],
         }),
+        { npmAuth: false },
       );
     });
 
@@ -138,6 +139,7 @@ describe('azureInitCi', () => {
           expect.objectContaining({ name: 'auth-service' }),
           expect.objectContaining({ name: 'frontend' }),
         ]),
+        { npmAuth: false },
       );
     });
 

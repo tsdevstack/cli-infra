@@ -130,6 +130,7 @@ describe('gcpInitCi', () => {
           provider: 'github',
           environments: ['prod', 'staging'],
         }),
+        { npmAuth: false },
       );
     });
 
@@ -142,6 +143,7 @@ describe('gcpInitCi', () => {
           expect.objectContaining({ name: 'auth-service' }),
           expect.objectContaining({ name: 'frontend' }),
         ]),
+        { npmAuth: false },
       );
     });
 

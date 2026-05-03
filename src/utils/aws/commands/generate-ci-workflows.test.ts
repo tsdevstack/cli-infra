@@ -115,7 +115,9 @@ describe('awsGenerateCiWorkflows', () => {
     it('should generate deploy workflow with ci config', async () => {
       await awsGenerateCiWorkflows();
 
-      expect(mockGenerateDeployWorkflow).toHaveBeenCalledWith(mockCIConfig);
+      expect(mockGenerateDeployWorkflow).toHaveBeenCalledWith(mockCIConfig, {
+        npmAuth: false,
+      });
       expect(mocks.writeTextFile).toHaveBeenCalledWith(
         expect.stringContaining('deploy.yml'),
         '# deploy.yml content',
@@ -131,6 +133,7 @@ describe('awsGenerateCiWorkflows', () => {
           expect.objectContaining({ name: 'auth-service' }),
           expect.objectContaining({ name: 'frontend' }),
         ]),
+        { npmAuth: false },
       );
     });
 
@@ -139,10 +142,15 @@ describe('awsGenerateCiWorkflows', () => {
 
       expect(mockGenerateDeployInfraWorkflow).toHaveBeenCalledWith(
         mockCIConfig,
+        { npmAuth: false },
       );
-      expect(mockGenerateDeployKongWorkflow).toHaveBeenCalledWith(mockCIConfig);
+      expect(mockGenerateDeployKongWorkflow).toHaveBeenCalledWith(
+        mockCIConfig,
+        { npmAuth: false },
+      );
       expect(mockGenerateDeployScheduledJobsWorkflow).toHaveBeenCalledWith(
         mockCIConfig,
+        { npmAuth: false },
       );
     });
 
@@ -151,9 +159,11 @@ describe('awsGenerateCiWorkflows', () => {
 
       expect(mockGenerateRemoveServiceWorkflow).toHaveBeenCalledWith(
         mockCIConfig,
+        { npmAuth: false },
       );
       expect(mockGenerateRemoveDetachedWorkerWorkflow).toHaveBeenCalledWith(
         mockCIConfig,
+        { npmAuth: false },
       );
     });
 
@@ -214,6 +224,7 @@ describe('awsGenerateCiWorkflows', () => {
           expect.objectContaining({ name: 'worker-service' }),
           expect.objectContaining({ name: 'frontend' }),
         ]),
+        { npmAuth: false },
       );
     });
   });

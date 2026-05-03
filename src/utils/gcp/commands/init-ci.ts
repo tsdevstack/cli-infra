@@ -27,6 +27,7 @@ import {
   generateRemoveServiceWorkflow,
   printSetupInstructions,
 } from '../ci';
+import { hasProjectNpmrc } from '../../npm-auth';
 import type { CIConfig } from '../ci';
 
 /**
@@ -77,18 +78,24 @@ export async function gcpInitCi(
   writeJsonFile(ciConfigPath, { $schema: './ci.schema.json', ...ciConfig });
   logger.info(`  Created ${TSDEVSTACK_DIR}/${CI_CONFIG_FILENAME}`);
 
+  // Auto-detect: if `.npmrc` exists at project root, expose `NPM_TOKEN`
+  // to every job in the generated workflows so private-registry installs
+  // (host `npm ci` and tsdevstack-spawned docker builds) can authenticate.
+  const npmAuth = hasProjectNpmrc(projectRoot);
+  const opts = { npmAuth };
+
   // Create workflows directory
   const workflowsDir = path.join(projectRoot, GITHUB_WORKFLOWS_DIR);
   ensureDirectory(workflowsDir);
 
   // Generate PR workflow
   const prWorkflowPath = path.join(workflowsDir, PR_WORKFLOW_FILENAME);
-  writeTextFile(prWorkflowPath, generatePrWorkflow());
+  writeTextFile(prWorkflowPath, generatePrWorkflow(opts));
   logger.info(`  Created ${GITHUB_WORKFLOWS_DIR}/${PR_WORKFLOW_FILENAME}`);
 
   // Generate deploy workflow (legacy, for backwards compatibility)
   const deployWorkflowPath = path.join(workflowsDir, DEPLOY_WORKFLOW_FILENAME);
-  writeTextFile(deployWorkflowPath, generateDeployWorkflow(ciConfig));
+  writeTextFile(deployWorkflowPath, generateDeployWorkflow(ciConfig, opts));
   logger.info(`  Created ${GITHUB_WORKFLOWS_DIR}/${DEPLOY_WORKFLOW_FILENAME}`);
 
   // Generate deploy-services workflow (with service booleans)
@@ -98,7 +105,7 @@ export async function gcpInitCi(
   );
   writeTextFile(
     deployServicesPath,
-    generateDeployServicesWorkflow(ciConfig, config.services),
+    generateDeployServicesWorkflow(ciConfig, config.services, opts),
   );
   logger.info(
     `  Created ${GITHUB_WORKFLOWS_DIR}/${DEPLOY_SERVICES_WORKFLOW_FILENAME}`,
@@ -109,21 +116,21 @@ export async function gcpInitCi(
     workflowsDir,
     DEPLOY_INFRA_WORKFLOW_FILENAME,
   );
-  writeTextFile(deployInfraPath, generateDeployInfraWorkflow(ciConfig));
+  writeTextFile(deployInfraPath, generateDeployInfraWorkflow(ciConfig, opts));
   logger.info(
     `  Created ${GITHUB_WORKFLOWS_DIR}/${DEPLOY_INFRA_WORKFLOW_FILENAME}`,
   );
 
   // Generate deploy-kong workflow
   const deployKongPath = path.join(workflowsDir, DEPLOY_KONG_WORKFLOW_FILENAME);
-  writeTextFile(deployKongPath, generateDeployKongWorkflow(ciConfig));
+  writeTextFile(deployKongPath, generateDeployKongWorkflow(ciConfig, opts));
   logger.info(
     `  Created ${GITHUB_WORKFLOWS_DIR}/${DEPLOY_KONG_WORKFLOW_FILENAME}`,
   );
 
   // Generate deploy-lb workflow
   const deployLbPath = path.join(workflowsDir, DEPLOY_LB_WORKFLOW_FILENAME);
-  writeTextFile(deployLbPath, generateDeployLbWorkflow(ciConfig));
+  writeTextFile(deployLbPath, generateDeployLbWorkflow(ciConfig, opts));
   logger.info(
     `  Created ${GITHUB_WORKFLOWS_DIR}/${DEPLOY_LB_WORKFLOW_FILENAME}`,
   );
@@ -133,7 +140,10 @@ export async function gcpInitCi(
     workflowsDir,
     REMOVE_SERVICE_WORKFLOW_FILENAME,
   );
-  writeTextFile(removeServicePath, generateRemoveServiceWorkflow(ciConfig));
+  writeTextFile(
+    removeServicePath,
+    generateRemoveServiceWorkflow(ciConfig, opts),
+  );
   logger.info(
     `  Created ${GITHUB_WORKFLOWS_DIR}/${REMOVE_SERVICE_WORKFLOW_FILENAME}`,
   );
@@ -149,6 +159,22 @@ export async function gcpInitCi(
 
   // Print setup instructions
   printSetupInstructions(userSecretKeys, projectName, environments, logger);
+
+  if (npmAuth) {
+    logger.newline();
+    logger.info('=== Private npm packages ===');
+    logger.newline();
+    logger.info(
+      'Detected .npmrc at project root — generated workflows expose NPM_TOKEN to every job.',
+    );
+    logger.info(
+      'Add NPM_TOKEN as a GitHub repository secret (single value, not per-env)',
+    );
+    logger.info(
+      '  so that host `npm ci` and tsdevstack-spawned docker builds can install private packages.',
+    );
+    logger.newline();
+  }
 
   logger.info('=== Next Steps ===');
   logger.newline();

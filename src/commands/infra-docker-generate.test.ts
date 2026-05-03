@@ -34,6 +34,11 @@ rs.mock('../utils/docker', () => ({
     mockValidateNextjsStandalone(...args),
 }));
 
+const mockHasProjectNpmrc = rs.fn();
+rs.mock('../utils/npm-auth', () => ({
+  hasProjectNpmrc: (...args: unknown[]) => mockHasProjectNpmrc(...args),
+}));
+
 import { infraDockerGenerate } from './infra-docker-generate';
 
 describe('infraDockerGenerate', () => {
@@ -53,6 +58,7 @@ describe('infraDockerGenerate', () => {
     mockGetServiceWorkspaceDeps.mockReturnValue(['@my-app/shared']);
     mockGenerateNestJsDockerfile.mockReturnValue('# NestJS Dockerfile');
     mockGenerateNextJsDockerfile.mockReturnValue('# Next.js Dockerfile');
+    mockHasProjectNpmrc.mockReturnValue(false);
   });
 
   describe('service filtering', () => {
@@ -104,6 +110,7 @@ describe('infraDockerGenerate', () => {
         serviceName: 'auth-service',
         workspacePackages: ['@my-app/shared'],
         hasDatabase: true,
+        npmAuthEnvSecret: false,
       });
     });
 
@@ -132,7 +139,37 @@ describe('infraDockerGenerate', () => {
       expect(mockGenerateNextJsDockerfile).toHaveBeenCalledWith({
         serviceName: 'frontend',
         workspacePackages: ['@my-app/shared'],
+        npmAuthEnvSecret: false,
       });
+    });
+  });
+
+  describe('npm auth detection', () => {
+    it('passes npmAuthEnvSecret=true to generators when .npmrc exists at project root', async () => {
+      mockHasProjectNpmrc.mockReturnValue(true);
+
+      await infraDockerGenerate({});
+
+      expect(mockHasProjectNpmrc).toHaveBeenCalledWith('/test/project');
+      expect(mockGenerateNestJsDockerfile).toHaveBeenCalledWith(
+        expect.objectContaining({ npmAuthEnvSecret: true }),
+      );
+      expect(mockGenerateNextJsDockerfile).toHaveBeenCalledWith(
+        expect.objectContaining({ npmAuthEnvSecret: true }),
+      );
+    });
+
+    it('passes npmAuthEnvSecret=false when .npmrc is absent', async () => {
+      mockHasProjectNpmrc.mockReturnValue(false);
+
+      await infraDockerGenerate({});
+
+      expect(mockGenerateNestJsDockerfile).toHaveBeenCalledWith(
+        expect.objectContaining({ npmAuthEnvSecret: false }),
+      );
+      expect(mockGenerateNextJsDockerfile).toHaveBeenCalledWith(
+        expect.objectContaining({ npmAuthEnvSecret: false }),
+      );
     });
   });
 

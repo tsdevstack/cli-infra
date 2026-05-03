@@ -12,6 +12,7 @@ import {
   getServiceWorkspaceDeps,
   validateNextjsStandalone,
 } from '../utils/docker';
+import { hasProjectNpmrc } from '../utils/npm-auth';
 import { DEPLOYABLE_SERVICE_TYPES } from '../constants';
 
 interface InfraDockerGenerateOptions {
@@ -71,6 +72,19 @@ export async function infraDockerGenerate(
   logger.info(`Output: ${outputDir}`);
   logger.info(`Services: ${services.map((s) => s.name).join(', ')}`);
   logger.newline();
+
+  // Auto-detect private-registry auth: if `.npmrc` exists at project root,
+  // wire NPM_TOKEN through generated Dockerfiles. The .npmrc is expected to
+  // contain `${NPM_TOKEN}`-style env-var interpolation (no real secret in
+  // the file). Computed once for the whole run — same value for every
+  // service.
+  const npmAuthEnvSecret = hasProjectNpmrc(projectRoot);
+  if (npmAuthEnvSecret) {
+    logger.info(
+      'Detected .npmrc at project root — wiring NPM_TOKEN through docker builds.',
+    );
+  }
+
   logger.generating('Generating Dockerfiles...');
 
   for (const service of services) {
@@ -85,6 +99,7 @@ export async function infraDockerGenerate(
         serviceName: service.name,
         workspacePackages,
         hasDatabase: service.hasDatabase ?? false,
+        npmAuthEnvSecret,
       });
       const filePath = path.join(outputDir, `${service.name}.Dockerfile`);
       writeTextFile(filePath, content);
@@ -98,6 +113,7 @@ export async function infraDockerGenerate(
       const content = generateNextJsDockerfile({
         serviceName: service.name,
         workspacePackages,
+        npmAuthEnvSecret,
       });
       const filePath = path.join(outputDir, `${service.name}.Dockerfile`);
       writeTextFile(filePath, content);

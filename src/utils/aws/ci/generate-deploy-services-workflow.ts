@@ -7,6 +7,7 @@
 
 /* eslint-disable no-useless-escape */
 
+import { renderJobEnvBlock } from '../../npm-auth';
 import type { CIConfig } from './types';
 import { toTerraformId } from '../../terraform';
 
@@ -27,11 +28,13 @@ interface ServiceConfig {
 export function generateDeployServicesWorkflow(
   config: CIConfig,
   services: ServiceConfig[],
+  options: { npmAuth?: boolean } = {},
 ): string {
   // Filter to deployable services (nestjs, nextjs, spa)
   const deployableServices = services.filter(
     (s) => s.type === 'nestjs' || s.type === 'nextjs' || s.type === 'spa',
   );
+  const envBlock = renderJobEnvBlock(options.npmAuth ?? false);
 
   // Keep lowercase env names (matches terraform dirs, credentials file)
   const envOptions = config.environments
@@ -87,7 +90,7 @@ jobs:
       contents: read
       id-token: write
 
-    steps:
+${envBlock}    steps:
       - uses: actions/checkout@v4
 
       # Set secret names for dynamic lookup (GitHub requires $GITHUB_ENV for secrets[env.X] pattern)

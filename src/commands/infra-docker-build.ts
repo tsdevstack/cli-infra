@@ -10,6 +10,7 @@ import { execSync, spawn } from 'node:child_process';
 import pMap from 'p-map';
 import { getContext } from '../context';
 import { checkDockerInstalled, getGitSha } from '../utils/docker';
+import { hasProjectNpmrc } from '../utils/npm-auth';
 import { getTerraformOutput } from '../utils/gcp/terraform';
 import {
   buildAwsTerraformEnv,
@@ -203,6 +204,16 @@ export async function infraDockerBuild(
   const useParallel = options.parallel !== false;
   const maxParallel = options.maxParallel ?? 2;
 
+  // Auto-detect: if `.npmrc` exists at project root, thread `NPM_TOKEN`
+  // through to docker build via a BuildKit env-source secret. The
+  // generated Dockerfiles emit a matching `--mount=type=secret,id=npm_token,env=NPM_TOKEN`
+  // on `npm ci` when the same condition holds (see infra-docker-generate).
+  // BuildKit reads the value from this process's env at build time —
+  // process.env propagates to the spawned docker subprocess automatically.
+  // If `.npmrc` is present but `NPM_TOKEN` is unset, BuildKit fails fast
+  // with a clear error.
+  const npmAuthEnvSecret = hasProjectNpmrc(projectRoot);
+
   logger.info(`Environment: ${targetEnv}`);
   logger.info(`Git SHA: ${gitSha}`);
   logger.info(`Registry: ${registryUrl}`);
@@ -211,6 +222,9 @@ export async function infraDockerBuild(
     `Mode: ${useParallel ? `parallel (max ${maxParallel})` : 'sequential'}`,
   );
   logger.info('BuildKit: enabled with registry cache');
+  if (npmAuthEnvSecret) {
+    logger.info('Private npm auth: NPM_TOKEN forwarded as build secret');
+  }
   logger.newline();
 
   const builtImages: string[] = [];
@@ -235,28 +249,28 @@ export async function infraDockerBuild(
         provider === 'aws'
           ? `type=registry,ref=${cacheTag},mode=max,oci-mediatypes=true,image-manifest=true`
           : `type=registry,ref=${cacheTag},mode=max`;
-      const child = spawn(
-        'docker',
-        [
-          'build',
-          '--platform',
-          'linux/amd64',
-          '--cache-from',
-          `type=registry,ref=${cacheTag}`,
-          '--cache-to',
-          cacheTo,
-          '-f',
-          dockerfilePath,
-          '-t',
-          imageTag,
-          '.',
-        ],
-        {
-          cwd: projectRoot,
-          stdio: 'pipe',
-          env: { ...process.env, DOCKER_BUILDKIT: '1' },
-        },
-      );
+      const buildArgs = [
+        'build',
+        '--platform',
+        'linux/amd64',
+        '--cache-from',
+        `type=registry,ref=${cacheTag}`,
+        '--cache-to',
+        cacheTo,
+        '-f',
+        dockerfilePath,
+        '-t',
+        imageTag,
+      ];
+      if (npmAuthEnvSecret) {
+        buildArgs.push('--secret', 'id=npm_token,env=NPM_TOKEN');
+      }
+      buildArgs.push('.');
+      const child = spawn('docker', buildArgs, {
+        cwd: projectRoot,
+        stdio: 'pipe',
+        env: { ...process.env, DOCKER_BUILDKIT: '1' },
+      });
 
       let stderr = '';
       child.stderr?.on('data', (data) => {
@@ -364,11 +378,15 @@ export async function infraDockerBuild(
           ? `type=registry,ref=${cacheTag},mode=max,oci-mediatypes=true,image-manifest=true`
           : `type=registry,ref=${cacheTag},mode=max`;
 
+      const npmAuthFlag = npmAuthEnvSecret
+        ? ' --secret id=npm_token,env=NPM_TOKEN'
+        : '';
+
       try {
         execSync(
           `docker build --platform linux/amd64 ` +
             `--cache-from type=registry,ref=${cacheTag} ` +
-            `--cache-to ${seqCacheTo} ` +
+            `--cache-to ${seqCacheTo}${npmAuthFlag} ` +
             `-f ${dockerfilePath} -t ${imageTag} .`,
           {
             cwd: projectRoot,

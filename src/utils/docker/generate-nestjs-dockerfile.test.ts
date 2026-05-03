@@ -9,9 +9,9 @@ describe('generateNestJsDockerfile', () => {
   };
 
   describe('base stage', () => {
-    it('should use node:20-slim as base image', () => {
+    it('should use node:22-slim as base image', () => {
       const result = generateNestJsDockerfile(baseOptions);
-      expect(result).toContain('FROM node:20-slim AS base');
+      expect(result).toContain('FROM node:22-slim AS base');
     });
 
     it('should set workdir to /app', () => {
@@ -46,6 +46,36 @@ describe('generateNestJsDockerfile', () => {
       expect(result).toContain(
         'RUN --mount=type=cache,target=/root/.npm npm ci',
       );
+    });
+
+    it('does not COPY .npmrc or mount NPM_TOKEN by default', () => {
+      const result = generateNestJsDockerfile(baseOptions);
+      expect(result).not.toContain('.npmrc');
+      expect(result).not.toContain('NPM_TOKEN');
+      expect(result).not.toContain('id=npm_token');
+    });
+
+    it('COPYs .npmrc and emits NPM_TOKEN env-source secret mount when npmAuthEnvSecret is on', () => {
+      const result = generateNestJsDockerfile({
+        ...baseOptions,
+        npmAuthEnvSecret: true,
+      });
+      expect(result).toContain('COPY package.json package-lock.json .npmrc ./');
+      expect(result).toContain(
+        'RUN --mount=type=cache,target=/root/.npm --mount=type=secret,id=npm_token,env=NPM_TOKEN npm ci',
+      );
+    });
+
+    it('does not leak .npmrc or NPM_TOKEN into the production stage', () => {
+      const result = generateNestJsDockerfile({
+        ...baseOptions,
+        npmAuthEnvSecret: true,
+      });
+      const productionStart = result.indexOf('FROM base AS production');
+      expect(productionStart).toBeGreaterThan(-1);
+      const productionStage = result.slice(productionStart);
+      expect(productionStage).not.toContain('.npmrc');
+      expect(productionStage).not.toContain('NPM_TOKEN');
     });
   });
 
@@ -165,18 +195,11 @@ describe('generateNestJsDockerfile', () => {
       );
     });
 
-    it('should overlay workspace node_modules for prisma when hasDatabase is true', () => {
+    it('does not emit a workspace-level node_modules overlay COPY (apps/<service>/node_modules is never created in the build stage by npm ci with the deps-stage layout, so the COPY would always fail on cold builds)', () => {
       const result = generateNestJsDockerfile({
         ...baseOptions,
         hasDatabase: true,
       });
-      expect(result).toContain(
-        'COPY --chown=node:node --from=build /app/apps/auth-service/node_modules ./node_modules',
-      );
-    });
-
-    it('should NOT overlay workspace node_modules when hasDatabase is false', () => {
-      const result = generateNestJsDockerfile(baseOptions);
       expect(result).not.toContain('/app/apps/auth-service/node_modules');
     });
   });

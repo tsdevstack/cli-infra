@@ -126,6 +126,7 @@ describe('awsInitCi', () => {
           provider: 'github',
           environments: ['dev', 'prod'],
         }),
+        { npmAuth: false },
       );
     });
 
@@ -138,6 +139,7 @@ describe('awsInitCi', () => {
           expect.objectContaining({ name: 'auth-service' }),
           expect.objectContaining({ name: 'frontend' }),
         ]),
+        { npmAuth: false },
       );
     });
 
