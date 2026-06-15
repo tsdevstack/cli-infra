@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "description": "Infrastructure deployment tools for tsdevstack framework",
   "author": "tsdevstack",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/tsdevstack/cli-infra.git"
@@ -34,7 +34,8 @@
   },
   "types": "./dist/index.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "NOTICE"
   ],
   "scripts": {
     "build": "NODE_OPTIONS='--max-old-space-size=4096' rslib build",
@@ -97,8 +98,5 @@
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.46.2"
   },
-  "private": false,
-  "publishConfig": {
-    "access": "restricted"
-  }
+  "private": true
 }
