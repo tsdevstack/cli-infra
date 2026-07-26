@@ -67,7 +67,7 @@ export async function gcpDeployScheduler(
     // Interactive mode - prompt for job selection
     const { selectedJob } = await inquirer.prompt<{ selectedJob: string }>([
       {
-        type: 'list',
+        type: 'select',
         name: 'selectedJob',
         message: 'Select scheduled job to deploy:',
         choices: scheduledJobs.map((j) => ({

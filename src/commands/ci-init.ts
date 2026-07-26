@@ -77,7 +77,7 @@ export async function ciInit(options: CiInitOptions): Promise<void> {
 
     const { selectedProvider } = await inquirer.prompt([
       {
-        type: 'list',
+        type: 'select',
         name: 'selectedProvider',
         message: 'Select cloud provider:',
         choices: CLOUD_PROVIDERS.map((p: string) => ({ name: p, value: p })),
@@ -94,7 +94,7 @@ export async function ciInit(options: CiInitOptions): Promise<void> {
   }
 
   // 3. Environments: --envs flag → interactive prompt → error
-  let environments: string[] = [];
+  let environments: string[];
 
   if (options.envs) {
     environments = options.envs

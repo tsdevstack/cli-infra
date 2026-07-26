@@ -86,6 +86,6 @@ describe('selectDeployableService', () => {
     const promptCall = mockInquirerPrompt.mock.calls[0][0][0];
 
     expect(promptCall.message).toBe('Select service to deploy:');
-    expect(promptCall.type).toBe('list');
+    expect(promptCall.type).toBe('select');
   });
 });

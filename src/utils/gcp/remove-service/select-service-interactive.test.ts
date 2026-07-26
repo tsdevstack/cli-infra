@@ -108,7 +108,7 @@ describe('selectServiceInteractive', () => {
     expect(result).toBe('auth-service');
     expect(inquirer.prompt).toHaveBeenCalledWith([
       expect.objectContaining({
-        type: 'list',
+        type: 'select',
         name: 'selectedService',
         message: 'Select service to remove:',
       }),

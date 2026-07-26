@@ -192,7 +192,7 @@ async function selectScheduleInteractive(
 
   const { selectedSchedule } = await inquirer.prompt([
     {
-      type: 'list',
+      type: 'select',
       name: 'selectedSchedule',
       message: 'Select schedule to remove:',
       choices,

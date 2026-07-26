@@ -78,7 +78,7 @@ export async function selectServiceInteractive(
   const choices = deployedServices.map((name) => {
     const inConfig = configServices.includes(name);
 
-    let suffix = '';
+    let suffix: string;
     if (inConfig) {
       suffix = ' (config + deployed)';
     } else {
@@ -99,7 +99,7 @@ export async function selectServiceInteractive(
 
   const { selectedService } = await inquirer.prompt([
     {
-      type: 'list',
+      type: 'select',
       name: 'selectedService',
       message: 'Select service to remove:',
       choices,

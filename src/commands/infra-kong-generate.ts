@@ -6,7 +6,7 @@
  */
 
 import path from 'node:path';
-import yaml from 'js-yaml';
+import * as yaml from 'js-yaml';
 import { execSync } from 'node:child_process';
 import { getContext } from '../context';
 import { toServiceEnvVarName } from '@tsdevstack/infra-core';

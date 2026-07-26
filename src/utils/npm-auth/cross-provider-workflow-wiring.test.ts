@@ -18,7 +18,7 @@
  * divergence between providers shows up immediately.
  */
 import { describe, it, expect } from '@rstest/core';
-import yaml from 'js-yaml';
+import * as yaml from 'js-yaml';
 
 import * as gcp from '../gcp/ci';
 import * as aws from '../aws/ci';

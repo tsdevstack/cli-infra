@@ -181,7 +181,7 @@ describe('ciInit', () => {
 
       expect(mockInquirerPrompt).toHaveBeenCalledWith([
         expect.objectContaining({
-          type: 'list',
+          type: 'select',
           name: 'selectedProvider',
         }),
       ]);

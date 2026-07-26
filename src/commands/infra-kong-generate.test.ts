@@ -38,9 +38,7 @@ rs.mock('node:child_process', () => ({
 }));
 
 rs.mock('js-yaml', () => ({
-  default: {
-    dump: rs.fn((obj) => JSON.stringify(obj)),
-  },
+  dump: rs.fn((obj) => JSON.stringify(obj)),
 }));
 
 const mockSetupInfraCommand = rs.fn();

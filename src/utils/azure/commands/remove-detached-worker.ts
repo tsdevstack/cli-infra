@@ -92,7 +92,7 @@ export async function selectWorkerInteractiveAzure(
 
   const { workerName } = await inquirer.prompt([
     {
-      type: 'list',
+      type: 'select',
       name: 'workerName',
       message: 'Select worker to remove:',
       choices: workers.map((w) => {

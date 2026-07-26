@@ -106,7 +106,7 @@ export async function selectWorkerInteractiveGcp(
 
   const { selectedWorker } = await inquirer.prompt([
     {
-      type: 'list',
+      type: 'select',
       name: 'selectedWorker',
       message: 'Select worker to remove:',
       choices,

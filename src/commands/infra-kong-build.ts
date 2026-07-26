@@ -8,7 +8,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
 import { execSync } from 'node:child_process';
-import yaml from 'js-yaml';
+import * as yaml from 'js-yaml';
 import { getContext } from '../context';
 import { checkDockerInstalled, getGitSha } from '../utils/docker';
 import { setupInfraCommand } from '../utils/setup/setup-infra-command';

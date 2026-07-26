@@ -129,7 +129,7 @@ export async function gcpRemoveService(
   if (!runningInCI && dryRun === undefined) {
     const { runMode } = await inquirer.prompt([
       {
-        type: 'list',
+        type: 'select',
         name: 'runMode',
         message: 'Select mode:',
         choices: [

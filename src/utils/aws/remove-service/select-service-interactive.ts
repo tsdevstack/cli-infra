@@ -57,7 +57,7 @@ export async function selectServiceInteractive(
 
   const { selectedService } = await inquirer.prompt([
     {
-      type: 'list',
+      type: 'select',
       name: 'selectedService',
       message: 'Select service to remove:',
       choices: services,

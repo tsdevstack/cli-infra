@@ -181,7 +181,7 @@ async function selectJobInteractive(ctx: GCPCommandContext): Promise<string> {
 
   const { selectedJob } = await inquirer.prompt([
     {
-      type: 'list',
+      type: 'select',
       name: 'selectedJob',
       message: 'Select scheduled job to remove:',
       choices,

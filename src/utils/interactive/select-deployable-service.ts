@@ -37,7 +37,7 @@ export async function selectDeployableService(): Promise<string> {
 
   const answer = await inquirer.prompt([
     {
-      type: 'list',
+      type: 'select',
       name: 'serviceName',
       message: 'Select service to deploy:',
       choices,

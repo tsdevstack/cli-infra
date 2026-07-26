@@ -147,7 +147,7 @@ export async function selectServiceInteractiveAzure(options: {
     const inConfig = configServices.includes(name);
     const inCloud = cloudServices.includes(name);
 
-    let suffix = '';
+    let suffix: string;
     if (inConfig && inCloud) {
       suffix = ' (config + deployed)';
     } else if (inConfig) {
@@ -164,7 +164,7 @@ export async function selectServiceInteractiveAzure(options: {
 
   const answer = await inquirer.prompt([
     {
-      type: 'list',
+      type: 'select',
       name: 'serviceName',
       message: 'Select service to check:',
       choices,

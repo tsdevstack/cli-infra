@@ -184,7 +184,7 @@ async function selectJobInteractive(ctx: AzureCommandContext): Promise<string> {
 
   const { selectedJob } = await inquirer.prompt([
     {
-      type: 'list',
+      type: 'select',
       name: 'selectedJob',
       message: 'Select job to remove:',
       choices,
