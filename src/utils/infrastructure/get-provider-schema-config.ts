@@ -21,6 +21,7 @@ import {
   VALID_MEMORY_VALUES_GCP,
   VALID_MEMORY_VALUES_AWS,
   VALID_MEMORY_VALUES_AZURE,
+  VALIDATION_CONSTRAINTS,
 } from '../../constants';
 
 export type SchemaProvider = 'gcp' | 'aws' | 'azure';
@@ -33,6 +34,8 @@ export interface ProviderSchemaConfig {
   appServiceSkus: readonly string[];
   /** Whether Kong runs on App Service (true) or container platform (false) */
   kongUsesAppService: boolean;
+  /** Whether database.serverName is supported (Azure: server names are global DNS names) */
+  supportsDatabaseServerName: boolean;
   databaseDescription: string;
   redisDescription: string;
   redisTierDescription: string;
@@ -46,6 +49,12 @@ export interface ProviderSchemaConfig {
   memoryValues: readonly string[];
   cpuDescription: string;
   memoryDescription: string;
+  /** Lowest allowed minInstances for services and Kong (0 = scale-to-zero allowed) */
+  minInstancesMinimum: number;
+  /** Description of minInstances for services */
+  serviceMinInstancesDescription: string;
+  /** Description of minInstances for Kong */
+  kongMinInstancesDescription: string;
   /** Valid CPU values for migration jobs */
   migrationJobCpuValues: readonly string[];
   /** Valid memory values for migration jobs */
@@ -65,18 +74,22 @@ export function getProviderSchemaConfig(
       serviceTypes: VALID_SERVICE_TYPES_AWS,
       appServiceSkus: [],
       kongUsesAppService: false,
+      supportsDatabaseServerName: false,
       databaseDescription: 'RDS PostgreSQL database configuration',
       redisDescription: 'ElastiCache Redis configuration',
       redisTierDescription: 'ElastiCache node type',
-      serviceDescription: 'ECS/App Runner service configuration',
+      serviceDescription: 'ECS Fargate service configuration',
       kongDescription: 'Kong Gateway configuration (ECS)',
       scheduledJobDescription: 'Scheduled job configuration for EventBridge',
       serviceTypeDescription:
-        "Service type: 'nestjs' (ECS), 'nextjs' (App Runner), 'spa' (S3+CloudFront), or 'worker' (ECS background)",
+        "Service type: 'nestjs' (ECS), 'nextjs' (ECS + CloudFront), 'spa' (S3+CloudFront), or 'worker' (ECS background)",
       cpuValues: VALID_CPU_VALUES_AWS,
       memoryValues: VALID_MEMORY_VALUES_AWS,
       cpuDescription: 'CPU allocation per instance in vCPU',
       memoryDescription: "Memory allocation (e.g., '1Gi', '2Gi')",
+      minInstancesMinimum: VALIDATION_CONSTRAINTS.minInstancesAws.min,
+      serviceMinInstancesDescription: `Minimum number of instances (at least ${VALIDATION_CONSTRAINTS.minInstancesAws.min}: AWS has no scale-to-zero)`,
+      kongMinInstancesDescription: `Minimum number of instances (at least ${VALIDATION_CONSTRAINTS.minInstancesAws.min}: AWS has no scale-to-zero)`,
       migrationJobCpuValues: ['256', '512', '1024', '2048', '4096'],
       migrationJobMemoryValues: [
         '512',
@@ -101,6 +114,7 @@ export function getProviderSchemaConfig(
       serviceTypes: VALID_SERVICE_TYPES_AZURE,
       appServiceSkus: VALID_APP_SERVICE_SKUS,
       kongUsesAppService: true,
+      supportsDatabaseServerName: true,
       databaseDescription: 'PostgreSQL Flexible Server database configuration',
       redisDescription: 'Azure Managed Redis configuration',
       redisTierDescription: 'Azure Managed Redis SKU',
@@ -115,6 +129,10 @@ export function getProviderSchemaConfig(
       memoryValues: VALID_MEMORY_VALUES_AZURE,
       cpuDescription: 'CPU allocation per instance in vCPU',
       memoryDescription: "Memory allocation in Gi units (e.g., '1Gi', '2Gi')",
+      minInstancesMinimum: VALIDATION_CONSTRAINTS.minInstances.min,
+      serviceMinInstancesDescription:
+        'Minimum number of instances (0 = scale to zero)',
+      kongMinInstancesDescription: 'Minimum number of instances',
       migrationJobCpuValues: [...VALID_CPU_VALUES_AZURE],
       migrationJobMemoryValues: [...VALID_MEMORY_VALUES_AZURE],
       migrationJobDescription:
@@ -133,6 +151,7 @@ export function getProviderSchemaConfig(
     serviceTypes: VALID_SERVICE_TYPES_GCP,
     appServiceSkus: [],
     kongUsesAppService: false,
+    supportsDatabaseServerName: false,
     databaseDescription: 'Cloud SQL database configuration',
     redisDescription: 'Memorystore Redis configuration',
     redisTierDescription:
@@ -146,6 +165,10 @@ export function getProviderSchemaConfig(
     memoryValues: VALID_MEMORY_VALUES_GCP,
     cpuDescription: 'CPU allocation per instance in vCPU',
     memoryDescription: "Memory allocation (e.g., '512Mi', '1Gi', '2Gi')",
+    minInstancesMinimum: VALIDATION_CONSTRAINTS.minInstances.min,
+    serviceMinInstancesDescription:
+      'Minimum number of instances (0 = scale to zero)',
+    kongMinInstancesDescription: 'Minimum number of instances',
     migrationJobCpuValues: [...VALID_CPU_VALUES_GCP],
     migrationJobMemoryValues: [...VALID_MEMORY_VALUES_GCP],
     migrationJobDescription:

@@ -97,7 +97,7 @@ export async function deployEcsServices(
     );
   }
 
-  // Get NestJS services only (Next.js goes to App Runner)
+  // Get NestJS services only (Next.js is deployed by deploy-nextjs-services)
   let services = config.services.filter((s) => s.type === 'nestjs');
 
   // Filter by specific service(s) if provided
@@ -221,7 +221,7 @@ export async function deployEcsServices(
       // Build full image URI
       const imageUri = `${ecrUrl}/${service.name}:${imageTag}`;
 
-      // Deploy with secrets injection (similar to kong-deploy.ts)
+      // Deploy with secrets injection (same approach as deploy-kong.ts)
       try {
         await deployEcsServiceWithSecrets(runtime, {
           credentials,

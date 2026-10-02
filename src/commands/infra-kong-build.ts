@@ -15,7 +15,6 @@ import { setupInfraCommand } from '../utils/setup/setup-infra-command';
 import { fetchSecret } from '../utils/credentials/fetch-secret';
 import { extractPlaceholders } from '../utils/kong/extract-placeholders';
 import { resolveEnvVarsStrict } from '../utils/kong/resolve-env-vars-strict';
-import { generateKongDockerfile } from '../utils/kong/generate-kong-dockerfile';
 import { loadInfrastructureConfig } from '../utils/infrastructure/load-infrastructure-config';
 import { getKongConfig } from '../utils/infrastructure/get-kong-config';
 import {
@@ -30,9 +29,6 @@ import {
   getAzureKongRegistryInfo,
   pushAzureKongImage,
 } from '../utils/azure/commands';
-import { getTerraformOutput } from '../utils/aws/terraform';
-import { buildAwsTerraformEnv } from '@tsdevstack/infra-core';
-import { buildRuntime } from '../utils/build-runtime';
 import type {
   KongTemplate,
   JsonValue,
@@ -52,7 +48,13 @@ interface InfraKongBuildOptions {
 export async function infraKongBuild(
   options: InfraKongBuildOptions,
 ): Promise<void> {
-  const { logger, CliError, readYamlFile, processCorsOrigins } = getContext();
+  const {
+    logger,
+    CliError,
+    readYamlFile,
+    processCorsOrigins,
+    writeKongBuildContext,
+  } = getContext();
 
   logger.newline();
   logger.info('Building Kong Docker image...');
@@ -152,17 +154,7 @@ export async function infraKongBuild(
   const secrets: Record<string, string> = {};
   const missing: string[] = [];
 
-  // AWS: These values come from Terraform output, not Secrets Manager
-  const terraformOutputSecrets =
-    provider === 'aws' ? ['WAKEUP_LAMBDA_URL', 'WAKEUP_SECRET'] : [];
-
   for (const placeholder of placeholders) {
-    // Skip Terraform output secrets - they're fetched separately below
-    if (terraformOutputSecrets.includes(placeholder)) {
-      missing.push(placeholder);
-      continue;
-    }
-
     const value = fetchSecret(placeholder, targetEnv);
     if (value) {
       secrets[placeholder] = value;
@@ -170,53 +162,6 @@ export async function infraKongBuild(
     } else {
       missing.push(placeholder);
       logger.error(`${placeholder} (not found)`);
-    }
-  }
-
-  // For AWS: fetch values from Terraform output (not stored in Secrets Manager)
-  if (provider === 'aws') {
-    const runtime = buildRuntime();
-    const tfEnv = buildAwsTerraformEnv(
-      runtime,
-      ctx.credentials as AWSCredentials,
-    );
-
-    if (missing.includes('WAKEUP_LAMBDA_URL')) {
-      logger.generating('Fetching WAKEUP_LAMBDA_URL from Terraform output...');
-      try {
-        const lambdaUrl = getTerraformOutput(
-          terraformDir,
-          'wakeup_lambda_url',
-          tfEnv,
-        );
-        if (lambdaUrl) {
-          secrets['WAKEUP_LAMBDA_URL'] = lambdaUrl;
-          const idx = missing.indexOf('WAKEUP_LAMBDA_URL');
-          if (idx > -1) missing.splice(idx, 1);
-          logger.success(`WAKEUP_LAMBDA_URL (from Terraform output)`);
-        }
-      } catch {
-        logger.error('WAKEUP_LAMBDA_URL (not in Terraform state)');
-      }
-    }
-
-    if (missing.includes('WAKEUP_SECRET')) {
-      logger.generating('Fetching WAKEUP_SECRET from Terraform output...');
-      try {
-        const wakeupSecret = getTerraformOutput(
-          terraformDir,
-          'wakeup_secret',
-          tfEnv,
-        );
-        if (wakeupSecret) {
-          secrets['WAKEUP_SECRET'] = wakeupSecret;
-          const idx = missing.indexOf('WAKEUP_SECRET');
-          if (idx > -1) missing.splice(idx, 1);
-          logger.success(`WAKEUP_SECRET (from Terraform output)`);
-        }
-      } catch {
-        logger.error('WAKEUP_SECRET (not in Terraform state)');
-      }
     }
   }
 
@@ -260,26 +205,18 @@ export async function infraKongBuild(
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kong-build-'));
 
   try {
-    // Write resolved config
-    const resolvedConfigPath = path.join(tempDir, 'kong.yml');
-    fs.writeFileSync(
-      resolvedConfigPath,
-      yaml.dump(resolvedConfig, { lineWidth: -1 }),
-    );
-
     // Load infrastructure config for Kong settings (maxUploadSize)
     const infraConfig = loadInfrastructureConfig();
     const kongConfig = getKongConfig(infraConfig, targetEnv, provider);
 
-    // Write Dockerfile
-    const dockerfilePath = path.join(tempDir, 'Dockerfile');
-    fs.writeFileSync(
-      dockerfilePath,
-      generateKongDockerfile({
-        provider,
-        maxUploadSize: kongConfig.maxUploadSize,
-      }),
-    );
+    // Write Dockerfile, plugins and the resolved config (baked into the image)
+    const kongPlugins = writeKongBuildContext({
+      projectRoot,
+      contextDir: tempDir,
+      maxUploadSize: kongConfig.maxUploadSize,
+      kongYml: yaml.dump(resolvedConfig, { lineWidth: -1 }),
+    });
+    logger.info(`  KONG_PLUGINS=${kongPlugins.join(',')}`);
 
     logger.success('Build context prepared');
 

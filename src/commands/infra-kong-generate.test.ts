@@ -13,6 +13,7 @@ const mockReadYamlFile = rs.fn();
 const mockEnsureDirectory = rs.fn();
 const mockWriteTextFile = rs.fn();
 const mockReadJsonFile = rs.fn();
+const mockResolveGlobalPrefix = rs.fn();
 
 rs.mock('../context', () => ({
   initContext: rs.fn(),
@@ -28,6 +29,8 @@ rs.mock('../context', () => ({
     ensureDirectory: (...args: unknown[]) => mockEnsureDirectory(...args),
     writeTextFile: (...args: unknown[]) => mockWriteTextFile(...args),
     readJsonFile: (...args: unknown[]) => mockReadJsonFile(...args),
+    resolveGlobalPrefix: (...args: unknown[]) =>
+      mockResolveGlobalPrefix(...args),
   })),
   wrapCommand: rs.fn((fn: unknown) => fn),
 }));
@@ -84,7 +87,7 @@ describe('infraKongGenerate', () => {
     });
     mockParseOpenApiSecurity.mockReturnValue({
       serviceName: 'auth-service',
-      groupedRoutes: { public: ['/health'] },
+      groupedRoutes: { public: ['/health'], jwt: [], partner: [] },
     });
     mockGenerateSecurityBasedServices.mockReturnValue([
       {
@@ -93,6 +96,143 @@ describe('infraKongGenerate', () => {
         routes: [{ paths: ['/auth/health'] }],
       },
     ]);
+    mockResolveGlobalPrefix.mockImplementation(
+      (s: { globalPrefix?: string }) => `resolved-${s.globalPrefix}`,
+    );
+    mocks.buildFrameworkKongConfig.mockImplementation(
+      (services: unknown[]) => ({
+        _format_version: '3.0',
+        _transform: true,
+        services,
+        plugins: [{ name: 'tsdevstack-strip-identity', config: {} }],
+      }),
+    );
+  });
+
+  describe('framework config', () => {
+    it('should build the framework config with the shared builder (same routes and plugins as local)', async () => {
+      await infraKongGenerate({});
+
+      expect(mocks.buildFrameworkKongConfig).toHaveBeenCalledWith([
+        expect.objectContaining({ name: 'auth-service' }),
+        expect.objectContaining({ name: 'auth-service' }),
+      ]);
+      const written = JSON.parse(
+        mockWriteTextFile.mock.calls.at(-1)![1] as string,
+      ) as { plugins: Array<{ name: string }> };
+      expect(written.plugins).toEqual([
+        { name: 'tsdevstack-strip-identity', config: {} },
+      ]);
+    });
+
+    it('should merge kong.user.yml into the framework config and check its request-transformer', async () => {
+      const userConfig = {
+        services: [],
+        plugins: [{ name: 'cors', config: {} }],
+      };
+      mocks.isFile.mockImplementation(
+        (p: string) =>
+          p.includes('package.json') ||
+          p.includes('openapi.json') ||
+          p.endsWith('kong.user.yml'),
+      );
+      mockReadYamlFile.mockReturnValue(userConfig);
+      mockMergeKongConfigs.mockImplementation((a: unknown) => a);
+
+      await infraKongGenerate({});
+
+      expect(mocks.validateRequestTransformerHeaders).toHaveBeenCalledWith(
+        userConfig,
+        'kong.user.yml',
+      );
+      expect(mockMergeKongConfigs).toHaveBeenCalledWith(
+        expect.objectContaining({
+          plugins: [{ name: 'tsdevstack-strip-identity', config: {} }],
+        }),
+        userConfig,
+      );
+    });
+  });
+
+  describe('partner API keys', () => {
+    const userConfig = {
+      services: [],
+      plugins: [{ name: 'rate-limiting', config: { minute: 100 } }],
+    };
+
+    beforeEach(() => {
+      mocks.isFile.mockImplementation(
+        (p: string) =>
+          p.includes('package.json') ||
+          p.includes('openapi.json') ||
+          p.endsWith('kong.user.yml'),
+      );
+      mockReadYamlFile.mockReturnValue(userConfig);
+      mockMergeKongConfigs.mockImplementation((a: unknown) => a);
+      mocks.resolveApiKeyIpLimit.mockReturnValue(120);
+      mocks.buildApiKeyDefaultLimits.mockReturnValue({ minute: 100 });
+    });
+
+    it('should pass default limits from kong.user.yml and the per-IP ceiling to the generator', async () => {
+      mockParseOpenApiSecurity.mockReturnValue({
+        serviceName: 'offers-service',
+        groupedRoutes: {
+          public: [],
+          jwt: [],
+          partner: [{ path: '/offers/v1/plans', method: 'GET' }],
+        },
+      });
+
+      await infraKongGenerate({});
+
+      expect(mocks.buildApiKeyDefaultLimits).toHaveBeenCalledWith(userConfig);
+      expect(mocks.resolveApiKeyIpLimit).toHaveBeenCalled();
+      expect(mockGenerateSecurityBasedServices).toHaveBeenCalledWith(
+        expect.objectContaining({
+          partnerApi: { defaultLimits: { minute: 100 }, ipLimitPerMinute: 120 },
+        }),
+      );
+      // Read before the services are generated
+      expect(mockReadYamlFile.mock.invocationCallOrder[0]).toBeLessThan(
+        mockGenerateSecurityBasedServices.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('should not derive default limits without partner routes', async () => {
+      await infraKongGenerate({});
+
+      expect(mocks.buildApiKeyDefaultLimits).not.toHaveBeenCalled();
+      expect(mockGenerateSecurityBasedServices).toHaveBeenCalledWith(
+        expect.objectContaining({
+          partnerApi: { defaultLimits: {}, ipLimitPerMinute: 120 },
+        }),
+      );
+    });
+
+    it('should warn about static partner consumers in kong.user.yml', async () => {
+      await infraKongGenerate({});
+
+      expect(mocks.warnStaticPartnerConsumers).toHaveBeenCalledWith(
+        userConfig,
+        'kong.user.yml',
+      );
+    });
+  });
+
+  describe('globalPrefix', () => {
+    it('should use the shared resolveGlobalPrefix rule for each service', async () => {
+      await infraKongGenerate({});
+
+      expect(mockResolveGlobalPrefix).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'auth-service' }),
+      );
+      expect(mockGenerateSecurityBasedServices).toHaveBeenCalledWith(
+        expect.objectContaining({
+          serviceName: 'auth-service',
+          globalPrefix: 'resolved-auth',
+        }),
+      );
+    });
   });
 
   describe('context setup', () => {
@@ -130,6 +270,14 @@ describe('infraKongGenerate', () => {
       expect(mockWriteTextFile).toHaveBeenCalled();
       expect(mocks.logger.warn).toHaveBeenCalledWith(
         expect.stringContaining('kong.custom.yml detected'),
+      );
+      expect(mocks.validateStripIdentityPlugin).toHaveBeenCalledWith(
+        { _format_version: '3.0', services: [] },
+        'kong.custom.yml',
+      );
+      expect(mocks.validateRequestTransformerHeaders).toHaveBeenCalledWith(
+        { _format_version: '3.0', services: [] },
+        'kong.custom.yml',
       );
     });
   });

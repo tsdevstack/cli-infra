@@ -56,7 +56,11 @@ export async function syncTerraformState(
   try {
     // Initialize Terraform (required in CI where .terraform doesn't exist)
     logger.info('  Running terraform init...');
-    await runTerraform(['init', '-input=false'], terraformDir, tfVars);
+    await runTerraform(
+      ['init', '-input=false', '-reconfigure'],
+      terraformDir,
+      tfVars,
+    );
 
     // Plan refresh-only
     logger.info('  Running terraform plan -refresh-only...');

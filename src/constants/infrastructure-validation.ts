@@ -44,6 +44,7 @@ export const VALID_DATABASE_FIELDS = [
   'ha',
   'backup',
   'migrationJob',
+  'serverName',
 ] as const;
 
 /**
@@ -75,15 +76,17 @@ export const VALID_LOADBALANCER_FIELDS = [
 ] as const;
 
 /**
- * Valid field names in ScheduledJobConfig
- */
-/**
  * Valid field names in AccessControlOverride
  */
-export const VALID_ACCESS_CONTROL_FIELDS = [
+export const VALID_ACCESS_CONTROL_FIELDS = ['noIndex'] as const;
+
+/**
+ * Removed field names in AccessControlOverride (environment password
+ * protection was removed). Configs that still set them fail validation.
+ */
+export const REMOVED_ACCESS_CONTROL_FIELDS = [
   'protected',
   'cookieTtlHours',
-  'noIndex',
 ] as const;
 
 /**

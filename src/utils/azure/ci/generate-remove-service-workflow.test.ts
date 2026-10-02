@@ -64,6 +64,14 @@ describe('generateRemoveServiceWorkflow', () => {
     expect(result).toContain('--confirm');
   });
 
+  it('should point to existing Kong commands in the summary', () => {
+    const result = generateRemoveServiceWorkflow(createConfig(['dev']));
+    expect(result).toContain('infra:generate-kong');
+    expect(result).toContain('infra:build-kong');
+    expect(result).toContain('infra:deploy-kong');
+    expect(result).not.toContain('infra:kong-deploy');
+  });
+
   it('should include GitHub Step Summary', () => {
     const result = generateRemoveServiceWorkflow(createConfig(['dev']));
     expect(result).toContain('GITHUB_STEP_SUMMARY');

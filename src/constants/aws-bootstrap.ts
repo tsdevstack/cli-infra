@@ -93,7 +93,7 @@ export const AWS_REQUIRED_ACTIONS = [
   'acm:DescribeCertificate',
   'acm:DeleteCertificate',
 
-  // Lambda - for wake-up and job invoker
+  // Lambda - for the scheduled job invoker
   'lambda:CreateFunction',
   'lambda:UpdateFunctionCode',
   'lambda:InvokeFunction',
@@ -110,14 +110,11 @@ export const AWS_REQUIRED_ACTIONS = [
   'scheduler:UpdateSchedule',
   'scheduler:DeleteSchedule',
 
-  // CloudWatch - for logs and metric alarms (scale-to-zero)
+  // CloudWatch - for logs
   'logs:CreateLogGroup',
   'logs:CreateLogStream',
   'logs:PutLogEvents',
   'logs:GetLogEvents',
-  'cloudwatch:PutMetricAlarm',
-  'cloudwatch:DescribeAlarms',
-  'cloudwatch:ListTagsForResource',
 
   // IAM - for service roles
   'iam:CreateRole',
@@ -125,7 +122,7 @@ export const AWS_REQUIRED_ACTIONS = [
   'iam:PassRole',
   'iam:GetRole',
 
-  // Application Auto Scaling - for ECS scale-to-zero
+  // Application Auto Scaling - for ECS worker and Next.js CPU scaling
   'application-autoscaling:RegisterScalableTarget',
   'application-autoscaling:PutScalingPolicy',
   'application-autoscaling:DescribeScalableTargets',

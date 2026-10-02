@@ -52,7 +52,6 @@ describe('awsListDeployed', () => {
           imageUri: 'ecr/auth-service:abc123',
           resources: {
             ecsService: true,
-            appRunnerService: false,
             spaBucket: false,
             runningCount: 1,
             desiredCount: 1,
@@ -105,7 +104,6 @@ describe('awsListDeployed', () => {
           imageUri: 'ecr/auth:latest',
           resources: {
             ecsService: true,
-            appRunnerService: false,
             spaBucket: false,
           },
         },
@@ -115,8 +113,7 @@ describe('awsListDeployed', () => {
           status: 'RUNNING',
           imageUri: 'ecr/frontend:latest',
           resources: {
-            ecsService: false,
-            appRunnerService: true,
+            ecsService: true,
             spaBucket: false,
           },
         },

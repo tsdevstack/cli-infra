@@ -11,11 +11,13 @@ import { execSync } from 'node:child_process';
 import { getContext } from '../context';
 import { toServiceEnvVarName } from '@tsdevstack/infra-core';
 import { setupInfraCommand } from '../utils/setup/setup-infra-command';
-import { addAwsUpstreamsToKongConfig } from '../utils/kong/aws/add-aws-upstreams-to-kong-config';
+import { addAwsHealthToKongConfig } from '../utils/kong/aws/add-aws-health-to-kong-config';
 import { addRedisTlsToKongConfig } from '../utils/kong/add-redis-tls-to-kong-config';
 import { addAzureHealthToKongConfig } from '../utils/kong/azure/add-azure-health-to-kong-config';
+import { extractPlaceholders } from '../utils/kong/extract-placeholders';
 import type {
   KongTemplate,
+  PartnerApiSettings,
   ServiceRouteConfig,
   ParsedServiceSecurity,
 } from '@tsdevstack/cli/plugin';
@@ -43,6 +45,13 @@ export async function infraKongGenerate(
     readJsonFile,
     ensureDirectory,
     writeTextFile,
+    resolveGlobalPrefix,
+    buildFrameworkKongConfig,
+    validateRequestTransformerHeaders,
+    validateStripIdentityPlugin,
+    resolveApiKeyIpLimit,
+    buildApiKeyDefaultLimits,
+    warnStaticPartnerConsumers,
   } = getContext();
 
   logger.newline();
@@ -69,6 +78,8 @@ export async function infraKongGenerate(
     logger.newline();
 
     const customConfig = readYamlFile<KongTemplate>(customConfigPath);
+    validateStripIdentityPlugin(customConfig, 'kong.custom.yml');
+    validateRequestTransformerHeaders(customConfig, 'kong.custom.yml');
     const outputPath = path.join(outputDir, 'kong.yml');
     writeTextFile(outputPath, yaml.dump(customConfig, { lineWidth: -1 }));
 
@@ -77,6 +88,7 @@ export async function infraKongGenerate(
     logger.info(`Output: ${outputPath}`);
     logger.newline();
     logger.info('Next steps:');
+    logger.info('  npx tsdevstack infra:build-kong --env ' + targetEnv);
     logger.info('  npx tsdevstack infra:deploy-kong --env ' + targetEnv);
     logger.newline();
     return;
@@ -187,6 +199,26 @@ export async function infraKongGenerate(
   }
 
   logger.newline();
+
+  // kong.user.yml is read before the services are generated: the partner
+  // services' API key default limits come from its global rate-limiting
+  const userConfigPath = path.join(projectRoot, 'kong.user.yml');
+  const userConfig = isFile(userConfigPath)
+    ? readYamlFile<KongTemplate>(userConfigPath)
+    : undefined;
+  if (userConfig) {
+    validateRequestTransformerHeaders(userConfig, 'kong.user.yml');
+    warnStaticPartnerConsumers(userConfig, 'kong.user.yml');
+  }
+
+  const hasPartnerRoutes = parsedServices.some(
+    (parsed) => parsed.groupedRoutes.partner.length > 0,
+  );
+  const partnerApi: PartnerApiSettings = {
+    defaultLimits: hasPartnerRoutes ? buildApiKeyDefaultLimits(userConfig) : {},
+    ipLimitPerMinute: resolveApiKeyIpLimit(config),
+  };
+
   logger.generating('Generating Kong services...');
 
   // Generate Kong services for each parsed service
@@ -204,9 +236,9 @@ export async function infraKongGenerate(
     const serviceRouteConfig: ServiceRouteConfig = {
       serviceName: service.name,
       serviceUrl: serviceEnvVar,
-      globalPrefix:
-        service.globalPrefix || service.name.replace('-service', ''),
+      globalPrefix: resolveGlobalPrefix(service),
       groupedRoutes: parsed.groupedRoutes,
+      partnerApi,
       ...(useAuthTemplate && authService
         ? {
             authServiceUrl: `\${${toServiceEnvVarName(authService.name)}_URL}`,
@@ -229,21 +261,15 @@ export async function infraKongGenerate(
     );
   }
 
-  // Build framework config
-  const frameworkConfig: KongTemplate = {
-    _format_version: '3.0',
-    _transform: true,
-    services: allServices,
-    consumers: [], // Will be added from user config or cloud secrets
-  };
+  // Build framework config (same services and framework global plugins as
+  // the local generate-kong)
+  const frameworkConfig = buildFrameworkKongConfig(allServices);
 
-  // Check for user config (kong.user.yml in project root)
-  const userConfigPath = path.join(projectRoot, 'kong.user.yml');
+  // Merge the user config (kong.user.yml in project root)
   let finalConfig: KongTemplate = frameworkConfig;
 
-  if (isFile(userConfigPath)) {
+  if (userConfig) {
     logger.info('  Merging with kong.user.yml...');
-    const userConfig = readYamlFile<KongTemplate>(userConfigPath);
     finalConfig = mergeKongConfigs(frameworkConfig, userConfig);
   } else {
     logger.warn(
@@ -252,13 +278,13 @@ export async function infraKongGenerate(
     logger.warn("    Run 'npx tsdevstack generate-kong' to create it.");
   }
 
-  // AWS: Add upstreams with failover targets for scale-to-zero support
-  // AWS: Add Redis TLS for ElastiCache transit encryption
+  // AWS: Add health check route for the ALB target group health check
+  // AWS: Add Redis TLS for ElastiCache transit encryption (global limiter,
+  // per-IP ceiling and API key plugin)
+  // Service URLs stay placeholders, resolved at build time to Cloud Map URLs
   if (ctx.provider === 'aws') {
-    logger.info('  Adding AWS upstreams with failover targets...');
-    finalConfig = addAwsUpstreamsToKongConfig(finalConfig, {
-      projectName: config.project.name,
-    });
+    logger.info('  Adding AWS health check route...');
+    finalConfig = addAwsHealthToKongConfig(finalConfig);
 
     logger.info('  Adding Redis TLS for ElastiCache...');
     finalConfig = addRedisTlsToKongConfig(finalConfig);
@@ -283,19 +309,15 @@ export async function infraKongGenerate(
   logger.newline();
   logger.info(`Output: ${outputPath}`);
   logger.newline();
-  logger.info('Placeholders used (resolve from cloud secrets):');
-  const placeholders = new Set<string>();
-  for (const service of nestjsServices) {
-    placeholders.add(`  \${${toServiceEnvVarName(service.name)}_URL}`);
+  logger.info(
+    'Placeholders used (resolved from cloud secrets by infra:build-kong):',
+  );
+  for (const placeholder of extractPlaceholders(finalConfig).sort()) {
+    logger.info(`  \${${placeholder}}`);
   }
-  if (!useAuthTemplate) {
-    placeholders.add('  ${OIDC_DISCOVERY_URL}');
-  }
-  Array.from(placeholders).forEach((ph) => {
-    logger.info(ph);
-  });
   logger.newline();
   logger.info('Next steps:');
+  logger.info('  npx tsdevstack infra:build-kong --env ' + targetEnv);
   logger.info('  npx tsdevstack infra:deploy-kong --env ' + targetEnv);
   logger.newline();
 }

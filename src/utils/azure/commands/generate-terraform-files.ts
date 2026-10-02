@@ -21,6 +21,7 @@ import {
   getAppServiceConfig,
 } from '../../infrastructure/merge-with-defaults';
 import type { SecurityOverride } from '../../infrastructure/types';
+import { resolvePostgresServerName } from '../resolve-postgres-server-name';
 import type { AzureCommandContext } from './types';
 
 interface GenerateOptions {
@@ -58,6 +59,11 @@ export function generateTerraformFiles(
   const databaseConfig = getDatabaseConfig(infraConfig, ctx.targetEnv, 'azure');
   const redisConfig = getRedisConfig(infraConfig, ctx.targetEnv, 'azure');
   const appServiceConfig = getAppServiceConfig(infraConfig, ctx.targetEnv);
+  const postgresServerName = resolvePostgresServerName(
+    projectName,
+    ctx.targetEnv,
+    infraConfig,
+  );
 
   const outputDir = path.join(
     ctx.projectRoot,
@@ -181,6 +187,10 @@ export function generateTerraformFiles(
       storageSizeGb: databaseConfig.diskSize,
       deletionProtection: getDeleteProtection(infraConfig, ctx.targetEnv),
       backup: databaseConfig.backup,
+      // Only pass an override: the default name stays a Terraform expression
+      ...(postgresServerName.isOverride
+        ? { serverName: postgresServerName.name }
+        : {}),
     },
     redis: { tier: redisConfig.tier },
     servicesWithDatabase,

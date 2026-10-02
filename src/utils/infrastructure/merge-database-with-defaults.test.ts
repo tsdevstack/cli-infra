@@ -228,6 +228,30 @@ describe('mergeDatabaseWithDefaults', () => {
     });
   });
 
+  describe('serverName override', () => {
+    it('should leave serverName out when not set', () => {
+      const result = mergeDatabaseWithDefaults(
+        { tier: 'B_Standard_B2s' },
+        'azure',
+      );
+      expect('serverName' in result).toBe(false);
+    });
+
+    it('should leave serverName out when override is undefined', () => {
+      const result = mergeDatabaseWithDefaults(undefined, 'azure');
+      expect('serverName' in result).toBe(false);
+    });
+
+    it('should pass serverName through when set', () => {
+      const result = mergeDatabaseWithDefaults(
+        { serverName: 'myapp-dev-postgres-2' },
+        'azure',
+      );
+      expect(result.serverName).toBe('myapp-dev-postgres-2');
+      expect(result.tier).toBe(DATABASE_DEFAULTS_AZURE.tier);
+    });
+  });
+
   describe('provider-specific defaults differ', () => {
     it('should have different default tiers for GCP vs AWS vs Azure', () => {
       const gcpResult = mergeDatabaseWithDefaults(undefined, 'gcp');

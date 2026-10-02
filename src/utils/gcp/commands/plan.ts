@@ -101,6 +101,7 @@ export async function gcpPlan(ctx: GCPCommandContext): Promise<void> {
   const initResult = await executeTerraform('init', {
     workDir: outputDir,
     env: tfEnv,
+    reconfigure: true,
   });
 
   if (!initResult.success) {

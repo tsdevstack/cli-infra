@@ -184,6 +184,46 @@ describe('validateInfrastructureConfig', () => {
         }),
       ).not.toThrow();
     });
+
+    it('should accept accessControl with noIndex', () => {
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          staging: {
+            accessControl: { noIndex: true },
+          },
+        }),
+      ).not.toThrow();
+    });
+
+    it('should reject accessControl.protected with a removal hint', () => {
+      let caught: unknown;
+      try {
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          staging: {
+            accessControl: { protected: true, noIndex: true },
+          },
+        } as unknown as InfrastructureConfig);
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBeInstanceOf(mocks.CliError);
+      expect((caught as { hint?: string }).hint).toContain(
+        'password protection was removed',
+      );
+    });
+
+    it('should reject accessControl.cookieTtlHours', () => {
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          staging: {
+            accessControl: { cookieTtlHours: 24 },
+          },
+        } as unknown as InfrastructureConfig),
+      ).toThrow(mocks.CliError);
+    });
   });
 
   describe('mixed services and reserved keys', () => {
@@ -298,6 +338,201 @@ describe('validateInfrastructureConfig', () => {
             'auth-service': { cpu: '8', memory: '256Mi' },
           },
         }),
+      ).not.toThrow();
+    });
+  });
+
+  describe('minInstances 0 (scale-to-zero) per provider', () => {
+    const useProvider = (provider: 'gcp' | 'aws' | 'azure'): void => {
+      mocks.loadFrameworkConfig.mockReturnValue({
+        project: { name: 'test-project' },
+        cloud: { provider },
+        services: [
+          { name: 'auth-service', type: 'nestjs' },
+          { name: 'frontend', type: 'nextjs' },
+          { name: 'react-app', type: 'spa' },
+          { name: 'auth-worker', type: 'worker' },
+        ],
+      });
+    };
+
+    it('should reject minInstances 0 for a service on AWS', () => {
+      useProvider('aws');
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { 'auth-service': { minInstances: 0 } },
+        }),
+      ).toThrow('minInstances: 0 is not supported on AWS (dev.auth-service)');
+    });
+
+    it('should include a hint to set 1 or more on AWS', () => {
+      useProvider('aws');
+      try {
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { 'auth-service': { minInstances: 0 } },
+        });
+        expect.fail('Should have thrown');
+      } catch (error) {
+        expect(error).toBeInstanceOf(mocks.CliError);
+        expect((error as InstanceType<typeof mocks.CliError>).hint).toContain(
+          '1 or more',
+        );
+      }
+    });
+
+    it('should reject minInstances 0 for a Next.js service on AWS', () => {
+      useProvider('aws');
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { frontend: { minInstances: 0 } },
+        }),
+      ).toThrow(mocks.CliError);
+    });
+
+    it('should reject minInstances 0 for a worker on AWS', () => {
+      useProvider('aws');
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { 'auth-worker': { minInstances: 0 } },
+        }),
+      ).toThrow(mocks.CliError);
+    });
+
+    it('should reject minInstances 0 for Kong on AWS', () => {
+      useProvider('aws');
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          staging: { kong: { minInstances: 0 } },
+        } as unknown as InfrastructureConfig),
+      ).toThrow('minInstances: 0 is not supported on AWS (staging.kong)');
+    });
+
+    it('should accept minInstances 1 for services and Kong on AWS', () => {
+      useProvider('aws');
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: {
+            'auth-service': { minInstances: 1 },
+            frontend: { minInstances: 2 },
+            kong: { minInstances: 1 },
+          },
+        } as unknown as InfrastructureConfig),
+      ).not.toThrow();
+    });
+
+    it('should ignore minInstances on SPA services on AWS (served from S3)', () => {
+      useProvider('aws');
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { 'react-app': { minInstances: 0 } },
+        }),
+      ).not.toThrow();
+    });
+
+    it('should allow minInstances 0 for services and Kong on GCP', () => {
+      useProvider('gcp');
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: {
+            'auth-service': { minInstances: 0 },
+            frontend: { minInstances: 0 },
+            kong: { minInstances: 0 },
+          },
+        } as unknown as InfrastructureConfig),
+      ).not.toThrow();
+    });
+
+    it('should allow minInstances 0 for services and Kong on Azure', () => {
+      useProvider('azure');
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: {
+            'auth-service': { minInstances: 0 },
+            frontend: { minInstances: 0 },
+            kong: { minInstances: 0 },
+          },
+        } as unknown as InfrastructureConfig),
+      ).not.toThrow();
+    });
+  });
+
+  describe('database.serverName per provider', () => {
+    const useProvider = (provider: 'gcp' | 'aws' | 'azure'): void => {
+      mocks.loadFrameworkConfig.mockReturnValue({
+        project: { name: 'test-project' },
+        cloud: { provider },
+        services: [{ name: 'auth-service', type: 'nestjs' }],
+      });
+    };
+
+    it('should accept a valid serverName on Azure', () => {
+      useProvider('azure');
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { database: { serverName: 'myapp-dev-postgres-2' } },
+        }),
+      ).not.toThrow();
+    });
+
+    it('should accept a database block without serverName on every provider', () => {
+      for (const provider of ['gcp', 'aws', 'azure'] as const) {
+        useProvider(provider);
+        expect(() =>
+          validateInfrastructureConfig({
+            version: '1.0.0',
+            dev: { database: { deletionProtection: false } },
+          } as unknown as InfrastructureConfig),
+        ).not.toThrow();
+      }
+    });
+
+    it('should reject serverName on GCP', () => {
+      useProvider('gcp');
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { database: { serverName: 'myapp-dev-postgres' } },
+        }),
+      ).toThrow('"database.serverName" is not supported on GCP');
+    });
+
+    it('should reject serverName on AWS', () => {
+      useProvider('aws');
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          prod: { database: { serverName: 'myapp-prod-postgres' } },
+        }),
+      ).toThrow('"database.serverName" is not supported on AWS');
+    });
+
+    it('should reject an invalid serverName on Azure', () => {
+      useProvider('azure');
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { database: { serverName: 'MyApp_Postgres' } },
+        }),
+      ).toThrow(mocks.CliError);
+    });
+
+    it('should not crash on a null database block', () => {
+      useProvider('azure');
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { database: null },
+        } as unknown as InfrastructureConfig),
       ).not.toThrow();
     });
   });

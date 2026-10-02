@@ -15,7 +15,7 @@ import {
   type AWSInfraConfig,
 } from '@tsdevstack/infra-core';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
-import { enforceKongMinInstances } from '../../infrastructure/enforce-kong-min-instances';
+import { validateAwsMinInstances } from '../infrastructure/validate-aws-min-instances';
 import {
   getServiceConfig,
   getKongConfig,
@@ -113,8 +113,7 @@ export function generateTerraformFiles(
 
   // Get environment config
   const envConfig = infraConfig?.[ctx.targetEnv] as
-    | EnvironmentOverrides
-    | undefined;
+    EnvironmentOverrides | undefined;
 
   // Get DOMAIN from secrets
   // DOMAIN secret is the base domain (e.g., "createdevstack.app")
@@ -155,8 +154,8 @@ export function generateTerraformFiles(
 
   // Build services map (nestjs services only + kong)
   // Use FARGATE_DEFAULT (smallest/cheapest) unless user overrides in infrastructure.json
-  // Default minInstances is 1 (from INFRASTRUCTURE_DEFAULTS) - user sets 0 for scale-to-zero
-  // Note: nextjs services go to App Runner, not ECS
+  // Default minInstances is 1 (from INFRASTRUCTURE_DEFAULTS_AWS); 0 is rejected (no scale-to-zero on AWS)
+  // Note: nextjs services are handled separately (nextjs_services map below)
   const services: AWSInfraConfig['services'] = {};
   frameworkConfig.services
     .filter(
@@ -169,9 +168,12 @@ export function generateTerraformFiles(
         ctx.targetEnv,
         'aws',
       );
+      validateAwsMinInstances(
+        resolved.minInstances,
+        `${ctx.targetEnv}.${s.name}`,
+      );
       const serviceOverride = envConfig?.[s.name] as
-        | ServiceOverride
-        | undefined;
+        ServiceOverride | undefined;
       const hasCpuMemoryOverride =
         serviceOverride?.cpu !== undefined ||
         serviceOverride?.memory !== undefined;
@@ -202,10 +204,8 @@ export function generateTerraformFiles(
   const kongOverride = envConfig?.kong as KongOverride | undefined;
   const kongHasOverride =
     kongOverride?.cpu !== undefined || kongOverride?.memory !== undefined;
-  const kongMinInstances = enforceKongMinInstances(
-    kongResolved.minInstances,
-    logger,
-  );
+  validateAwsMinInstances(kongResolved.minInstances, `${ctx.targetEnv}.kong`);
+  const kongMinInstances = kongResolved.minInstances;
 
   if (kongHasOverride) {
     services['kong'] = {
@@ -242,7 +242,11 @@ export function generateTerraformFiles(
         workerOverride?.memory !== undefined;
 
       // Workers must always have at least 1 instance (they poll Redis)
-      const workerMinInstances = Math.max(1, resolved.minInstances);
+      validateAwsMinInstances(
+        resolved.minInstances,
+        `${ctx.targetEnv}.${s.name}`,
+      );
+      const workerMinInstances = resolved.minInstances;
 
       if (hasWorkerOverride) {
         workers[s.name] = {
@@ -282,14 +286,13 @@ export function generateTerraformFiles(
     .forEach((s) => {
       // Get domain from service override if set
       const serviceOverride = envConfig?.[s.name] as
-        | { domain?: string }
-        | undefined;
+        { domain?: string } | undefined;
       spas[s.name] = {
         domain: serviceOverride?.domain ?? `${s.name}.${baseDomain}`,
       };
     });
 
-  // Build Next.js services map (App Runner + CloudFront)
+  // Build Next.js services map (ECS Fargate + CloudFront)
   const frontends: AWSInfraConfig['frontends'] = {};
   frameworkConfig.services
     .filter((s) => s.type === 'nextjs')
@@ -301,8 +304,11 @@ export function generateTerraformFiles(
         'aws',
       );
       const serviceOverride = envConfig?.[s.name] as
-        | { domain?: string; cpu?: string; memory?: string }
-        | undefined;
+        { domain?: string; cpu?: string; memory?: string } | undefined;
+      validateAwsMinInstances(
+        resolved.minInstances,
+        `${ctx.targetEnv}.${s.name}`,
+      );
       const hasCpuMemoryOverride =
         serviceOverride?.cpu !== undefined ||
         serviceOverride?.memory !== undefined;
@@ -320,8 +326,8 @@ export function generateTerraformFiles(
           maxInstances: resolved.maxInstances,
         };
       } else {
-        // App Runner uses different defaults than Fargate
-        // 256 CPU = 0.25 vCPU, 512 MB memory (smallest App Runner config)
+        // Next.js uses smaller defaults than the other Fargate services
+        // 256 CPU = 0.25 vCPU, 512 MB memory (smallest Fargate config)
         frontends[s.name] = {
           domain: serviceDomain,
           cpu: 256,
@@ -477,17 +483,10 @@ export function generateTerraformFiles(
   writeTextFile(path.join(outputDir, 'route53.tf'), aws.generateRoute53Tf());
   logFile('route53.tf');
 
-  writeTextFile(
-    path.join(outputDir, 'wakeup-lambda.tf'),
-    aws.generateWakeupLambdaTf(),
-  );
-  logFile('wakeup-lambda.tf');
-
   // Response headers policy (security headers + optional noIndex)
   // Must come before CloudFront distributions that reference it
   const accessControlConfig = envConfig?.accessControl as
-    | AccessControlOverride
-    | undefined;
+    AccessControlOverride | undefined;
   writeTextFile(
     path.join(outputDir, 'response-headers-policy.tf'),
     aws.generateResponseHeadersPolicyTf({
@@ -513,8 +512,7 @@ export function generateTerraformFiles(
 
   // Redirect domains (e.g., old domain → canonical domain via 301)
   const loadBalancerConfig = envConfig?.loadBalancer as
-    | LoadBalancerOverride
-    | undefined;
+    LoadBalancerOverride | undefined;
   const redirectDomains = loadBalancerConfig?.redirectDomains ?? [];
   if (redirectDomains.length > 0) {
     writeTextFile(
@@ -533,21 +531,7 @@ export function generateTerraformFiles(
   );
   logFile('eventbridge.tf');
 
-  writeTextFile(
-    path.join(outputDir, 'scale-down.tf'),
-    aws.generateScaleDownTf(),
-  );
-  logFile('scale-down.tf');
-
   // Generate Lambda code directories
-  const wakeupLambdaDir = path.join(outputDir, 'lambda', 'wakeup');
-  ensureDirectory(wakeupLambdaDir);
-  writeTextFile(
-    path.join(wakeupLambdaDir, 'index.js'),
-    aws.generateWakeupLambdaCode(),
-  );
-  logFile('lambda/wakeup/index.js');
-
   const jobInvokerLambdaDir = path.join(outputDir, 'lambda', 'job-invoker');
   ensureDirectory(jobInvokerLambdaDir);
   writeTextFile(

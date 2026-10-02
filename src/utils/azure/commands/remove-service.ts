@@ -271,7 +271,13 @@ export async function azureRemoveService(
       `  3. npx tsdevstack sync                                  # regenerates files`,
     );
     logger.info(
-      `  4. npx tsdevstack infra:deploy-kong --env ${targetEnv}  # updates Kong routes`,
+      `  4. npx tsdevstack infra:generate-kong --env ${targetEnv}  # regenerates Kong routes`,
+    );
+    logger.info(
+      `  5. npx tsdevstack infra:build-kong --env ${targetEnv}     # rebuilds the Kong image`,
+    );
+    logger.info(
+      `  6. npx tsdevstack infra:deploy-kong --env ${targetEnv}    # deploys the new Kong image`,
     );
     logger.newline();
 

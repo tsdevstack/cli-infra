@@ -79,6 +79,11 @@ export interface DatabaseOverride {
   ha?: boolean;
   backup?: boolean;
   migrationJob?: MigrationJobConfig;
+  /**
+   * PostgreSQL Flexible Server name override (Azure only).
+   * Default: {project}-{environment}-postgres. The name is a global DNS name in Azure.
+   */
+  serverName?: string;
 }
 
 /**
@@ -271,15 +276,9 @@ export interface SecurityOverride {
 /**
  * Access control configuration
  *
- * Controls environment-level access restrictions:
- * - `protected`: Password-protect the environment (GCP only — SPA limitation on AWS)
  * - `noIndex`: Add X-Robots-Tag header to prevent search engine indexing
  */
 export interface AccessControlOverride {
-  /** Enable password protection (GCP only) */
-  protected?: boolean;
-  /** Cookie validity in hours (default: 24, max: 168/1 week) */
-  cookieTtlHours?: number;
   /** Add X-Robots-Tag: noindex, nofollow header to prevent search engine indexing */
   noIndex?: boolean;
 }
@@ -366,6 +365,11 @@ export interface ResolvedDatabaseConfig {
   deletionProtection: boolean;
   ha: boolean;
   backup: boolean;
+  /**
+   * Server name override (Azure only). No default here: when absent, the
+   * provider derives the name from project and environment.
+   */
+  serverName?: string;
 }
 
 /**

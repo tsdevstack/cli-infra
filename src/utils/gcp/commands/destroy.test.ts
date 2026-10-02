@@ -105,7 +105,7 @@ describe('gcpDestroy', () => {
 
       expect(mockExecuteTerraform).toHaveBeenCalledWith(
         'init',
-        expect.any(Object),
+        expect.objectContaining({ reconfigure: true }),
       );
     });
 

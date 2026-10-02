@@ -78,7 +78,7 @@ COPY --chown=node:node --from=build /app/apps/${serviceName}/.next/static ./apps
 COPY --chown=node:node --from=build /app/apps/${serviceName}/public ./apps/${serviceName}/public
 
 EXPOSE 8080
-# Use shell form to override HOSTNAME (App Runner sets it to EC2 internal hostname)
+# Use shell form to override HOSTNAME (container runtimes set it to the container hostname, which Next.js would bind to)
 CMD ["dumb-init", "sh", "-c", "HOSTNAME=0.0.0.0 exec node apps/${serviceName}/server.js"]
 `;
 }

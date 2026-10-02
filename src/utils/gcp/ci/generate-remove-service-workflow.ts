@@ -154,9 +154,11 @@ ${envBlock}    steps:
             echo "   npx tsdevstack remove-service \${{ inputs.service_name }}" >> \$GITHUB_STEP_SUMMARY
             echo "   \\\`\\\`\\\`" >> \$GITHUB_STEP_SUMMARY
             echo "3. Commit the config.json changes" >> \$GITHUB_STEP_SUMMARY
-            echo "4. Redeploy Kong to update routes:" >> \$GITHUB_STEP_SUMMARY
+            echo "4. Regenerate, rebuild and redeploy Kong to update routes:" >> \$GITHUB_STEP_SUMMARY
             echo "   \\\`\\\`\\\`" >> \$GITHUB_STEP_SUMMARY
-            echo "   npx tsdevstack infra:kong-deploy --env \${{ inputs.environment }}" >> \$GITHUB_STEP_SUMMARY
+            echo "   npx tsdevstack infra:generate-kong --env \${{ inputs.environment }}" >> \$GITHUB_STEP_SUMMARY
+            echo "   npx tsdevstack infra:build-kong --env \${{ inputs.environment }}" >> \$GITHUB_STEP_SUMMARY
+            echo "   npx tsdevstack infra:deploy-kong --env \${{ inputs.environment }}" >> \$GITHUB_STEP_SUMMARY
             echo "   \\\`\\\`\\\`" >> \$GITHUB_STEP_SUMMARY
           fi
 `;

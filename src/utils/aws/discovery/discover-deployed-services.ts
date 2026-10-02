@@ -76,7 +76,6 @@ export async function discoverDeployedServices(
       imageUri: service.imageUri,
       resources: {
         ecsService: true,
-        appRunnerService: false,
         spaBucket: false,
         runningCount: service.runningCount,
         desiredCount: service.desiredCount,
@@ -92,7 +91,6 @@ export async function discoverDeployedServices(
       status: 'DEPLOYED',
       resources: {
         ecsService: false,
-        appRunnerService: false,
         spaBucket: true,
       },
     });

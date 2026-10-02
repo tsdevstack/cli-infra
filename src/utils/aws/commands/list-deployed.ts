@@ -21,7 +21,6 @@ interface AwsListDeployedParams {
  */
 function formatAwsResources(resources: {
   ecsService?: boolean;
-  appRunnerService?: boolean;
   spaBucket: boolean;
   runningCount?: number;
   desiredCount?: number;
@@ -32,9 +31,6 @@ function formatAwsResources(resources: {
     parts.push(
       `ECS (${resources.runningCount ?? 0}/${resources.desiredCount ?? 0})`,
     );
-  }
-  if (resources.appRunnerService) {
-    parts.push('App Runner');
   }
   if (resources.spaBucket) {
     parts.push('S3 + CloudFront');

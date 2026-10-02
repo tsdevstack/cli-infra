@@ -6,7 +6,7 @@
  * not the ingress port. This adds a /status route on the proxy port
  * using request-termination plugin to return 200 without hitting any upstream.
  *
- * Same pattern as AWS health check in add-aws-upstreams-to-kong-config.ts.
+ * Same pattern as the AWS health check in add-aws-health-to-kong-config.ts.
  */
 
 import type { KongTemplate } from '@tsdevstack/cli/plugin';

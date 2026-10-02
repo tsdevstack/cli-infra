@@ -105,6 +105,7 @@ export async function azureDestroy(
   const initResult = await executeTerraform('init', {
     workDir: outputDir,
     env: tfEnv,
+    reconfigure: true,
   });
 
   if (!initResult.success) {

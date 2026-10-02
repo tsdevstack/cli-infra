@@ -102,7 +102,10 @@ describe('generateRemoveServiceWorkflow', () => {
   it('should include next steps in summary', () => {
     const result = generateRemoveServiceWorkflow(createConfig(['dev']));
     expect(result).toContain('npx tsdevstack remove-service');
-    expect(result).toContain('infra:kong-deploy');
+    expect(result).toContain('infra:generate-kong');
+    expect(result).toContain('infra:build-kong');
+    expect(result).toContain('infra:deploy-kong');
+    expect(result).not.toContain('infra:kong-deploy');
   });
 
   describe('user mode (default)', () => {

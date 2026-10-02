@@ -5,7 +5,7 @@
  * 1. State backend (S3 + DynamoDB)
  * 2. Base infrastructure (VPC, RDS, Redis, IAM, ECR, CloudFront)
  * 3. NestJS services to ECS (if not --infra-only)
- * 4. Next.js services to App Runner (if not --infra-only)
+ * 4. Next.js services to ECS (if not --infra-only)
  * 5. Kong Gateway (if not --infra-only)
  * 6. SPA services to S3 (if not --infra-only)
  *
@@ -345,17 +345,6 @@ export async function awsDeploy(
     setSecretViaCli('REDIS_TLS', 'true', ctx.targetEnv);
     logger.success('  ✓ REDIS_TLS');
 
-    // Note: WAKEUP_LAMBDA_URL is set directly in ECS task definition env var
-
-    // Sync ALB internal DNS for Kong upstream routing
-    const albInternalDns = getTerraformOutput(
-      outputDir,
-      'alb_internal_dns',
-      tfEnv,
-    );
-    setSecretViaCli('ALB_INTERNAL_DNS', albInternalDns, ctx.targetEnv);
-    logger.success('  ✓ ALB_INTERNAL_DNS');
-
     // KONG_INTERNAL_URL for Next.js SSR calls to Kong
     // Uses the public API URL (through CloudFront) because the ALB's internal DNS
     // doesn't match the ACM certificate, causing TLS verification failures in Node.js.
@@ -374,9 +363,6 @@ export async function awsDeploy(
     logger.info('Run manually:');
     logger.info(`  terraform -chdir="${outputDir}" output -raw redis_host`);
     logger.info(`  terraform -chdir="${outputDir}" output -raw redis_port`);
-    logger.info(
-      `  terraform -chdir="${outputDir}" output -raw alb_internal_dns`,
-    );
     logger.info('Then set each with:');
     logger.info(
       `  npx tsdevstack cloud-secrets:set <KEY> --value <value> --env ${ctx.targetEnv} --overwrite`,

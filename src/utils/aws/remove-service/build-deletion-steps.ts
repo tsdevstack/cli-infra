@@ -4,7 +4,7 @@
  * Build deletion steps based on discovered resources.
  *
  * Order is critical:
- * 1. ECS Service / App Runner (stop traffic)
+ * 1. ECS Service (stop traffic)
  * 2. Cloud Map service instance
  * 3. S3 bucket (SPA only)
  * 4. CloudFront invalidation
@@ -79,7 +79,7 @@ export function buildDeletionSteps(
     });
   }
 
-  // 1. Delete ECS service or App Runner (stops traffic)
+  // 1. Delete ECS service (stops traffic)
   if (discovered.ecsService) {
     steps.push({
       name: 'ECS Service',

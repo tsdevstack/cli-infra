@@ -128,6 +128,7 @@ export async function gcpDeploy(
   const initResult = await executeTerraform('init', {
     workDir: outputDir,
     env: tfEnv,
+    reconfigure: true,
   });
 
   if (!initResult.success) {
@@ -441,8 +442,7 @@ export async function gcpDeploy(
     const lbIp = getTerraformOutput(outputDir, 'load_balancer_ip', tfEnv);
     const infraConfig = loadInfrastructureConfig();
     const envOverrides = infraConfig?.[ctx.targetEnv] as
-      | EnvironmentOverrides
-      | undefined;
+      EnvironmentOverrides | undefined;
     const frontendServices = getFrontendServicesWithDomains(
       envOverrides,
       frameworkConfig.services,
@@ -450,8 +450,7 @@ export async function gcpDeploy(
 
     if (frontendServices.length > 0) {
       const loadBalancerConfig = envOverrides?.loadBalancer as
-        | LoadBalancerOverride
-        | undefined;
+        LoadBalancerOverride | undefined;
       const apiDomain =
         loadBalancerConfig?.apiDomain ?? `api.${frontendServices[0].domain}`;
       const redirectDomains = loadBalancerConfig?.redirectDomains;

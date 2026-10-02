@@ -29,6 +29,18 @@ rs.mock('../utils/aws/commands', () => ({
   awsGenerate: (...args: unknown[]) => mockAwsGenerate(...args),
 }));
 
+const mockLoadInfrastructureConfig = rs.fn();
+rs.mock('../utils/infrastructure/load-infrastructure-config', () => ({
+  loadInfrastructureConfig: (...args: unknown[]) =>
+    mockLoadInfrastructureConfig(...args),
+}));
+
+const mockWarnMissingApiKeyUsageJob = rs.fn();
+rs.mock('../utils/infrastructure/warn-missing-api-key-usage-job', () => ({
+  warnMissingApiKeyUsageJob: (...args: unknown[]) =>
+    mockWarnMissingApiKeyUsageJob(...args),
+}));
+
 import { infraGenerate } from './infra-generate';
 
 describe('infraGenerate', () => {
@@ -111,6 +123,33 @@ describe('infraGenerate', () => {
       expect(mocks.logger.info).toHaveBeenCalledWith(
         expect.stringContaining('Generating infrastructure configuration'),
       );
+    });
+  });
+
+  describe('API key usage sync job', () => {
+    it('should check the scheduled jobs of the environment for auth-template projects', async () => {
+      const frameworkConfig = { framework: { template: 'auth' }, services: [] };
+      const infraConfig = { version: '1.0.0' };
+      mocks.loadFrameworkConfig.mockReturnValue(frameworkConfig);
+      mocks.hasAuthTemplate.mockReturnValue(true);
+      mockLoadInfrastructureConfig.mockReturnValue(infraConfig);
+
+      await infraGenerate({ env: 'prod' });
+
+      expect(mockWarnMissingApiKeyUsageJob).toHaveBeenCalledWith({
+        frameworkConfig,
+        infraConfig,
+        environment: 'prod',
+      });
+    });
+
+    it('should not load infrastructure.json without the auth template', async () => {
+      mocks.hasAuthTemplate.mockReturnValue(false);
+
+      await infraGenerate({});
+
+      expect(mockLoadInfrastructureConfig).not.toHaveBeenCalled();
+      expect(mockWarnMissingApiKeyUsageJob).not.toHaveBeenCalled();
     });
   });
 });

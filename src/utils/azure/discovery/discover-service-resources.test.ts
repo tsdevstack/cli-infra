@@ -3,6 +3,23 @@
  */
 
 import { describe, it, expect, rs, beforeEach } from '@rstest/core';
+import type { MockContext } from '@tsdevstack/cli/test-utils';
+
+const mocks = (globalThis as unknown as { contextMocks: MockContext })
+  .contextMocks;
+
+rs.mock('../../../context', () => ({
+  initContext: rs.fn(),
+  getContext: rs.fn(
+    () => (globalThis as unknown as { contextMocks: MockContext }).contextMocks,
+  ),
+  wrapCommand: rs.fn((fn: unknown) => fn),
+}));
+
+// infrastructure.json (database.serverName override)
+rs.mock('../../infrastructure/load-infrastructure-config', () => ({
+  loadInfrastructureConfig: rs.fn(() => null),
+}));
 
 // Mock Azure SDKs (transitive imports from the sub-modules)
 rs.mock('@azure/identity', () => ({
@@ -42,6 +59,7 @@ import { getContainerApp } from './get-container-app';
 import { storageAccountExists } from './storage-account-exists';
 import { listKeyVaultSecretsByPrefix } from './list-keyvault-secrets-by-prefix';
 import { databaseExists } from './database-exists';
+import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
 
 const testCredentials = {
   clientId: 'test-client-id',
@@ -71,6 +89,7 @@ describe('discoverServiceResources', () => {
       secrets: [],
     });
     rs.mocked(databaseExists).mockResolvedValue({ exists: false });
+    rs.mocked(loadInfrastructureConfig).mockReturnValue(null);
   });
 
   describe('Backend service', () => {
@@ -340,6 +359,69 @@ describe('discoverServiceResources', () => {
           storageAccountName: 'myprojectdevmydashboardspa',
         }),
       );
+    });
+  });
+
+  describe('PostgreSQL server name', () => {
+    it('should use the default server name and return it', async () => {
+      const result = await discoverServiceResources({
+        ...baseOptions,
+        serviceName: 'auth-service',
+      });
+
+      expect(databaseExists).toHaveBeenCalledWith(
+        expect.objectContaining({ serverName: 'myproject-dev-postgres' }),
+      );
+      expect(result.postgresServerName).toBe('myproject-dev-postgres');
+    });
+
+    it('should use database.serverName from infrastructure.json when set', async () => {
+      rs.mocked(loadInfrastructureConfig).mockReturnValue({
+        version: '1.0.0',
+        dev: { database: { serverName: 'myproject-dev-pg-2' } },
+      });
+
+      const result = await discoverServiceResources({
+        ...baseOptions,
+        serviceName: 'auth-service',
+      });
+
+      expect(databaseExists).toHaveBeenCalledWith({
+        databaseName: 'auth-service',
+        serverName: 'myproject-dev-pg-2',
+        resourceGroupName: 'myproject-dev-rg',
+        credentials: testCredentials,
+      });
+      expect(result.postgresServerName).toBe('myproject-dev-pg-2');
+    });
+
+    it('should ignore an override for another environment', async () => {
+      rs.mocked(loadInfrastructureConfig).mockReturnValue({
+        version: '1.0.0',
+        prod: { database: { serverName: 'myproject-prod-pg-2' } },
+      });
+
+      const result = await discoverServiceResources({
+        ...baseOptions,
+        serviceName: 'auth-service',
+      });
+
+      expect(result.postgresServerName).toBe('myproject-dev-postgres');
+    });
+
+    it('should reject an invalid override before calling Azure', async () => {
+      rs.mocked(loadInfrastructureConfig).mockReturnValue({
+        version: '1.0.0',
+        dev: { database: { serverName: 'Bad_Name' } },
+      });
+
+      await expect(
+        discoverServiceResources({
+          ...baseOptions,
+          serviceName: 'auth-service',
+        }),
+      ).rejects.toThrow(mocks.CliError);
+      expect(databaseExists).not.toHaveBeenCalled();
     });
   });
 });

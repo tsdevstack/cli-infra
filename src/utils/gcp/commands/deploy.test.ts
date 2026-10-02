@@ -232,7 +232,7 @@ describe('gcpDeploy', () => {
 
       expect(mockExecuteTerraform).toHaveBeenCalledWith(
         'init',
-        expect.any(Object),
+        expect.objectContaining({ reconfigure: true }),
       );
       expect(mockExecuteTerraform).toHaveBeenCalledWith(
         'plan',

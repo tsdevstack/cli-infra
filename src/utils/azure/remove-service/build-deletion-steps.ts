@@ -97,9 +97,9 @@ export function buildDeletionSteps(
     });
   }
 
-  // 3. Delete PostgreSQL database
+  // 3. Delete PostgreSQL database (on the server discovery checked, honors database.serverName)
   if (discovered.hasDatabase) {
-    const serverName = `${projectName}-${targetEnv}-postgres`;
+    const serverName = discovered.postgresServerName;
     steps.push({
       name: 'PostgreSQL database',
       resource: serviceName,

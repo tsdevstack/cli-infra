@@ -6,6 +6,7 @@ const mocks = (globalThis as unknown as { contextMocks: MockContext })
 
 const mockReadYamlFile = rs.fn();
 const mockProcessCorsOrigins = rs.fn();
+const mockWriteKongBuildContext = rs.fn();
 
 rs.mock('../context', () => ({
   initContext: rs.fn(),
@@ -13,6 +14,8 @@ rs.mock('../context', () => ({
     ...(globalThis as unknown as { contextMocks: MockContext }).contextMocks,
     readYamlFile: (...args: unknown[]) => mockReadYamlFile(...args),
     processCorsOrigins: (...args: unknown[]) => mockProcessCorsOrigins(...args),
+    writeKongBuildContext: (...args: unknown[]) =>
+      mockWriteKongBuildContext(...args),
   })),
   wrapCommand: rs.fn((fn: unknown) => fn),
 }));
@@ -64,10 +67,6 @@ rs.mock('../utils/gcp/terraform', () => ({
   getTerraformOutput: (...args: unknown[]) => mockGetTerraformOutput(...args),
 }));
 
-rs.mock('../utils/build-runtime', () => ({
-  buildRuntime: () => ({}),
-}));
-
 const mockBuildGcpTerraformEnv = rs.fn();
 const mockConfigureDockerAuth = rs.fn();
 rs.mock('@tsdevstack/infra-core', () => ({
@@ -92,12 +91,6 @@ rs.mock('../utils/kong/resolve-env-vars-strict', () => ({
     mockResolveEnvVarsStrict(...args),
 }));
 
-const mockGenerateKongDockerfile = rs.fn();
-rs.mock('../utils/kong/generate-kong-dockerfile', () => ({
-  generateKongDockerfile: (...args: unknown[]) =>
-    mockGenerateKongDockerfile(...args),
-}));
-
 rs.mock('../utils/infrastructure/load-infrastructure-config', () => ({
   loadInfrastructureConfig: rs.fn(() => null),
 }));
@@ -118,6 +111,20 @@ rs.mock('../utils/azure/commands', () => ({
   getAzureKongRegistryInfo: (...args: unknown[]) =>
     mockGetAzureKongRegistryInfo(...args),
   pushAzureKongImage: (...args: unknown[]) => mockPushAzureKongImage(...args),
+}));
+
+const mockGetAwsKongRegistryInfo = rs.fn();
+const mockPushAwsKongImage = rs.fn();
+rs.mock('../utils/aws/commands', () => ({
+  getAwsKongRegistryInfo: (...args: unknown[]) =>
+    mockGetAwsKongRegistryInfo(...args),
+  pushAwsKongImage: (...args: unknown[]) => mockPushAwsKongImage(...args),
+}));
+
+const mockGetAwsTerraformOutput = rs.fn();
+rs.mock('../utils/aws/terraform', () => ({
+  getTerraformOutput: (...args: unknown[]) =>
+    mockGetAwsTerraformOutput(...args),
 }));
 
 import { infraKongBuild } from './infra-kong-build';
@@ -160,7 +167,7 @@ describe('infraKongBuild', () => {
       _format_version: '3.0',
       services: [{ url: 'https://auth-service.run.app' }],
     });
-    mockGenerateKongDockerfile.mockReturnValue('FROM kong:3.4');
+    mockWriteKongBuildContext.mockReturnValue(['bundled', 'oidc']);
   });
 
   describe('prerequisites', () => {
@@ -239,11 +246,51 @@ describe('infraKongBuild', () => {
       expect(mockFs.mkdtempSync).toHaveBeenCalled();
     });
 
-    it('should write Dockerfile', async () => {
+    it('should write the shared Kong build context with the resolved config baked in', async () => {
       await infraKongBuild({});
 
-      expect(mockFs.writeFileSync).toHaveBeenCalledWith(
-        expect.stringContaining('Dockerfile'),
+      expect(mockWriteKongBuildContext).toHaveBeenCalledWith({
+        projectRoot: '/test/project',
+        contextDir: '/tmp/kong-build-123',
+        maxUploadSize: '10m',
+        kongYml: JSON.stringify({
+          _format_version: '3.0',
+          services: [{ url: 'https://auth-service.run.app' }],
+        }),
+      });
+    });
+
+    it('should build from the temporary context after staging it', async () => {
+      await infraKongBuild({});
+
+      const stageOrder =
+        mockWriteKongBuildContext.mock.invocationCallOrder[0] ?? Infinity;
+      const buildCall = mockExecSync.mock.calls.findIndex((call: unknown[]) =>
+        String(call[0]).startsWith('docker build'),
+      );
+      expect(buildCall).toBeGreaterThanOrEqual(0);
+      expect(mockExecSync.mock.calls[buildCall][1]).toMatchObject({
+        cwd: '/tmp/kong-build-123',
+      });
+      expect(stageOrder).toBeLessThan(
+        mockExecSync.mock.invocationCallOrder[buildCall] ?? -Infinity,
+      );
+    });
+
+    it('should clean up the temp directory when staging fails (e.g. plugin name collision)', async () => {
+      mockWriteKongBuildContext.mockImplementation(() => {
+        throw new mocks.CliError('Kong plugin name collision');
+      });
+
+      await expect(infraKongBuild({})).rejects.toThrow(
+        'Kong plugin name collision',
+      );
+      expect(mockFs.rmSync).toHaveBeenCalledWith('/tmp/kong-build-123', {
+        recursive: true,
+        force: true,
+      });
+      expect(mockExecSync).not.toHaveBeenCalledWith(
+        expect.stringContaining('docker build'),
         expect.anything(),
       );
     });
@@ -389,6 +436,83 @@ describe('infraKongBuild', () => {
         expect.stringContaining('myapp.azurecr.io/kong:latest'),
         'myapp.azurecr.io',
         azureCredentials,
+      );
+    });
+  });
+  describe('AWS provider routing', () => {
+    const awsCredentials = {
+      accessKeyId: 'AKIA',
+      secretAccessKey: 'secret',
+      region: 'us-east-1',
+      accountId: '123456789012',
+    };
+
+    const cloudMapUrls: Record<string, string> = {
+      AUTH_SERVICE_URL: 'http://auth-service.my-app.local:8080',
+      OFFERS_SERVICE_URL: 'http://offers-service.my-app.local:8080',
+    };
+
+    beforeEach(() => {
+      mockSetupInfraCommand.mockResolvedValue({
+        projectRoot: '/test/project',
+        projectName: 'my-app',
+        provider: 'aws' as const,
+        targetEnv: 'prod',
+        credentials: awsCredentials,
+        runningInCI: false,
+      });
+      mockGetAwsKongRegistryInfo.mockReturnValue({
+        registryUrl: '123456789012.dkr.ecr.us-east-1.amazonaws.com',
+      });
+      mockPushAwsKongImage.mockResolvedValue(undefined);
+      mockExtractPlaceholders.mockReturnValue(Object.keys(cloudMapUrls));
+      mockFetchSecret.mockImplementation(
+        (key: string) => cloudMapUrls[key] ?? null,
+      );
+    });
+
+    it('should resolve service URLs from Secrets Manager (Cloud Map URLs)', async () => {
+      await infraKongBuild({});
+
+      expect(mockFetchSecret).toHaveBeenCalledWith('AUTH_SERVICE_URL', 'prod');
+      expect(mockFetchSecret).toHaveBeenCalledWith(
+        'OFFERS_SERVICE_URL',
+        'prod',
+      );
+      expect(mockResolveEnvVarsStrict).toHaveBeenCalledWith(
+        expect.anything(),
+        cloudMapUrls,
+      );
+    });
+
+    it('should not read Terraform outputs for placeholders', async () => {
+      await infraKongBuild({});
+
+      expect(mockGetAwsTerraformOutput).not.toHaveBeenCalled();
+    });
+
+    it('should fail on a placeholder missing from Secrets Manager', async () => {
+      mockExtractPlaceholders.mockReturnValue([
+        'AUTH_SERVICE_URL',
+        'WAKEUP_LAMBDA_URL',
+      ]);
+
+      await expect(infraKongBuild({})).rejects.toThrow(mocks.CliError);
+      expect(mockGetAwsTerraformOutput).not.toHaveBeenCalled();
+    });
+
+    it('should push SHA-tagged and latest images to ECR', async () => {
+      await infraKongBuild({});
+
+      expect(mockPushAwsKongImage).toHaveBeenCalledWith(
+        '123456789012.dkr.ecr.us-east-1.amazonaws.com/kong:abc123',
+        '123456789012.dkr.ecr.us-east-1.amazonaws.com',
+        awsCredentials,
+      );
+      expect(mockPushAwsKongImage).toHaveBeenCalledWith(
+        '123456789012.dkr.ecr.us-east-1.amazonaws.com/kong:latest',
+        '123456789012.dkr.ecr.us-east-1.amazonaws.com',
+        awsCredentials,
       );
     });
   });

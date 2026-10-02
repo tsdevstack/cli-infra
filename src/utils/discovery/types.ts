@@ -14,12 +14,7 @@
 
 /** Service type as inferred from cloud discovery */
 export type DeployedServiceType =
-  | 'backend'
-  | 'nextjs'
-  | 'worker'
-  | 'kong'
-  | 'spa'
-  | 'unknown';
+  'backend' | 'nextjs' | 'worker' | 'kong' | 'spa' | 'unknown';
 
 export interface DeployedServiceInfo {
   name: string;
@@ -47,7 +42,6 @@ export interface DeployedServiceInfo {
 
     // AWS-specific
     ecsService?: boolean;
-    appRunnerService?: boolean;
     runningCount?: number;
     desiredCount?: number;
 

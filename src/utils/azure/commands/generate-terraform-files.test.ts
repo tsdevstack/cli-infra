@@ -66,7 +66,15 @@ rs.mock('../../infrastructure/merge-with-defaults', () => ({
   })),
 }));
 
+rs.mock('../resolve-postgres-server-name', () => ({
+  resolvePostgresServerName: rs.fn(() => ({
+    name: 'my-app-dev-postgres',
+    isOverride: false,
+  })),
+}));
+
 import { generateTerraformFiles } from './generate-terraform-files';
+import { resolvePostgresServerName } from '../resolve-postgres-server-name';
 import { azure } from '@tsdevstack/infra-core';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
 import {
@@ -524,6 +532,52 @@ describe('generateTerraformFiles', () => {
         expect.objectContaining({
           database: expect.objectContaining({
             deletionProtection: true,
+          }),
+        }),
+      );
+    });
+  });
+
+  describe('PostgreSQL server name', () => {
+    it('should resolve the server name for the project and environment', () => {
+      generateTerraformFiles(mockCtx, 'infra:generate');
+
+      expect(resolvePostgresServerName).toHaveBeenCalledWith(
+        'my-app',
+        'dev',
+        null,
+      );
+    });
+
+    it('should not pass serverName when the default name is used', () => {
+      generateTerraformFiles(mockCtx, 'infra:generate');
+
+      const config = rs.mocked(azure.generateDatabaseTf).mock.calls[0][0];
+      expect('serverName' in config.database).toBe(false);
+    });
+
+    it('should pass serverName to the generator when overridden', () => {
+      const infraConfig = {
+        version: '1.0.0',
+        dev: { database: { serverName: 'my-app-dev-pg-2' } },
+      };
+      rs.mocked(loadInfrastructureConfig).mockReturnValue(infraConfig);
+      rs.mocked(resolvePostgresServerName).mockReturnValue({
+        name: 'my-app-dev-pg-2',
+        isOverride: true,
+      });
+
+      generateTerraformFiles(mockCtx, 'infra:generate');
+
+      expect(resolvePostgresServerName).toHaveBeenCalledWith(
+        'my-app',
+        'dev',
+        infraConfig,
+      );
+      expect(azure.generateDatabaseTf).toHaveBeenCalledWith(
+        expect.objectContaining({
+          database: expect.objectContaining({
+            serverName: 'my-app-dev-pg-2',
           }),
         }),
       );

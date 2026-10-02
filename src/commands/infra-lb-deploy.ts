@@ -106,8 +106,7 @@ export async function infraLbDeploy(
   // Load infrastructure.json to get frontend domains and security config
   const infraConfig = loadInfrastructureConfig();
   const envOverrides = infraConfig?.[targetEnv] as
-    | EnvironmentOverrides
-    | undefined;
+    EnvironmentOverrides | undefined;
   const frontendServices = getFrontendServicesWithDomains(
     envOverrides,
     frameworkConfig.services,
@@ -115,12 +114,10 @@ export async function infraLbDeploy(
   const securityConfig = envOverrides?.security as SecurityOverride | undefined;
   const customWafRules = securityConfig?.waf?.customRules;
   const loadBalancerConfig = envOverrides?.loadBalancer as
-    | LoadBalancerOverride
-    | undefined;
+    LoadBalancerOverride | undefined;
   const redirectDomains = loadBalancerConfig?.redirectDomains;
   const accessControl = envOverrides?.accessControl as
-    | AccessControlOverride
-    | undefined;
+    AccessControlOverride | undefined;
   // Canonical domain is the first frontend domain, or baseDomain if no frontends
   const canonicalDomain =
     frontendServices.length > 0 ? frontendServices[0].domain : baseDomain;
@@ -166,7 +163,7 @@ export async function infraLbDeploy(
     );
   }
 
-  // Generate load balancer terraform BEFORE env-auth (env-auth runs terraform which validates all .tf files)
+  // Generate load balancer terraform
   logger.generating('Generating load balancer configuration...');
 
   const lbTf = gcp.generateLoadBalancerTf({
@@ -216,6 +213,7 @@ export async function infraLbDeploy(
   const initResult = await executeTerraform('init', {
     workDir: terraformDir,
     env: tfEnv,
+    reconfigure: true,
   });
 
   if (!initResult.success) {

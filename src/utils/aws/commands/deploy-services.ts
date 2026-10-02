@@ -35,7 +35,7 @@ export interface DeployServicesOptions {
 }
 
 /**
- * Deploy all services to AWS (ECS, App Runner, S3)
+ * Deploy all services to AWS (ECS, S3)
  */
 export async function awsDeployServices(
   ctx: AWSCommandContext,

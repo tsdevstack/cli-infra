@@ -40,5 +40,9 @@ export function mergeDatabaseWithDefaults(
       override?.deletionProtection ?? defaults.deletionProtection,
     ha: override?.ha ?? defaults.ha,
     backup: override?.backup ?? defaults.backup,
+    // No default: the default server name depends on project and environment
+    ...(override?.serverName !== undefined
+      ? { serverName: override.serverName }
+      : {}),
   };
 }

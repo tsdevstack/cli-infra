@@ -89,6 +89,7 @@ export async function gcpDeploySchedulers(
   const initResult = await executeTerraform('init', {
     workDir: terraformDir,
     env: tfEnv,
+    reconfigure: true,
   });
 
   if (!initResult.success) {

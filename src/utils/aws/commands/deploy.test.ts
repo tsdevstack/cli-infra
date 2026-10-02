@@ -107,6 +107,7 @@ import { detectDeployedOrigins } from '../detect-deployed-origins';
 import { buildAndPushDbInit } from './build-and-push-db-init';
 import { buildAndPushDbDelete } from './build-and-push-db-delete';
 import { runDbInit } from './run-db-init';
+import { setSecretViaCli } from '../../credentials/set-secret-via-cli';
 
 describe('awsDeploy', () => {
   const mockCtx = {
@@ -163,7 +164,6 @@ describe('awsDeploy', () => {
           redis_host: 'redis.cluster.amazonaws.com',
           redis_port: '6379',
           redis_auth_token: 'auth-token-123',
-          alb_internal_dns: 'internal-alb.us-east-1.elb.amazonaws.com',
           db_init_ecr_url:
             '123456789012.dkr.ecr.us-east-1.amazonaws.com/my-app/db-init',
           db_delete_ecr_url:
@@ -311,6 +311,38 @@ describe('awsDeploy', () => {
         targetEnv: 'dev',
       }),
     );
+  });
+
+  it('should sync Cloud Map service URLs used by Kong and services', async () => {
+    mocks.loadFrameworkConfig.mockReturnValue({
+      services: [
+        { name: 'auth-service', type: 'nestjs', port: 3001 },
+        { name: 'offers-service', type: 'nestjs', port: 3002 },
+      ],
+    });
+
+    await awsDeploy(mockCtx, { autoApprove: true });
+
+    expect(setSecretViaCli).toHaveBeenCalledWith(
+      'AUTH_SERVICE_URL',
+      'http://auth-service.my-app.local:8080',
+      'dev',
+    );
+    expect(setSecretViaCli).toHaveBeenCalledWith(
+      'OFFERS_SERVICE_URL',
+      'http://offers-service.my-app.local:8080',
+      'dev',
+    );
+  });
+
+  it('should not sync an internal ALB DNS name', async () => {
+    await awsDeploy(mockCtx, { autoApprove: true });
+
+    const keys = rs.mocked(setSecretViaCli).mock.calls.map((c) => c[0]);
+    expect(keys).toContain('REDIS_HOST');
+    expect(keys).not.toContain('ALB_INTERNAL_DNS');
+    const outputs = rs.mocked(getTerraformOutput).mock.calls.map((c) => c[1]);
+    expect(outputs).not.toContain('alb_internal_dns');
   });
 
   it('should skip service deployment with infraOnly', async () => {

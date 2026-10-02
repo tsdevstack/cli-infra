@@ -1,5 +1,5 @@
 /**
- * Tests for kong-deploy
+ * Tests for azureKongDeploy
  */
 
 import { describe, it, expect, rs, beforeEach } from '@rstest/core';

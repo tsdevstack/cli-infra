@@ -154,6 +154,28 @@ describe('getDatabaseConfig', () => {
     });
   });
 
+  describe('Azure serverName', () => {
+    it('should return serverName for the requested environment', () => {
+      const config = {
+        version: '1.0.0',
+        dev: { database: { serverName: 'myapp-dev-pg-2' } },
+        prod: { database: { tier: 'GP_Standard_D2s_v3' } },
+      };
+      expect(getDatabaseConfig(config, 'dev', 'azure').serverName).toBe(
+        'myapp-dev-pg-2',
+      );
+      expect(getDatabaseConfig(config, 'prod', 'azure').serverName).toBe(
+        undefined,
+      );
+    });
+
+    it('should not set serverName when config is null', () => {
+      expect('serverName' in getDatabaseConfig(null, 'dev', 'azure')).toBe(
+        false,
+      );
+    });
+  });
+
   describe('provider-specific defaults differ', () => {
     it('should use GCP defaults for GCP provider', () => {
       const result = getDatabaseConfig(null, 'dev', 'gcp');

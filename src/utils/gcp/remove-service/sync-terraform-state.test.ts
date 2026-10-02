@@ -82,7 +82,7 @@ describe('syncTerraformState', () => {
     expect(runTerraform).toHaveBeenCalledTimes(3);
     expect(runTerraform).toHaveBeenNthCalledWith(
       1,
-      ['init', '-input=false'],
+      ['init', '-input=false', '-reconfigure'],
       '/path/to/project/infrastructure/terraform/dev',
       expect.any(Object),
     );

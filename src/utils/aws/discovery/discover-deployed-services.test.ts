@@ -225,7 +225,6 @@ describe('discoverDeployedServices', () => {
       const result = await discoverDeployedServices(baseOptions);
       const service = result.services[0];
       expect(service.resources.ecsService).toBe(true);
-      expect(service.resources.appRunnerService).toBe(false);
       expect(service.resources.spaBucket).toBe(false);
       expect(service.resources.runningCount).toBe(2);
       expect(service.resources.desiredCount).toBe(2);
@@ -244,7 +243,6 @@ describe('discoverDeployedServices', () => {
       const result = await discoverDeployedServices(baseOptions);
       const service = result.services[0];
       expect(service.resources.ecsService).toBe(false);
-      expect(service.resources.appRunnerService).toBe(false);
       expect(service.resources.spaBucket).toBe(true);
       expect(service.status).toBe('DEPLOYED');
     });

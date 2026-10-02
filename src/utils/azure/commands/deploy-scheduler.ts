@@ -128,6 +128,7 @@ export async function azureDeployScheduler(
   const initResult = await executeTerraform('init', {
     workDir: terraformDir,
     env: tfEnv,
+    reconfigure: true,
   });
 
   if (!initResult.success) {

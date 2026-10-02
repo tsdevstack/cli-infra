@@ -30,15 +30,11 @@ rs.mock('@tsdevstack/infra-core', () => ({
     generateAlbTf: rs.fn(() => '# alb.tf'),
     generateWafTf: rs.fn(() => '# waf.tf'),
     generateCloudfrontTf: rs.fn(() => '# cloudfront.tf'),
-    generateWakeupLambdaTf: rs.fn(() => '# wakeup-lambda.tf'),
     generateAcmTf: rs.fn(() => '# acm.tf'),
     generateRoute53Tf: rs.fn(() => '# route53.tf'),
     generateS3SpaTf: rs.fn(() => '# s3-spa.tf'),
     generateEventbridgeTf: rs.fn(() => '# eventbridge.tf'),
-    generateScaleDownTf: rs.fn(() => '# scale-down.tf'),
-    generateWakeupLambdaCode: rs.fn(() => '// wakeup'),
     generateJobInvokerLambdaCode: rs.fn(() => '// job-invoker'),
-    generateAppRunnerTf: rs.fn(() => '# apprunner.tf'),
     generateNextjsCloudfrontTf: rs.fn(() => '# nextjs-cloudfront.tf'),
     generateResponseHeadersPolicyTf: rs.fn(() => '# response-headers.tf'),
     generateRedirectTf: rs.fn(() => '# redirect.tf'),
@@ -66,10 +62,6 @@ rs.mock('@tsdevstack/infra-core', () => ({
 
 rs.mock('../../infrastructure/load-infrastructure-config', () => ({
   loadInfrastructureConfig: rs.fn(),
-}));
-
-rs.mock('../../infrastructure/enforce-kong-min-instances', () => ({
-  enforceKongMinInstances: rs.fn((min: number) => min),
 }));
 
 rs.mock('../../infrastructure/merge-with-defaults', () => ({
@@ -130,7 +122,12 @@ rs.mock('node:child_process', () => ({
 
 import { generateTerraformFiles } from './generate-terraform-files';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
-import { getScheduledJobs } from '../../infrastructure/merge-with-defaults';
+import type { ResolvedServiceConfig } from '../../infrastructure/types';
+import {
+  getScheduledJobs,
+  getServiceConfig,
+  getKongConfig,
+} from '../../infrastructure/merge-with-defaults';
 
 describe('generateTerraformFiles', () => {
   const mockCtx = {
@@ -249,11 +246,94 @@ describe('generateTerraformFiles', () => {
       (call: unknown[]) => call[0] as string,
     );
     expect(
-      writeCalls.some((p: string) => p.includes('lambda/wakeup/index.js')),
-    ).toBe(true);
-    expect(
       writeCalls.some((p: string) => p.includes('lambda/job-invoker/index.js')),
     ).toBe(true);
+  });
+
+  it('should not generate the wake-up Lambda or scale-down files', () => {
+    generateTerraformFiles(mockCtx, 'infra:generate');
+
+    const writeCalls = mocks.writeTextFile.mock.calls.map(
+      (call: unknown[]) => call[0] as string,
+    );
+    expect(writeCalls.some((p: string) => p.includes('wakeup'))).toBe(false);
+    expect(writeCalls.some((p: string) => p.includes('scale-down'))).toBe(
+      false,
+    );
+    const createdDirs = mocks.ensureDirectory.mock.calls.map(
+      (call: unknown[]) => call[0] as string,
+    );
+    expect(createdDirs.some((p: string) => p.includes('wakeup'))).toBe(false);
+  });
+
+  describe('minInstances validation (no scale-to-zero on AWS)', () => {
+    const resolvedWithMin = (minInstances: number): ResolvedServiceConfig => ({
+      cpu: '256',
+      memory: '512',
+      minInstances,
+      maxInstances: 3,
+      timeout: '300s',
+      port: 3000,
+      concurrency: 80,
+    });
+
+    it('should throw a CliError when a service resolves to minInstances 0', () => {
+      rs.mocked(getServiceConfig).mockImplementation((_config, name) =>
+        resolvedWithMin(name === 'auth-service' ? 0 : 1),
+      );
+
+      expect(() => generateTerraformFiles(mockCtx, 'infra:generate')).toThrow(
+        'minInstances: 0 is not supported on AWS (dev.auth-service)',
+      );
+      expect(mocks.writeTextFile).not.toHaveBeenCalled();
+    });
+
+    it('should throw a CliError when a Next.js service resolves to minInstances 0', () => {
+      rs.mocked(getServiceConfig).mockImplementation((_config, name) =>
+        resolvedWithMin(name === 'frontend' ? 0 : 1),
+      );
+
+      expect(() => generateTerraformFiles(mockCtx, 'infra:generate')).toThrow(
+        'minInstances: 0 is not supported on AWS (dev.frontend)',
+      );
+    });
+
+    it('should throw a CliError when Kong resolves to minInstances 0', () => {
+      rs.mocked(getKongConfig).mockReturnValue({
+        cpu: '256',
+        memory: '512',
+        minInstances: 0,
+        maxInstances: 3,
+        maxUploadSize: '10m',
+      });
+
+      expect(() => generateTerraformFiles(mockCtx, 'infra:generate')).toThrow(
+        mocks.CliError,
+      );
+      expect(() => generateTerraformFiles(mockCtx, 'infra:generate')).toThrow(
+        'minInstances: 0 is not supported on AWS (dev.kong)',
+      );
+    });
+
+    it('should pass minInstances through unchanged when 1 or more', () => {
+      rs.mocked(getServiceConfig).mockImplementation(() => resolvedWithMin(2));
+      rs.mocked(getKongConfig).mockReturnValue({
+        cpu: '256',
+        memory: '512',
+        minInstances: 1,
+        maxInstances: 3,
+        maxUploadSize: '10m',
+      });
+
+      const result = generateTerraformFiles(mockCtx, 'infra:generate');
+
+      expect(result.generateConfig.services['auth-service'].minInstances).toBe(
+        2,
+      );
+      expect(result.generateConfig.services['kong'].minInstances).toBe(1);
+      expect(result.generateConfig.frontends['frontend'].minInstances).toBe(2);
+      expect(result.generateConfig.workers['auth-worker'].minInstances).toBe(2);
+    });
   });
 
   it('should log files in verbose mode', () => {

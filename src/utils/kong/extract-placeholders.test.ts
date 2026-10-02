@@ -148,18 +148,18 @@ describe('extractPlaceholders', () => {
 
   describe('Kong runtime env var syntax', () => {
     it('should NOT extract Kong double-brace env var syntax', () => {
-      const result = extractPlaceholders('${{env "WAKEUP_LAMBDA_DOMAIN"}}');
+      const result = extractPlaceholders('${{env "KONG_RUNTIME_DOMAIN"}}');
       expect(result).toEqual([]);
     });
 
     it('should extract single-brace but not double-brace placeholders', () => {
       const config = {
         url: '${AUTH_SERVICE_URL}',
-        target: '${{env "WAKEUP_LAMBDA_DOMAIN"}}',
+        target: '${{env "KONG_RUNTIME_DOMAIN"}}',
       };
       const result = extractPlaceholders(config);
       expect(result).toContain('AUTH_SERVICE_URL');
-      expect(result).not.toContain('{env "WAKEUP_LAMBDA_DOMAIN"}}');
+      expect(result).not.toContain('{env "KONG_RUNTIME_DOMAIN"}}');
       expect(result).toHaveLength(1);
     });
   });

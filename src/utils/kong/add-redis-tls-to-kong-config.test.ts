@@ -76,6 +76,84 @@ describe('addRedisTlsToKongConfig', () => {
     });
   });
 
+  describe('Service plugins', () => {
+    const redisBlock = {
+      host: '${REDIS_HOST}',
+      port: '${REDIS_PORT}',
+      password: '${REDIS_PASSWORD}',
+      database: 0,
+      timeout: 2000,
+    };
+
+    it('should add TLS to the per-IP ceiling and the API key plugin of partner services', () => {
+      const config: KongTemplate = {
+        _format_version: '3.0',
+        services: [
+          {
+            name: 'offers-service-partner',
+            url: '${OFFERS_SERVICE_URL}',
+            routes: [],
+            plugins: [
+              {
+                name: 'rate-limiting',
+                config: {
+                  minute: 600,
+                  limit_by: 'ip',
+                  policy: 'redis',
+                  hide_client_headers: false,
+                  redis: { ...redisBlock },
+                },
+              },
+              {
+                name: 'tsdevstack-api-key',
+                config: {
+                  key_names: ['x-api-key'],
+                  redis: { ...redisBlock },
+                  default_limits: { minute: 100 },
+                },
+              },
+              { name: 'tsdevstack-api-prefix', config: { prefix: '/api' } },
+            ],
+          },
+        ],
+      };
+
+      const result = addRedisTlsToKongConfig(config);
+      const plugins = result.services[0].plugins!;
+
+      for (const plugin of plugins.slice(0, 2)) {
+        expect(plugin.config.redis).toEqual({
+          ...redisBlock,
+          ssl: true,
+          ssl_verify: false,
+        });
+      }
+      expect(plugins[2]).toEqual({
+        name: 'tsdevstack-api-prefix',
+        config: { prefix: '/api' },
+      });
+      // Input unchanged
+      expect(
+        (config.services[0].plugins![1].config.redis as Record<string, unknown>)
+          .ssl,
+      ).toBeUndefined();
+    });
+
+    it('should keep services without plugins as they are', () => {
+      const service = {
+        name: 'offers-service-public',
+        url: '${OFFERS_SERVICE_URL}',
+        routes: [],
+      };
+      const result = addRedisTlsToKongConfig({
+        _format_version: '3.0',
+        services: [service],
+      });
+
+      expect(result.services[0]).toBe(service);
+    });
+  });
+
   describe('Consumer plugins', () => {
     it('should add ssl and ssl_verify to consumer rate-limiting plugin', () => {
       const config: KongTemplate = {

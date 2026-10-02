@@ -13,6 +13,8 @@ import { getContainerApp } from './get-container-app';
 import { storageAccountExists } from './storage-account-exists';
 import { listKeyVaultSecretsByPrefix } from './list-keyvault-secrets-by-prefix';
 import { databaseExists } from './database-exists';
+import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
+import { resolvePostgresServerName } from '../resolve-postgres-server-name';
 
 export interface DiscoverServiceResourcesOptions {
   serviceName: string;
@@ -49,6 +51,9 @@ export interface DiscoveredResources {
 
   /** True if service has a database (checked directly on PostgreSQL server) */
   hasDatabase: boolean;
+
+  /** PostgreSQL Flexible Server checked for the database (default or database.serverName override) */
+  postgresServerName: string;
 }
 
 /**
@@ -62,7 +67,11 @@ export async function discoverServiceResources(
   const resourceGroupName = `${projectName}-${targetEnv}-rg`;
   const containerAppName = `${projectName}-${serviceName}`;
   const vaultName = `${projectName}-${targetEnv}-kv`;
-  const serverName = `${projectName}-${targetEnv}-postgres`;
+  const serverName = resolvePostgresServerName(
+    projectName,
+    targetEnv,
+    loadInfrastructureConfig(),
+  ).name;
   // SPA storage: {project}{env}{name}spa (alphanumeric only)
   const sanitizedProject = projectName.replace(/[^a-z0-9]/g, '');
   const spaBucketName = `${sanitizedProject}${targetEnv}${serviceName.replace(/[^a-z0-9]/g, '')}spa`;
@@ -130,5 +139,6 @@ export async function discoverServiceResources(
 
     inferredType,
     hasDatabase,
+    postgresServerName: serverName,
   };
 }

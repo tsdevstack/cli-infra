@@ -172,6 +172,7 @@ describe('gcpPlan', () => {
         'init',
         expect.objectContaining({
           workDir: '/test/project/infrastructure/terraform/staging',
+          reconfigure: true,
         }),
       );
     });

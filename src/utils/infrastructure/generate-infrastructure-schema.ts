@@ -8,6 +8,7 @@
 import {
   VALIDATION_CONSTRAINTS,
   DATABASE_CONSTRAINTS,
+  AZURE_POSTGRES_SERVER_NAME_CONSTRAINTS,
   REDIS_CONSTRAINTS,
 } from '../../constants';
 import {
@@ -368,9 +369,9 @@ export function generateInfrastructureSchema(
         properties: {
           minInstances: {
             type: 'integer',
-            minimum: VALIDATION_CONSTRAINTS.minInstances.min,
+            minimum: providerConfig.minInstancesMinimum,
             maximum: VALIDATION_CONSTRAINTS.minInstances.max,
-            description: 'Minimum number of instances (0 = scale to zero)',
+            description: providerConfig.serviceMinInstancesDescription,
           },
           maxInstances: {
             type: 'integer',
@@ -445,6 +446,18 @@ export function generateInfrastructureSchema(
             type: 'boolean',
             description: 'Prevent accidental deletion',
           },
+          ...(providerConfig.supportsDatabaseServerName
+            ? {
+                serverName: {
+                  type: 'string',
+                  minLength: AZURE_POSTGRES_SERVER_NAME_CONSTRAINTS.minLength,
+                  maxLength: AZURE_POSTGRES_SERVER_NAME_CONSTRAINTS.maxLength,
+                  pattern: AZURE_POSTGRES_SERVER_NAME_CONSTRAINTS.pattern,
+                  description:
+                    'Overrides the PostgreSQL Flexible Server name, a global DNS name in Azure. Default: {project}-{environment}-postgres. Changing it on an existing environment replaces the server and its data.',
+                },
+              }
+            : {}),
           migrationJob: {
             $ref: '#/definitions/MigrationJobConfig',
           },
@@ -495,9 +508,9 @@ export function generateInfrastructureSchema(
             : {
                 minInstances: {
                   type: 'integer',
-                  minimum: VALIDATION_CONSTRAINTS.minInstances.min,
+                  minimum: providerConfig.minInstancesMinimum,
                   maximum: VALIDATION_CONSTRAINTS.minInstances.max,
-                  description: 'Minimum number of instances',
+                  description: providerConfig.kongMinInstancesDescription,
                 },
                 maxInstances: {
                   type: 'integer',
@@ -546,10 +559,6 @@ export function generateInfrastructureSchema(
         type: 'object',
         description: 'Access control configuration',
         properties: {
-          protected: {
-            type: 'boolean',
-            description: 'Restrict access (e.g., IP allowlist)',
-          },
           noIndex: {
             type: 'boolean',
             description:

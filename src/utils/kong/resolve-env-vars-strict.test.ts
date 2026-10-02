@@ -235,22 +235,22 @@ describe('resolveEnvVarsStrict', () => {
     it('should NOT resolve Kong double-brace env var syntax', () => {
       const secrets = { AUTH_SERVICE_URL: 'http://auth:8080' };
       const result = resolveEnvVarsStrict(
-        '${{env "WAKEUP_LAMBDA_DOMAIN"}}',
+        '${{env "KONG_RUNTIME_DOMAIN"}}',
         secrets,
       );
-      expect(result).toBe('${{env "WAKEUP_LAMBDA_DOMAIN"}}');
+      expect(result).toBe('${{env "KONG_RUNTIME_DOMAIN"}}');
     });
 
     it('should resolve single-brace but preserve double-brace', () => {
       const secrets = { AUTH_SERVICE_URL: 'http://auth:8080' };
       const config = {
         url: '${AUTH_SERVICE_URL}',
-        target: '${{env "WAKEUP_LAMBDA_DOMAIN"}}',
+        target: '${{env "KONG_RUNTIME_DOMAIN"}}',
       };
       const result = resolveEnvVarsStrict(config, secrets);
       expect(result).toEqual({
         url: 'http://auth:8080',
-        target: '${{env "WAKEUP_LAMBDA_DOMAIN"}}',
+        target: '${{env "KONG_RUNTIME_DOMAIN"}}',
       });
     });
   });

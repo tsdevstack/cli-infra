@@ -12,6 +12,8 @@ import { azureGenerate } from '../utils/azure/commands';
 import type { GCPCommandContext } from '../utils/gcp/commands';
 import type { AWSCommandContext } from '../utils/aws/commands';
 import type { AzureCommandContext } from '../utils/azure/commands';
+import { loadInfrastructureConfig } from '../utils/infrastructure/load-infrastructure-config';
+import { warnMissingApiKeyUsageJob } from '../utils/infrastructure/warn-missing-api-key-usage-job';
 
 interface InfraGenerateOptions {
   env?: string;
@@ -23,13 +25,23 @@ interface InfraGenerateOptions {
 export async function infraGenerate(
   options: InfraGenerateOptions,
 ): Promise<void> {
-  const { logger } = getContext();
+  const { logger, loadFrameworkConfig, hasAuthTemplate } = getContext();
 
   logger.newline();
   logger.info('Generating infrastructure configuration...');
   logger.newline();
 
   const ctx = await setupInfraCommand(options, 'infra:generate');
+
+  // Auth template: the API key usage sync job must be scheduled
+  const frameworkConfig = loadFrameworkConfig();
+  if (hasAuthTemplate(frameworkConfig)) {
+    warnMissingApiKeyUsageJob({
+      frameworkConfig,
+      infraConfig: loadInfrastructureConfig(),
+      environment: ctx.targetEnv,
+    });
+  }
 
   if (ctx.provider === 'gcp') {
     await gcpGenerate(ctx as GCPCommandContext);

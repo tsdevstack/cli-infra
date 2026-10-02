@@ -9,7 +9,8 @@
  * Default values for service configuration (GCP Cloud Run)
  *
  * minInstances: 1 ensures services are always warm (no cold starts).
- * Set to 0 explicitly in infrastructure.json for dev environments to enable scale-to-zero.
+ * Set to 0 explicitly in infrastructure.json for dev environments to enable scale-to-zero
+ * (supported on GCP and Azure, not on AWS).
  */
 export const INFRASTRUCTURE_DEFAULTS_GCP = {
   minInstances: 1,
@@ -22,7 +23,10 @@ export const INFRASTRUCTURE_DEFAULTS_GCP = {
 } as const;
 
 /**
- * Default values for service configuration (AWS Fargate/App Runner)
+ * Default values for service configuration (AWS Fargate)
+ *
+ * minInstances: 1 is also the minimum on AWS: there is no scale-to-zero,
+ * every ECS service runs at least one task. minInstances: 0 fails validation.
  *
  * CPU/memory must be valid Fargate combinations:
  * - 0.5 vCPU: 1GB-4GB
@@ -162,9 +166,13 @@ export const SUPPORTED_VERSIONS = ['1.0.0'] as const;
 
 /**
  * Validation constraints for service configuration
+ *
+ * minInstances.min is 0 for GCP and Azure (native scale-to-zero).
+ * AWS has no scale-to-zero: services and Kong need at least minInstancesAws.min.
  */
 export const VALIDATION_CONSTRAINTS = {
   minInstances: { min: 0, max: 100 },
+  minInstancesAws: { min: 1 },
   maxInstances: { min: 1, max: 100 },
   timeout: { minSeconds: 30, maxSeconds: 3600 },
   port: { min: 1, max: 65535 },
@@ -243,6 +251,17 @@ export const DATABASE_CONSTRAINTS = {
 } as const;
 
 /**
+ * Azure PostgreSQL Flexible Server name rules (database.serverName).
+ * The name is a global DNS name: 3 to 63 characters, lowercase letters,
+ * digits and hyphens, no leading or trailing hyphen.
+ */
+export const AZURE_POSTGRES_SERVER_NAME_CONSTRAINTS = {
+  minLength: 3,
+  maxLength: 63,
+  pattern: '^[a-z0-9]([a-z0-9-]*[a-z0-9])?$',
+} as const;
+
+/**
  * Redis validation constraints
  */
 export const REDIS_CONSTRAINTS = {
@@ -253,7 +272,8 @@ export const REDIS_CONSTRAINTS = {
  * Default values for Kong Gateway configuration (GCP Cloud Run)
  *
  * minInstances: 1 ensures Kong is always available.
- * Set to 0 explicitly in infrastructure.json for dev environments to enable scale-to-zero.
+ * Set to 0 explicitly in infrastructure.json for dev environments to enable scale-to-zero
+ * (supported on GCP, not on AWS).
  */
 export const KONG_DEFAULTS_GCP = {
   minInstances: 1,
@@ -265,7 +285,7 @@ export const KONG_DEFAULTS_GCP = {
 /**
  * Default values for Kong Gateway configuration (AWS ECS Fargate)
  *
- * minInstances: 1 ensures Kong is always available (required for AWS wake-up failover).
+ * minInstances: 1 is also the minimum on AWS (no scale-to-zero); 0 fails validation.
  * CPU/memory must be valid Fargate combination (1 vCPU requires 2GB minimum).
  */
 export const KONG_DEFAULTS_AWS = {
@@ -297,7 +317,7 @@ export const REDIS_DEFAULTS_AZURE = {
 /**
  * Default values for service configuration (Azure Container Apps)
  *
- * minInstances: 0 enables scale-to-zero for dev environments.
+ * minInstances: 0 enables scale-to-zero for dev environments (native on Container Apps).
  * CPU/memory must be valid Container Apps combinations.
  */
 export const INFRASTRUCTURE_DEFAULTS_AZURE = {

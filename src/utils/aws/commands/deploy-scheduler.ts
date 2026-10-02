@@ -127,6 +127,7 @@ export async function awsDeployScheduler(
   const initResult = await executeTerraform('init', {
     workDir: terraformDir,
     env: tfEnv,
+    reconfigure: true,
   });
 
   if (!initResult.success) {

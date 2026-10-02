@@ -83,7 +83,10 @@ describe('azureDestroy', () => {
   it('should run terraform init and destroy', async () => {
     await azureDestroy(mockCtx, { autoApprove: true });
 
-    expect(executeTerraform).toHaveBeenCalledWith('init', expect.anything());
+    expect(executeTerraform).toHaveBeenCalledWith(
+      'init',
+      expect.objectContaining({ reconfigure: true }),
+    );
     expect(executeTerraform).toHaveBeenCalledWith(
       'destroy',
       expect.objectContaining({ autoApprove: true }),

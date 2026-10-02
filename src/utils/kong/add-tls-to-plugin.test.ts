@@ -46,4 +46,50 @@ describe('addTlsToPlugin', () => {
 
     expect(result).toEqual(plugin);
   });
+
+  it('should add ssl and ssl_verify to the tsdevstack-api-key redis config', () => {
+    const plugin: KongPlugin = {
+      name: 'tsdevstack-api-key',
+      config: {
+        key_names: ['x-api-key'],
+        redis: {
+          host: '${REDIS_HOST}',
+          port: '${REDIS_PORT}',
+          password: '${REDIS_PASSWORD}',
+          database: 0,
+          timeout: 2000,
+        },
+        default_limits: { minute: 100 },
+      },
+    };
+
+    const result = addTlsToPlugin(plugin);
+
+    expect(result.config).toEqual({
+      key_names: ['x-api-key'],
+      redis: {
+        host: '${REDIS_HOST}',
+        port: '${REDIS_PORT}',
+        password: '${REDIS_PASSWORD}',
+        database: 0,
+        timeout: 2000,
+        ssl: true,
+        ssl_verify: false,
+      },
+      default_limits: { minute: 100 },
+    });
+    // The input is not changed
+    expect(
+      (plugin.config.redis as Record<string, unknown>).ssl,
+    ).toBeUndefined();
+  });
+
+  it('should not modify other plugins with a redis block', () => {
+    const plugin: KongPlugin = {
+      name: 'my-plugin',
+      config: { redis: { host: 'h' } },
+    };
+
+    expect(addTlsToPlugin(plugin)).toBe(plugin);
+  });
 });

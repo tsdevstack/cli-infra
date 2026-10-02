@@ -17,6 +17,7 @@ import {
   VALID_SERVICE_TYPES_AWS,
   VALID_SERVICE_TYPES_AZURE,
   VALID_APP_SERVICE_SKUS,
+  AZURE_POSTGRES_SERVER_NAME_CONSTRAINTS,
 } from '../../constants';
 
 describe('generateInfrastructureSchema', () => {
@@ -92,6 +93,67 @@ describe('generateInfrastructureSchema', () => {
       const db = result.definitions.DatabaseOverride.properties;
       expect(db.ha.type).toBe('boolean');
       expect(db.backup.type).toBe('boolean');
+    });
+
+    describe('serverName (Azure only)', () => {
+      it('should include serverName for Azure with naming rules', () => {
+        const result = JSON.parse(generateInfrastructureSchema('azure'));
+        const serverName =
+          result.definitions.DatabaseOverride.properties.serverName;
+        expect(serverName.type).toBe('string');
+        expect(serverName.minLength).toBe(
+          AZURE_POSTGRES_SERVER_NAME_CONSTRAINTS.minLength,
+        );
+        expect(serverName.maxLength).toBe(
+          AZURE_POSTGRES_SERVER_NAME_CONSTRAINTS.maxLength,
+        );
+        expect(serverName.pattern).toBe(
+          AZURE_POSTGRES_SERVER_NAME_CONSTRAINTS.pattern,
+        );
+      });
+
+      it('should describe the default name and the replacement risk', () => {
+        const result = JSON.parse(generateInfrastructureSchema('azure'));
+        const { description } =
+          result.definitions.DatabaseOverride.properties.serverName;
+        expect(description).toContain('global DNS name');
+        expect(description).toContain('{project}-{environment}-postgres');
+        expect(description).toContain('replaces the server and its data');
+      });
+
+      it('should not include serverName for GCP', () => {
+        const result = JSON.parse(generateInfrastructureSchema('gcp'));
+        expect(
+          result.definitions.DatabaseOverride.properties.serverName,
+        ).toBeUndefined();
+      });
+
+      it('should not include serverName for AWS', () => {
+        const result = JSON.parse(generateInfrastructureSchema('aws'));
+        expect(
+          result.definitions.DatabaseOverride.properties.serverName,
+        ).toBeUndefined();
+      });
+
+      it('should keep additionalProperties false so other providers reject it', () => {
+        for (const provider of ['gcp', 'aws', 'azure'] as const) {
+          const result = JSON.parse(generateInfrastructureSchema(provider));
+          expect(result.definitions.DatabaseOverride.additionalProperties).toBe(
+            false,
+          );
+        }
+      });
+
+      it('should accept valid and reject invalid names with the schema pattern', () => {
+        const regex = new RegExp(
+          AZURE_POSTGRES_SERVER_NAME_CONSTRAINTS.pattern,
+        );
+        expect(regex.test('myapp-dev-postgres-2')).toBe(true);
+        expect(regex.test('-myapp')).toBe(false);
+        expect(regex.test('myapp-')).toBe(false);
+        expect(regex.test('MyApp')).toBe(false);
+        expect(regex.test('my_app')).toBe(false);
+      });
     });
   });
 
@@ -202,11 +264,17 @@ describe('generateInfrastructureSchema', () => {
   });
 
   describe('AccessControlOverride definition', () => {
-    it('should have protected and noIndex boolean fields', () => {
+    it('should have a noIndex boolean field', () => {
       const result = JSON.parse(generateInfrastructureSchema());
       const ac = result.definitions.AccessControlOverride.properties;
-      expect(ac.protected.type).toBe('boolean');
       expect(ac.noIndex.type).toBe('boolean');
+    });
+
+    it('should not expose the removed password protection fields', () => {
+      const result = JSON.parse(generateInfrastructureSchema());
+      const ac = result.definitions.AccessControlOverride.properties;
+      expect(ac.protected).toBeUndefined();
+      expect(ac.cookieTtlHours).toBeUndefined();
     });
   });
 
@@ -364,6 +432,30 @@ describe('generateInfrastructureSchema', () => {
     });
 
     describe('AWS provider', () => {
+      it('should require minInstances of at least 1 for services and Kong', () => {
+        const result = JSON.parse(generateInfrastructureSchema('aws'));
+        const service = result.definitions.ServiceOverride.properties;
+        const kong = result.definitions.KongOverride.properties;
+        expect(service.minInstances.minimum).toBe(1);
+        expect(kong.minInstances.minimum).toBe(1);
+        expect(service.minInstances.description).toContain(
+          'AWS has no scale-to-zero',
+        );
+        expect(kong.minInstances.description).toContain(
+          'AWS has no scale-to-zero',
+        );
+      });
+
+      it('should not advertise scale to zero', () => {
+        const result = generateInfrastructureSchema('aws');
+        expect(result).not.toContain('0 = scale to zero');
+      });
+
+      it('should not mention App Runner', () => {
+        const result = generateInfrastructureSchema('aws');
+        expect(result).not.toMatch(/app runner/i);
+      });
+
       it('should use AWS database tiers', () => {
         const result = JSON.parse(generateInfrastructureSchema('aws'));
         const tierEnum =
@@ -510,6 +602,31 @@ describe('generateInfrastructureSchema', () => {
         expect(envProps.frontdoorPremium).toBeDefined();
         expect(envProps.frontdoorPremium.type).toBe('boolean');
       });
+    });
+
+    it('should keep minInstances minimum 0 on GCP and Azure (scale-to-zero)', () => {
+      const gcp = JSON.parse(generateInfrastructureSchema('gcp'));
+      const azure = JSON.parse(generateInfrastructureSchema('azure'));
+      expect(gcp.definitions.ServiceOverride.properties.minInstances).toEqual({
+        type: 'integer',
+        minimum: 0,
+        maximum: 100,
+        description: 'Minimum number of instances (0 = scale to zero)',
+      });
+      expect(gcp.definitions.KongOverride.properties.minInstances).toEqual({
+        type: 'integer',
+        minimum: 0,
+        maximum: 100,
+        description: 'Minimum number of instances',
+      });
+      expect(azure.definitions.ServiceOverride.properties.minInstances).toEqual(
+        {
+          type: 'integer',
+          minimum: 0,
+          maximum: 100,
+          description: 'Minimum number of instances (0 = scale to zero)',
+        },
+      );
     });
 
     it('should default to GCP when no provider specified', () => {
