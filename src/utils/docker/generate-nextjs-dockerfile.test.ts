@@ -8,9 +8,9 @@ describe('generateNextJsDockerfile', () => {
   };
 
   describe('deps stage', () => {
-    it('should use node:22-slim for deps stage', () => {
+    it('should use node:24-slim for deps stage', () => {
       const result = generateNextJsDockerfile(baseOptions);
-      expect(result).toContain('FROM node:22-slim AS deps');
+      expect(result).toContain('FROM node:24-slim AS deps');
     });
 
     it('should set workdir to /app', () => {
@@ -63,7 +63,7 @@ describe('generateNextJsDockerfile', () => {
         ...baseOptions,
         npmAuthEnvSecret: true,
       });
-      const productionStart = result.indexOf('FROM node:22-slim AS production');
+      const productionStart = result.indexOf('FROM node:24-slim AS production');
       expect(productionStart).toBeGreaterThan(-1);
       const productionStage = result.slice(productionStart);
       expect(productionStage).not.toContain('.npmrc');
@@ -89,9 +89,9 @@ describe('generateNextJsDockerfile', () => {
   });
 
   describe('production stage', () => {
-    it('should use node:22-slim for smaller runtime', () => {
+    it('should use node:24-slim for smaller runtime', () => {
       const result = generateNextJsDockerfile(baseOptions);
-      expect(result).toContain('FROM node:22-slim AS production');
+      expect(result).toContain('FROM node:24-slim AS production');
     });
 
     it('should install dumb-init for signal handling', () => {

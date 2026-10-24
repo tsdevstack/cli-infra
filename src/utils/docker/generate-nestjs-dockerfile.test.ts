@@ -9,9 +9,9 @@ describe('generateNestJsDockerfile', () => {
   };
 
   describe('base stage', () => {
-    it('should use node:22-slim as base image', () => {
+    it('should use node:24-slim as base image', () => {
       const result = generateNestJsDockerfile(baseOptions);
-      expect(result).toContain('FROM node:22-slim AS base');
+      expect(result).toContain('FROM node:24-slim AS base');
     });
 
     it('should set workdir to /app', () => {

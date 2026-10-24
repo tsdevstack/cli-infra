@@ -11,6 +11,7 @@
 /* eslint-disable no-useless-escape */
 
 import { renderJobEnvBlock } from '../../npm-auth';
+import { CI_NODE_VERSION } from '../../../constants';
 import type { CIConfig } from './types';
 
 /**
@@ -90,7 +91,7 @@ ${envBlock}    steps:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '${CI_NODE_VERSION}'
           cache: 'npm'
 
       - name: Install dependencies

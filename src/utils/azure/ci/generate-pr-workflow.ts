@@ -6,6 +6,7 @@
  */
 
 import { renderJobEnvBlock } from '../../npm-auth';
+import { CI_NODE_VERSION } from '../../../constants';
 
 /**
  * Generate the PR quality check workflow YAML content
@@ -33,7 +34,7 @@ ${envBlock}    steps:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '${CI_NODE_VERSION}'
           cache: 'npm'
 
       - name: Install dependencies

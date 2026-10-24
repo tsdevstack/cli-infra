@@ -25,3 +25,6 @@ export const REMOVE_DETACHED_WORKER_WORKFLOW_FILENAME =
 
 /** Supported CI providers */
 export const SUPPORTED_CI_PROVIDERS = ['github'] as const;
+
+/** Node.js line the generated GitHub workflows run on (actions/setup-node) */
+export const CI_NODE_VERSION = '24';
