@@ -30,6 +30,7 @@ rs.mock('@tsdevstack/infra-core', () => ({
     generateWafTf: rs.fn(() => '# waf.tf'),
     generateScheduledJobsTf: rs.fn(() => ''),
     generateAppServiceTf: rs.fn(() => '# app-service.tf'),
+    generateAppServiceAutoscaleTf: rs.fn(() => ''),
     generateDiagnosticsTf: rs.fn(() => '# diagnostics.tf'),
   },
 }));
@@ -63,6 +64,13 @@ rs.mock('../../infrastructure/merge-with-defaults', () => ({
   getAppServiceConfig: rs.fn(() => ({
     kongSku: 'B1',
     nextjsSku: 'B1',
+  })),
+  getKongConfig: rs.fn(() => ({
+    minInstances: 1,
+    maxInstances: 5,
+    cpu: '0.5',
+    memory: '1Gi',
+    maxUploadSize: '10m',
   })),
 }));
 
@@ -403,6 +411,7 @@ describe('generateTerraformFiles', () => {
             storageSizeGb: 32,
             deletionProtection: false,
             backup: false,
+            ha: false,
           },
         }),
       );
@@ -467,6 +476,8 @@ describe('generateTerraformFiles', () => {
         expect.objectContaining({
           kongAppServiceSku: 'B1',
           nextjsAppServiceSku: 'B1',
+          kongScaling: { instances: 1, autoscaleMax: null },
+          nextjsScaling: { instances: 1, autoscaleMax: null },
         }),
       );
     });
@@ -579,6 +590,137 @@ describe('generateTerraformFiles', () => {
           database: expect.objectContaining({
             serverName: 'my-app-dev-pg-2',
           }),
+        }),
+      );
+    });
+  });
+
+  describe('App Service scaling', () => {
+    it('should run a fixed count on Basic plans and write no autoscale file', () => {
+      generateTerraformFiles(mockCtx, 'infra:generate');
+
+      expect(azure.generateAppServiceTf).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kongScaling: { instances: 1, autoscaleMax: null },
+          nextjsScaling: { instances: 1, autoscaleMax: null },
+        }),
+      );
+      expect(mocks.writeTextFile).not.toHaveBeenCalledWith(
+        expect.stringContaining('app-service-autoscale.tf'),
+        expect.anything(),
+      );
+    });
+
+    it('should report a Basic plan whose default ceiling is ignored', () => {
+      generateTerraformFiles(mockCtx, 'infra:generate');
+
+      expect(mocks.logger.info).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'Kong plan on B1: 1 fixed instance(s). Basic plans cannot autoscale: set appService.kongSku to S1 or higher for CPU autoscale up to maxInstances (5).',
+        ),
+      );
+      expect(mocks.logger.info).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'Next.js plan on B1: 1 fixed instance(s). minInstances 0 runs 1 instance: App Service cannot scale to zero. Basic plans cannot autoscale',
+        ),
+      );
+    });
+
+    it('should autoscale on Standard plans and write app-service-autoscale.tf', () => {
+      rs.mocked(getAppServiceConfig).mockReturnValue({
+        kongSku: 'S1',
+        nextjsSku: 'S1',
+      });
+      rs.mocked(azure.generateAppServiceAutoscaleTf).mockReturnValue(
+        '# autoscale',
+      );
+
+      generateTerraformFiles(mockCtx, 'infra:generate');
+
+      expect(azure.generateAppServiceTf).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kongScaling: { instances: 1, autoscaleMax: 5 },
+          nextjsScaling: { instances: 1, autoscaleMax: 5 },
+        }),
+      );
+      expect(azure.generateAppServiceAutoscaleTf).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kongScaling: { instances: 1, autoscaleMax: 5 },
+        }),
+      );
+      expect(mocks.writeTextFile).toHaveBeenCalledWith(
+        '/test/project/infrastructure/terraform/dev/app-service-autoscale.tf',
+        '# autoscale',
+      );
+      expect(mocks.logger.info).not.toHaveBeenCalledWith(
+        expect.stringContaining('fixed instance(s)'),
+      );
+    });
+
+    it('should report minInstances 0 on an autoscaling plan', () => {
+      rs.mocked(getAppServiceConfig).mockReturnValue({
+        kongSku: 'S1',
+        nextjsSku: 'S1',
+      });
+
+      generateTerraformFiles(mockCtx, 'infra:generate');
+
+      expect(mocks.logger.info).toHaveBeenCalledWith(
+        'Next.js plan on S1: CPU autoscale from 1 to 5 instances. minInstances 0 runs 1 instance: App Service cannot scale to zero.',
+      );
+      expect(mocks.logger.info).not.toHaveBeenCalledWith(
+        expect.stringContaining('Kong plan'),
+      );
+    });
+
+    it('should not report a Next.js plan when there is no Next.js app', () => {
+      mocks.loadFrameworkConfig.mockReturnValue({
+        project: { name: 'my-app' },
+        services: [{ name: 'auth-service', type: 'nestjs' }],
+      });
+
+      generateTerraformFiles(mockCtx, 'infra:generate');
+
+      expect(mocks.logger.info).not.toHaveBeenCalledWith(
+        expect.stringContaining('Next.js plan'),
+      );
+      expect(azure.generateAppServiceTf).toHaveBeenCalledWith(
+        expect.objectContaining({
+          nextjsScaling: { instances: 1, autoscaleMax: null },
+        }),
+      );
+    });
+
+    it('should size the shared Next.js plan by the highest app', () => {
+      mocks.loadFrameworkConfig.mockReturnValue({
+        project: { name: 'my-app' },
+        services: [
+          { name: 'frontend', type: 'nextjs' },
+          { name: 'admin', type: 'nextjs' },
+        ],
+      });
+      rs.mocked(getAppServiceConfig).mockReturnValue({
+        kongSku: 'B1',
+        nextjsSku: 'S1',
+      });
+      rs.mocked(getServiceConfig).mockImplementation(
+        (_config, name) =>
+          ({
+            minInstances: name === 'admin' ? 2 : 1,
+            maxInstances: name === 'frontend' ? 6 : 2,
+            cpu: '0.25',
+            memory: '0.5Gi',
+            timeout: '300s',
+            port: 3000,
+            concurrency: 80,
+          }) as never,
+      );
+
+      generateTerraformFiles(mockCtx, 'infra:generate');
+
+      expect(azure.generateAppServiceTf).toHaveBeenCalledWith(
+        expect.objectContaining({
+          nextjsScaling: { instances: 2, autoscaleMax: 6 },
         }),
       );
     });

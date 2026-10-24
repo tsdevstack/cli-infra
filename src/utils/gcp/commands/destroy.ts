@@ -10,9 +10,15 @@ import {
   buildGcpTerraformEnv,
   checkTerraformInstalled,
 } from '@tsdevstack/infra-core';
-import { executeTerraform } from '../terraform';
+import { executeTerraform, isCloudRunSubnetReleasePending } from '../terraform';
 import { buildRuntime } from '../../build-runtime';
+import { getTerraformErrors } from '../../terraform';
 import { disableDeletionProtection } from '../disable-deletion-protection';
+import {
+  deleteEnvironmentCloudRunResources,
+  getEnvironmentCloudRunNames,
+} from '../delete';
+import type { FrameworkService } from '@tsdevstack/cli/plugin';
 import type { GCPCommandContext, DestroyOptions } from './types';
 
 /**
@@ -124,6 +130,38 @@ export async function gcpDestroy(
     logger.newline();
   }
 
+  // Cloud Run services and jobs: deploys create them with the SDK, so
+  // Terraform does not delete them. Left running they keep billing and keep
+  // the subnet in use.
+  const { loadFrameworkConfig } = getContext();
+  let services: FrameworkService[] = [];
+  try {
+    services = loadFrameworkConfig().services;
+  } catch {
+    // No framework config: only Kong's name is known
+  }
+  logger.info('Deleting Cloud Run services and jobs...');
+  const cloudRun = await deleteEnvironmentCloudRunResources({
+    credentials: ctx.credentials,
+    projectId: ctx.credentials.project_id,
+    region: ctx.credentials.region,
+    names: getEnvironmentCloudRunNames(services, ctx.projectName),
+  });
+  for (const name of cloudRun.deleted) {
+    logger.success(`  Deleted ${name}`);
+  }
+  if (cloudRun.deleted.length === 0 && cloudRun.failed.length === 0) {
+    logger.info('  None found.');
+  }
+  if (cloudRun.failed.length > 0) {
+    throw new CliError(
+      `Could not delete ${cloudRun.failed.map((f) => f.name).join(', ')}`,
+      'infra:destroy',
+      `${cloudRun.failed.map((f) => `${f.name}: ${f.error}`).join('; ')}. Run infra:destroy again; nothing else was deleted yet.`,
+    );
+  }
+  logger.newline();
+
   // Build Terraform environment
   const tfEnv = buildGcpTerraformEnv(runtime, ctx.credentials);
 
@@ -155,6 +193,23 @@ export async function gcpDestroy(
   });
 
   if (!destroyResult.success) {
+    const errors = getTerraformErrors(destroyResult.output);
+    const subnetErrors = errors.filter(isCloudRunSubnetReleasePending);
+    const subnetWait = `Cloud Run releases a subnet's addresses 1-2 hours after its services and jobs are deleted (Google). Run npx tsdevstack infra:destroy --env ${ctx.targetEnv} again after that`;
+    if (subnetErrors.length > 0 && subnetErrors.length === errors.length) {
+      throw new CliError(
+        'The subnet is still held by Cloud Run',
+        'infra:destroy',
+        `${subnetWait}; it removes what is left (the subnet and the network).`,
+      );
+    }
+    if (subnetErrors.length > 0) {
+      throw new CliError(
+        'Destroy failed',
+        'infra:destroy',
+        `Check the errors above. The subnet error clears by itself: ${subnetWait}.`,
+      );
+    }
     throw new CliError(
       'Destroy failed',
       'infra:destroy',

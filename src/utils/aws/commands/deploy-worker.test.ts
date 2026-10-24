@@ -16,7 +16,7 @@ rs.mock('../terraform', () => ({
 
 rs.mock('@tsdevstack/infra-core', () => ({
   buildAwsTerraformEnv: rs.fn(),
-  updateEcsService: rs.fn(),
+  deployEcsServiceWithSecrets: rs.fn(),
   waitForEcsStable: rs.fn(),
 }));
 
@@ -28,7 +28,7 @@ import { awsDeployWorker } from './deploy-worker';
 import { getTerraformOutput } from '../terraform';
 import {
   buildAwsTerraformEnv,
-  updateEcsService,
+  deployEcsServiceWithSecrets,
   waitForEcsStable,
 } from '@tsdevstack/infra-core';
 
@@ -69,7 +69,9 @@ describe('awsDeployWorker', () => {
       },
     );
 
-    rs.mocked(updateEcsService).mockResolvedValue({
+    rs.mocked(deployEcsServiceWithSecrets).mockResolvedValue({
+      taskDefinitionArn:
+        'arn:aws:ecs:us-east-1:123456789012:task-definition/my-app-auth-worker:2',
       deploymentId: 'deploy-123',
     });
 
@@ -79,27 +81,27 @@ describe('awsDeployWorker', () => {
     });
   });
 
-  it('should update ECS service with force new deployment', async () => {
+  it("should register the base service's image for the worker", async () => {
     await awsDeployWorker(mockParams);
 
-    expect(updateEcsService).toHaveBeenCalledWith(
+    expect(deployEcsServiceWithSecrets).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
+        projectName: 'my-app',
+        clusterName: 'my-app-cluster',
         serviceName: 'auth-worker',
-        forceNewDeployment: true,
+        imageUri:
+          '123456789012.dkr.ecr.us-east-1.amazonaws.com/my-app/auth-service:abc123',
       }),
     );
   });
 
-  it('should use task definition family from project and worker name', async () => {
+  it('should inject no secrets into the worker', async () => {
     await awsDeployWorker(mockParams);
 
-    expect(updateEcsService).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        taskDefinitionArn: 'my-app-auth-worker',
-      }),
-    );
+    const options = rs.mocked(deployEcsServiceWithSecrets).mock.calls[0][1];
+    expect(options.hasDatabase).toBe(false);
+    expect(options.additionalSecrets).toBeUndefined();
   });
 
   it('should wait for service to stabilize', async () => {
@@ -115,7 +117,7 @@ describe('awsDeployWorker', () => {
   });
 
   it('should throw when ECS update fails', async () => {
-    rs.mocked(updateEcsService).mockRejectedValue(
+    rs.mocked(deployEcsServiceWithSecrets).mockRejectedValue(
       new Error('Service not found'),
     );
 

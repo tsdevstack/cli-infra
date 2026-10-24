@@ -27,6 +27,10 @@ rs.mock('inquirer', () => ({
   },
 }));
 
+rs.mock('../delete/delete-environment-container-resources', () => ({
+  deleteEnvironmentContainerResources: rs.fn(),
+}));
+
 rs.mock('node:fs', () => ({
   default: {
     existsSync: rs.fn(),
@@ -38,6 +42,7 @@ import inquirer from 'inquirer';
 import { azureDestroy } from './destroy';
 import { executeTerraform } from '../terraform';
 import { buildAzureTerraformEnv } from '@tsdevstack/infra-core';
+import { deleteEnvironmentContainerResources } from '../delete/delete-environment-container-resources';
 
 describe('azureDestroy', () => {
   const mockCtx = {
@@ -69,6 +74,47 @@ describe('azureDestroy', () => {
     rs.mocked(executeTerraform).mockResolvedValue({
       success: true,
       output: '',
+    });
+
+    rs.mocked(deleteEnvironmentContainerResources).mockResolvedValue({
+      deleted: [],
+      failed: [],
+    });
+  });
+
+  describe('Container Apps created by deploys', () => {
+    it('should delete them in the environment before Terraform runs', async () => {
+      rs.mocked(deleteEnvironmentContainerResources).mockResolvedValue({
+        deleted: ['my-app-auth-service', 'migrate-auth-service'],
+        failed: [],
+      });
+
+      await azureDestroy(mockCtx, { autoApprove: true });
+
+      expect(deleteEnvironmentContainerResources).toHaveBeenCalledWith({
+        credentials: mockCtx.credentials,
+        resourceGroupName: 'my-app-dev-rg',
+        environmentName: 'my-app-dev-cae',
+      });
+      expect(
+        rs.mocked(deleteEnvironmentContainerResources).mock
+          .invocationCallOrder[0],
+      ).toBeLessThan(rs.mocked(executeTerraform).mock.invocationCallOrder[0]);
+      expect(mocks.logger.success).toHaveBeenCalledWith(
+        '  Deleted my-app-auth-service',
+      );
+    });
+
+    it('should stop before Terraform when a delete fails', async () => {
+      rs.mocked(deleteEnvironmentContainerResources).mockResolvedValue({
+        deleted: [],
+        failed: [{ name: 'my-app-bff-service', error: 'Conflict' }],
+      });
+
+      await expect(
+        azureDestroy(mockCtx, { autoApprove: true }),
+      ).rejects.toThrow('Could not delete my-app-bff-service');
+      expect(executeTerraform).not.toHaveBeenCalled();
     });
   });
 

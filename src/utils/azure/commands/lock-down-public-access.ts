@@ -13,10 +13,18 @@
  *
  * Setting public_network_access_enabled = false in Terraform causes downtime because
  * it takes effect immediately while Private Link needs time to propagate.
+ *
+ * Kong's own private endpoint (the Next.js servers' path to Kong,
+ * AZURE_KONG_PRIVATE_ENDPOINT) is approved as soon as it exists, so it is
+ * left out: only Front Door's connections show that Front Door can reach
+ * the app once public access is off.
  */
 
 import { getContext } from '../../../context';
-import { createAzureCredential } from '@tsdevstack/infra-core';
+import {
+  AZURE_KONG_PRIVATE_ENDPOINT,
+  createAzureCredential,
+} from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
 import type { AzureCredentials } from '@tsdevstack/cli/plugin';
 
@@ -36,6 +44,7 @@ interface LockDownPublicAccessParams {
 interface PeConnection {
   name?: string;
   properties?: {
+    privateEndpoint?: { id?: string };
     privateLinkServiceConnectionState?: { status?: string };
   };
 }
@@ -48,13 +57,15 @@ function sleep(ms: number): Promise<void> {
  * Check PE connections on an App Service and approve any pending ones.
  * Returns 'approved' if at least one Approved PE exists (or was just approved),
  * 'pending' if PEs exist but none are Approved yet,
- * 'none' if no PE connections exist yet.
+ * 'none' if no PE connections exist yet. Connections of ownEndpointId (lower
+ * case) don't count and are never approved here.
  */
 async function checkAndApprovePeConnections(
   token: string,
   subscriptionId: string,
   resourceGroupName: string,
   appName: string,
+  ownEndpointId: string,
 ): Promise<'approved' | 'pending' | 'none'> {
   const { logger } = getContext();
   const peBaseUrl = `https://management.azure.com/subscriptions/${subscriptionId}/resourceGroups/${resourceGroupName}/providers/Microsoft.Web/sites/${appName}/privateEndpointConnections`;
@@ -75,7 +86,10 @@ async function checkAndApprovePeConnections(
     value?: PeConnection[];
   };
 
-  const connections = data.value ?? [];
+  const connections = (data.value ?? []).filter(
+    (conn) =>
+      conn.properties?.privateEndpoint?.id?.toLowerCase() !== ownEndpointId,
+  );
 
   if (connections.length === 0) {
     return 'none';
@@ -144,6 +158,12 @@ export async function lockDownPublicAccess(
 
   const token = tokenResponse.token;
 
+  // Kong's endpoint for the Next.js servers (same resource group)
+  const ownEndpointId =
+    `/subscriptions/${credentials.subscriptionId}/resourceGroups/${resourceGroupName}` +
+    `/providers/Microsoft.Network/privateEndpoints/` +
+    `${params.projectName}-${params.targetEnv}${AZURE_KONG_PRIVATE_ENDPOINT.nameSuffix}`;
+
   // Phase 1: Poll App Service PE connections until all have an Approved PE
   logger.info('Waiting for Private Link connections to become operational...');
 
@@ -157,6 +177,7 @@ export async function lockDownPublicAccess(
           credentials.subscriptionId,
           resourceGroupName,
           appName,
+          ownEndpointId.toLowerCase(),
         );
 
         if (result === 'approved') {

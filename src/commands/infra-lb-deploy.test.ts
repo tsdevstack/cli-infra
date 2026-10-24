@@ -194,7 +194,7 @@ describe('infraLbDeploy', () => {
       const { loadInfrastructureConfig } =
         await import('../utils/infrastructure/load-infrastructure-config');
       rs.mocked(loadInfrastructureConfig).mockReturnValue({
-        version: '1',
+        version: '1.0.0',
         prod: {
           frontend: { domain: 'app.example.com' },
         },

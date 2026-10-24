@@ -17,6 +17,11 @@ interface DeployAppServiceParams {
   appServiceName: string;
   acrLoginServer: string;
   imageUri: string;
+  /**
+   * Extra app settings (container environment variables), merged on every
+   * deploy: Terraform ignores app_settings changes after creation
+   */
+  appSettings?: Record<string, string>;
 }
 
 export async function deployAppService(
@@ -29,6 +34,7 @@ export async function deployAppService(
     appServiceName,
     acrLoginServer,
     imageUri,
+    appSettings,
   } = params;
 
   const runtime = buildRuntime();
@@ -55,7 +61,7 @@ export async function deployAppService(
     );
   }
 
-  // Step 2: Ensure registry URL is set in app settings
+  // Step 2: Ensure registry URL (and any extra settings) are set in app settings
   // SDK's updateApplicationSettings replaces all settings, so merge with existing
   try {
     const currentSettings = await client.webApps.listApplicationSettings(
@@ -68,6 +74,7 @@ export async function deployAppService(
       {
         properties: {
           ...currentSettings.properties,
+          ...appSettings,
           DOCKER_REGISTRY_SERVER_URL: `https://${acrLoginServer}`,
         },
       },

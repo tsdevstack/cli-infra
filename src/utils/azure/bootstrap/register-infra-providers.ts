@@ -9,22 +9,8 @@
 import { ResourceManagementClient } from '@azure/arm-resources';
 import type { AzureCredentials } from '@tsdevstack/cli/plugin';
 import { createAzureCredential } from '@tsdevstack/infra-core';
+import { getContext } from '../../../context';
 import { buildRuntime } from '../../build-runtime';
-
-const REQUIRED_PROVIDERS = [
-  'Microsoft.ContainerRegistry',
-  'Microsoft.App',
-  'Microsoft.Web',
-  'Microsoft.DBforPostgreSQL',
-  'Microsoft.Cache',
-  'Microsoft.Cdn',
-  'Microsoft.Network',
-  'Microsoft.OperationalInsights',
-  'microsoft.insights',
-  'Microsoft.ManagedIdentity',
-  'Microsoft.Storage',
-  'Microsoft.KeyVault',
-] as const;
 
 export interface RegisterProvidersResult {
   success: boolean;
@@ -38,6 +24,9 @@ export interface RegisterProvidersResult {
 export async function registerInfraProviders(
   credentials: AzureCredentials,
 ): Promise<RegisterProvidersResult> {
+  // Shared with cloud:init, which registers the same list early
+  const { AZURE_REQUIRED_RESOURCE_PROVIDERS: REQUIRED_PROVIDERS } =
+    getContext();
   const registered: string[] = [];
   const runtime = buildRuntime();
 
@@ -85,8 +74,10 @@ export async function registerInfraProviders(
           'Provider registration requires subscription-level Contributor role (not resource group).',
           `Unregistered providers: ${missing.join(', ')}`,
           '',
-          'Grant the Service Principal subscription-level Contributor, or register',
-          'providers from an account with subscription access before running this command.',
+          'Register them once from an account with access to the subscription:',
+          '  Azure Portal: Subscriptions → (your subscription) → Settings → Resource providers → select each one → Register',
+          `  Azure CLI: az provider register --subscription ${credentials.subscriptionId} --namespace <name>`,
+          'Or grant the Service Principal subscription-level Contributor.',
         ].join('\n'),
       };
     }

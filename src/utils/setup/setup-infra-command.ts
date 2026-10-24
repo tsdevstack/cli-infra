@@ -12,6 +12,9 @@ import type {
 } from '@tsdevstack/cli/plugin';
 import { getContext } from '../../context';
 import { resolveAWSAccountId } from '../aws/resolve-aws-account-id';
+import { loadInfrastructureConfig } from '../infrastructure/load-infrastructure-config';
+import { validateInfrastructureConfig } from '../infrastructure/validate-infrastructure-config';
+import { INFRASTRUCTURE_VALIDATING_COMMANDS } from '../../constants';
 
 interface CommandOptions {
   env?: string;
@@ -66,6 +69,19 @@ export async function setupInfraCommand(
       commandName,
       'Supported providers: gcp, aws, azure',
     );
+  }
+
+  // Commands that build or deploy fail here on an invalid infrastructure.json
+  // instead of half-way through Terraform or a provider API call
+  if (
+    (INFRASTRUCTURE_VALIDATING_COMMANDS as readonly string[]).includes(
+      commandName,
+    )
+  ) {
+    const infraConfig = loadInfrastructureConfig();
+    if (infraConfig) {
+      validateInfrastructureConfig(infraConfig);
+    }
   }
 
   let credentials: GCPCredentials | AWSCredentials | AzureCredentials;

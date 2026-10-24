@@ -7,7 +7,6 @@
 
 import {
   VALIDATION_CONSTRAINTS,
-  DATABASE_CONSTRAINTS,
   AZURE_POSTGRES_SERVER_NAME_CONSTRAINTS,
   REDIS_CONSTRAINTS,
 } from '../../constants';
@@ -430,13 +429,17 @@ export function generateInfrastructureSchema(
           },
           diskSize: {
             type: 'integer',
-            minimum: DATABASE_CONSTRAINTS.diskSize.min,
-            maximum: DATABASE_CONSTRAINTS.diskSize.max,
+            ...(providerConfig.databaseDiskSize.allowed
+              ? { enum: [...providerConfig.databaseDiskSize.allowed] }
+              : {
+                  minimum: providerConfig.databaseDiskSize.min,
+                  maximum: providerConfig.databaseDiskSize.max,
+                }),
             description: 'Disk size in GB',
           },
           ha: {
             type: 'boolean',
-            description: 'Enable high availability (regional)',
+            description: providerConfig.databaseHaDescription,
           },
           backup: {
             type: 'boolean',
@@ -490,12 +493,16 @@ export function generateInfrastructureSchema(
             enum: [...providerConfig.redisTiers],
             description: providerConfig.redisTierDescription,
           },
-          memoryGb: {
-            type: 'integer',
-            minimum: REDIS_CONSTRAINTS.memoryGb.min,
-            maximum: REDIS_CONSTRAINTS.memoryGb.max,
-            description: 'Memory size in GB',
-          },
+          ...(providerConfig.supportsRedisMemoryGb
+            ? {
+                memoryGb: {
+                  type: 'integer',
+                  minimum: REDIS_CONSTRAINTS.memoryGb.min,
+                  maximum: REDIS_CONSTRAINTS.memoryGb.max,
+                  description: 'Memory size in GB',
+                },
+              }
+            : {}),
         },
         additionalProperties: false,
       },
@@ -503,21 +510,22 @@ export function generateInfrastructureSchema(
         type: 'object',
         description: providerConfig.kongDescription,
         properties: {
+          minInstances: {
+            type: 'integer',
+            minimum: providerConfig.minInstancesMinimum,
+            maximum: VALIDATION_CONSTRAINTS.minInstances.max,
+            description: providerConfig.kongMinInstancesDescription,
+          },
+          maxInstances: {
+            type: 'integer',
+            minimum: VALIDATION_CONSTRAINTS.maxInstances.min,
+            maximum: VALIDATION_CONSTRAINTS.maxInstances.max,
+            description: providerConfig.kongMaxInstancesDescription,
+          },
+          // On App Service the plan SKU sets CPU and memory
           ...(providerConfig.kongUsesAppService
             ? {}
             : {
-                minInstances: {
-                  type: 'integer',
-                  minimum: providerConfig.minInstancesMinimum,
-                  maximum: VALIDATION_CONSTRAINTS.minInstances.max,
-                  description: providerConfig.kongMinInstancesDescription,
-                },
-                maxInstances: {
-                  type: 'integer',
-                  minimum: VALIDATION_CONSTRAINTS.maxInstances.min,
-                  maximum: VALIDATION_CONSTRAINTS.maxInstances.max,
-                  description: 'Maximum number of instances',
-                },
                 cpu: {
                   type: 'string',
                   enum: [...providerConfig.cpuValues],
@@ -625,12 +633,14 @@ export function generateInfrastructureSchema(
                 kongSku: {
                   type: 'string',
                   enum: [...providerConfig.appServiceSkus],
-                  description: 'Kong App Service Plan SKU (default: B1)',
+                  description:
+                    'Kong App Service plan SKU (default: B1). B1-B3: a fixed kong.minInstances, no autoscale. S1-S3 and P1v3-P3v3: CPU autoscale between kong.minInstances and kong.maxInstances',
                 },
                 nextjsSku: {
                   type: 'string',
                   enum: [...providerConfig.appServiceSkus],
-                  description: 'Next.js App Service Plan SKU (default: B1)',
+                  description:
+                    'App Service plan SKU shared by the Next.js apps (default: B1). B1-B3: a fixed minInstances, no autoscale. S1-S3 and P1v3-P3v3: CPU autoscale between minInstances and maxInstances (the largest values among the Next.js apps)',
                 },
               },
               additionalProperties: false,

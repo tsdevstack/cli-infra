@@ -12,14 +12,25 @@ import type {
   EnvironmentOverrides,
   KongOverride,
   DatabaseOverride,
+  RedisOverride,
 } from './types';
 import { RESERVED_ENVIRONMENT_KEYS } from './types';
 import type { SchemaProvider } from './get-provider-schema-config';
 import { validateVersion } from './validate-version';
 import { validateServiceOverride } from './validate-service-override';
+import { validateEnum } from './validate-enum';
+import { getProviderSchemaConfig } from './get-provider-schema-config';
+import { mergeServiceWithDefaults } from './merge-service-with-defaults';
+import { mergeKongWithDefaults } from './merge-kong-with-defaults';
+import { validateCloudRunResources } from '../gcp/infrastructure/validate-cloud-run-resources';
 import { validateAccessControl } from './validate-access-control';
 import { validateDatabaseServerName } from './validate-database-server-name';
+import { validateDatabaseDiskSize } from './validate-database-disk-size';
+import { validateDatabaseHa } from './validate-database-ha';
+import { validateRedisMemoryGb } from './validate-redis-memory-gb';
+import { mergeDatabaseWithDefaults } from './merge-database-with-defaults';
 import { validateAwsMinInstances } from '../aws/infrastructure/validate-aws-min-instances';
+import { validateAppServiceScaling } from '../azure/infrastructure/validate-app-service-scaling';
 
 /**
  * Validate infrastructure.json configuration
@@ -72,6 +83,19 @@ export function validateInfrastructureConfig(
         if (itemKey === 'accessControl') {
           validateAccessControl(key, override);
         }
+        // Cloud Run limits on Kong's cpu/memory (with defaults filled in)
+        if (
+          itemKey === 'kong' &&
+          provider === 'gcp' &&
+          typeof override === 'object' &&
+          override !== null
+        ) {
+          validateCloudRunResources(
+            `${key}.kong`,
+            mergeKongWithDefaults(override as KongOverride, 'gcp'),
+            'kong',
+          );
+        }
         // AWS has no scale-to-zero: Kong must run at least one task
         if (itemKey === 'kong' && provider === 'aws') {
           const kongMin = (override as KongOverride).minInstances;
@@ -79,19 +103,60 @@ export function validateInfrastructureConfig(
             validateAwsMinInstances(kongMin, `${key}.kong`);
           }
         }
-        // database.serverName is Azure only and must follow Azure naming rules
+        // database.serverName is Azure only and must follow Azure naming rules;
+        // database.diskSize and database.ha must be something the provider can create
         if (
           itemKey === 'database' &&
           typeof override === 'object' &&
           override !== null
         ) {
+          // A tier from another provider would only fail in Terraform
+          const databaseTier = (override as DatabaseOverride).tier;
+          if (databaseTier !== undefined) {
+            validateEnum(
+              databaseTier,
+              'tier',
+              `${key}.database`,
+              getProviderSchemaConfig(provider).databaseTiers,
+            );
+          }
           validateDatabaseServerName(
             key,
             (override as DatabaseOverride).serverName,
             provider,
           );
+          validateDatabaseDiskSize(
+            key,
+            (override as DatabaseOverride).diskSize,
+            provider,
+          );
+          validateDatabaseHa(
+            key,
+            mergeDatabaseWithDefaults(override as DatabaseOverride, provider),
+            provider,
+          );
         }
-        // redis validation can be added here when needed
+        // redis.memoryGb only applies on GCP
+        if (
+          itemKey === 'redis' &&
+          typeof override === 'object' &&
+          override !== null
+        ) {
+          const redisTier = (override as RedisOverride).tier;
+          if (redisTier !== undefined) {
+            validateEnum(
+              redisTier,
+              'tier',
+              `${key}.redis`,
+              getProviderSchemaConfig(provider).redisTiers,
+            );
+          }
+          validateRedisMemoryGb(
+            key,
+            (override as RedisOverride).memoryGb,
+            provider,
+          );
+        }
         continue;
       }
 
@@ -112,6 +177,21 @@ export function validateInfrastructureConfig(
         provider,
       );
 
+      // Cloud Run limits on cpu/memory/concurrency (with defaults filled in;
+      // SPAs are served from a bucket)
+      if (provider === 'gcp' && serviceTypes.get(itemKey) !== 'spa') {
+        validateCloudRunResources(
+          `${key}.${itemKey}`,
+          mergeServiceWithDefaults(
+            override as ServiceOverride,
+            itemKey,
+            key,
+            'gcp',
+          ),
+          serviceTypes.get(itemKey) === 'worker' ? 'worker' : 'service',
+        );
+      }
+
       // AWS has no scale-to-zero: every ECS service runs at least one task
       // (SPAs are served from S3 and have no instances)
       const serviceMin = (override as ServiceOverride).minInstances;
@@ -122,6 +202,11 @@ export function validateInfrastructureConfig(
       ) {
         validateAwsMinInstances(serviceMin, `${key}.${itemKey}`);
       }
+    }
+
+    // App Service plans (Kong, Next.js): size, counts and autoscale per SKU tier
+    if (provider === 'azure') {
+      validateAppServiceScaling(key, envOverrides, serviceTypes);
     }
   }
 }

@@ -19,6 +19,7 @@ import { infraDockerPush } from '../../../commands/infra-docker-push';
 import { checkDockerInstalled, getGitSha } from '../../docker';
 import { getTerraformOutput } from '../terraform';
 import {
+  AWS_NEXTJS_CLIENT_IP_SETTINGS,
   buildAwsTerraformEnv,
   configureEcrAuth,
   deployEcsServiceWithSecrets,
@@ -224,6 +225,8 @@ export async function deployNextjsServices(
           imageUri,
           hasDatabase: false,
           additionalSecrets,
+          // The visitor's address header (the CloudFront function sets it)
+          additionalEnvironment: { ...AWS_NEXTJS_CLIENT_IP_SETTINGS },
         });
 
         logger.success(`  ✓ ${service.name} deployment triggered`);

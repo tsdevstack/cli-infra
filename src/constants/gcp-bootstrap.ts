@@ -14,16 +14,15 @@ export const GCP_REQUIRED_APIS = [
   'artifactregistry.googleapis.com',
   'sqladmin.googleapis.com',
   'redis.googleapis.com',
-  'compute.googleapis.com',
-  'vpcaccess.googleapis.com',
+  'compute.googleapis.com', // Also Direct VPC egress for Cloud Run (no connector)
   'servicenetworking.googleapis.com',
   'cloudresourcemanager.googleapis.com',
   'certificatemanager.googleapis.com',
   'dns.googleapis.com',
-  'cloudfunctions.googleapis.com', // For env-auth function
-  'cloudbuild.googleapis.com', // Required by Cloud Functions 2nd gen
   'cloudscheduler.googleapis.com', // For scheduled jobs
   'storage.googleapis.com', // For Terraform state bucket + SPA uploads
+  'iam.googleapis.com', // Runtime service accounts and their IAM bindings
+  'iamcredentials.googleapis.com', // signBlob for storage presigned URLs; WIF in CI
 ] as const;
 
 /**
@@ -39,14 +38,11 @@ export const GCP_DEPLOY_SA_ROLES = [
   'roles/cloudsql.admin',
   'roles/redis.admin',
   'roles/compute.admin', // Full compute (VPCs, NEGs, load balancers)
-  'roles/vpcaccess.admin',
   'roles/servicenetworking.networksAdmin', // VPC peering for Cloud SQL private IP
   'roles/storage.admin',
   'roles/iam.serviceAccountAdmin',
   'roles/iam.serviceAccountUser',
   'roles/certificatemanager.owner', // SSL certificates with DNS authorization
   'roles/dns.admin', // Private DNS zones for internal Cloud Run routing
-  'roles/cloudfunctions.admin', // Cloud Functions for env-auth
-  'roles/cloudbuild.builds.builder', // Required by Cloud Functions 2nd gen
   'roles/cloudscheduler.admin', // For scheduled jobs
 ] as const;

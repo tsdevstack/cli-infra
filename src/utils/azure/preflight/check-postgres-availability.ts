@@ -4,6 +4,8 @@
  * Azure restricts PostgreSQL provisioning in certain regions for some subscription types
  * (free trial, student, sponsorship) and during capacity constraints. This check calls
  * the Azure REST API to detect restrictions before running a long terraform apply.
+ * With database.ha it also checks that the region offers zone-redundant high
+ * availability (only regions with availability zones do).
  */
 
 import type { AzureCredentials } from '@tsdevstack/cli/plugin';
@@ -15,8 +17,19 @@ interface PostgresAvailabilityResult {
   error?: string;
 }
 
+export interface PostgresAvailabilityOptions {
+  /** database.ha is on: the region must offer zone-redundant high availability */
+  zoneRedundantHa?: boolean;
+}
+
+interface FlexibleServerCapability {
+  zoneRedundantHaSupported?: string;
+  supportedFeatures?: Array<{ name?: string; status?: string }>;
+}
+
 export async function checkPostgresAvailability(
   credentials: AzureCredentials,
+  options: PostgresAvailabilityOptions = {},
 ): Promise<PostgresAvailabilityResult> {
   const runtime = buildRuntime();
   const credential = createAzureCredential(runtime, credentials);
@@ -60,6 +73,31 @@ export async function checkPostgresAvailability(
         `To fix: change "location" in .tsdevstack/.credentials.azure.json to a supported region.\n` +
         `Recommended alternatives: eastus2, centralus, westus2`,
     };
+  }
+
+  if (options.zoneRedundantHa) {
+    // Older API versions report zoneRedundantHaSupported, newer ones a
+    // ZoneRedundantHa feature; block only when the region says it is off
+    const reported = (data.value as FlexibleServerCapability[])
+      .flatMap((capability) => [
+        capability.zoneRedundantHaSupported,
+        ...(capability.supportedFeatures ?? [])
+          .filter((feature) => feature.name === 'ZoneRedundantHa')
+          .map((feature) => feature.status),
+      ])
+      .filter((status): status is string => status !== undefined);
+
+    if (reported.length > 0 && !reported.includes('Enabled')) {
+      return {
+        available: false,
+        error:
+          `"database.ha" is on, but zone-redundant high availability is not available ` +
+          `in '${credentials.location}' (the region has no availability zones for PostgreSQL).\n\n` +
+          `To fix: change "location" in .tsdevstack/.credentials.azure.json to a region with ` +
+          `availability zones (for example eastus2, centralus, westus2), or set "ha" to false ` +
+          `in .tsdevstack/infrastructure.json.`,
+      };
+    }
   }
 
   return { available: true };

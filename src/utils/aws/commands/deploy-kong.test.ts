@@ -26,6 +26,11 @@ rs.mock('../../terraform', () => ({
 }));
 
 rs.mock('@tsdevstack/infra-core', () => ({
+  AWS_KONG_CLIENT_IP_SETTINGS: {
+    KONG_TRUSTED_IPS: '0.0.0.0/0,::/0',
+    KONG_REAL_IP_HEADER: 'X-Tsdevstack-Edge-IP',
+    KONG_REAL_IP_RECURSIVE: 'off',
+  },
   buildAwsTerraformEnv: rs.fn(),
   waitForEcsStable: rs.fn(),
 }));
@@ -34,6 +39,7 @@ rs.mock('../../build-runtime', () => ({
   buildRuntime: () => ({}),
 }));
 
+import { RegisterTaskDefinitionCommand } from '@aws-sdk/client-ecs';
 import { awsKongDeploy } from './deploy-kong';
 import { getTerraformOutput } from '../../terraform';
 import { buildAwsTerraformEnv, waitForEcsStable } from '@tsdevstack/infra-core';
@@ -125,6 +131,25 @@ describe('awsKongDeploy', () => {
 
     // Second send call is RegisterTaskDefinition
     expect(mockSend).toHaveBeenCalledTimes(3);
+  });
+
+  it('should keep the environment and set the client address settings on top', async () => {
+    await awsKongDeploy(mockParams);
+
+    const registered = rs.mocked(RegisterTaskDefinitionCommand).mock
+      .calls[0][0] as {
+      containerDefinitions: Array<{
+        image: string;
+        environment: Array<{ name: string; value: string }>;
+      }>;
+    };
+    expect(registered.containerDefinitions[0].image).toContain('kong:');
+    expect(registered.containerDefinitions[0].environment).toEqual([
+      { name: 'KONG_DATABASE', value: 'off' },
+      { name: 'KONG_TRUSTED_IPS', value: '0.0.0.0/0,::/0' },
+      { name: 'KONG_REAL_IP_HEADER', value: 'X-Tsdevstack-Edge-IP' },
+      { name: 'KONG_REAL_IP_RECURSIVE', value: 'off' },
+    ]);
   });
 
   it('should update ECS service with new task definition', async () => {

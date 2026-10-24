@@ -311,14 +311,16 @@ describe('validateInfrastructureConfig', () => {
       mocks.loadFrameworkConfig.mockReturnValue({
         project: { name: 'test-project' },
         cloud: { provider: 'gcp' },
-        services: [{ name: 'auth-service' }],
+        services: [{ name: 'auth-service' }, { name: 'offers-service' }],
       });
 
+      // cpu 8 and memory 256Mi are GCP-only values (in pairs Cloud Run accepts)
       expect(() =>
         validateInfrastructureConfig({
           version: '1.0.0',
           dev: {
-            'auth-service': { cpu: '8', memory: '256Mi' },
+            'auth-service': { cpu: '8', memory: '8Gi' },
+            'offers-service': { cpu: '1', memory: '256Mi' },
           },
         }),
       ).not.toThrow();
@@ -335,8 +337,156 @@ describe('validateInfrastructureConfig', () => {
         validateInfrastructureConfig({
           version: '1.0.0',
           dev: {
-            'auth-service': { cpu: '8', memory: '256Mi' },
+            'auth-service': { cpu: '8', memory: '8Gi' },
           },
+        }),
+      ).not.toThrow();
+    });
+  });
+
+  describe('database and redis tiers', () => {
+    const withProvider = (provider: string): void => {
+      mocks.loadFrameworkConfig.mockReturnValue({
+        project: { name: 'test-project' },
+        cloud: { provider },
+        services: [],
+      });
+    };
+
+    it('should reject a database tier from another provider', () => {
+      withProvider('aws');
+
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { database: { tier: 'db-f1-micro' } },
+        }),
+      ).toThrow('dev.database.tier: invalid value "db-f1-micro"');
+    });
+
+    it('should accept every tier deploys can size a pool for', () => {
+      withProvider('aws');
+
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { database: { tier: 'db.t4g.micro' } },
+          prod: { database: { tier: 'db.r6g.large' } },
+        }),
+      ).not.toThrow();
+    });
+
+    it('should reject a redis tier from another provider', () => {
+      withProvider('gcp');
+
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { redis: { tier: 'cache.t3.micro' } },
+        }),
+      ).toThrow('dev.redis.tier: invalid value "cache.t3.micro"');
+    });
+
+    it('should accept a valid redis tier', () => {
+      withProvider('azure');
+
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { redis: { tier: 'Balanced_B0' } },
+        }),
+      ).not.toThrow();
+    });
+  });
+
+  describe('Cloud Run limits (GCP)', () => {
+    const gcpWith = (services: { name: string; type?: string }[]): void => {
+      mocks.loadFrameworkConfig.mockReturnValue({
+        project: { name: 'test-project' },
+        cloud: { provider: 'gcp' },
+        services,
+      });
+    };
+
+    it('should reject cpu below 1 with the default concurrency', () => {
+      gcpWith([{ name: 'api', type: 'nestjs' }]);
+
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { api: { cpu: '0.5' } },
+        }),
+      ).toThrow(
+        'cpu "0.5" needs "concurrency": 1 on Cloud Run (dev.api has 80)',
+      );
+    });
+
+    it('should accept cpu below 1 with concurrency 1', () => {
+      gcpWith([{ name: 'api', type: 'nestjs' }]);
+
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { api: { cpu: '0.5', concurrency: 1 } },
+        }),
+      ).not.toThrow();
+    });
+
+    it('should reject cpu below 1 for a worker', () => {
+      gcpWith([{ name: 'auth-worker', type: 'worker' }]);
+
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { 'auth-worker': { cpu: '0.5', concurrency: 1 } },
+        }),
+      ).toThrow('not possible for a worker on Cloud Run');
+    });
+
+    it('should check memory against the default cpu', () => {
+      gcpWith([{ name: 'api', type: 'nestjs' }]);
+
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { api: { memory: '8Gi' } },
+        }),
+      ).toThrow('memory "8Gi" is more than Cloud Run allows with cpu "1"');
+    });
+
+    it('should reject cpu below 1 for Kong', () => {
+      gcpWith([{ name: 'api', type: 'nestjs' }]);
+
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { kong: { cpu: '0.5' } },
+        }),
+      ).toThrow('not possible for Kong on Cloud Run');
+    });
+
+    it('should not apply Cloud Run limits on other providers', () => {
+      mocks.loadFrameworkConfig.mockReturnValue({
+        project: { name: 'test-project' },
+        cloud: { provider: 'aws' },
+        services: [{ name: 'api', type: 'nestjs' }],
+      });
+
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { api: { cpu: '0.5', memory: '1Gi' } },
+        }),
+      ).not.toThrow();
+    });
+
+    it('should skip SPAs (served from a bucket)', () => {
+      gcpWith([{ name: 'web', type: 'spa' }]);
+
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { web: { cpu: '0.5' } },
         }),
       ).not.toThrow();
     });
@@ -534,6 +684,179 @@ describe('validateInfrastructureConfig', () => {
           dev: { database: null },
         } as unknown as InfrastructureConfig),
       ).not.toThrow();
+    });
+  });
+
+  describe('database.diskSize per provider', () => {
+    const useProvider = (provider: 'gcp' | 'aws' | 'azure'): void => {
+      mocks.loadFrameworkConfig.mockReturnValue({
+        project: { name: 'test-project' },
+        cloud: { provider },
+        services: [{ name: 'auth-service', type: 'nestjs' }],
+      });
+    };
+
+    it('should accept 10 GB on GCP', () => {
+      useProvider('gcp');
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { database: { diskSize: 10 } },
+        }),
+      ).not.toThrow();
+    });
+
+    it('should reject 10 GB on AWS', () => {
+      useProvider('aws');
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { database: { diskSize: 10 } },
+        }),
+      ).toThrow('"database.diskSize" 10 is not supported on AWS');
+    });
+
+    it('should reject a size Azure does not offer', () => {
+      useProvider('azure');
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { database: { diskSize: 50 } },
+        }),
+      ).toThrow('"database.diskSize" 50 is not supported on AZURE');
+    });
+  });
+
+  describe('database.ha and redis.memoryGb per provider', () => {
+    const useProvider = (provider: 'gcp' | 'aws' | 'azure'): void => {
+      mocks.loadFrameworkConfig.mockReturnValue({
+        project: { name: 'test-project' },
+        cloud: { provider },
+        services: [{ name: 'auth-service', type: 'nestjs' }],
+      });
+    };
+
+    it('should reject ha on the default Azure tier (Burstable)', () => {
+      useProvider('azure');
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          prod: { database: { ha: true } },
+        }),
+      ).toThrow('Burstable tier "B_Standard_B1ms"');
+    });
+
+    it('should accept ha on an Azure General Purpose tier', () => {
+      useProvider('azure');
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          prod: { database: { tier: 'GP_Standard_D2s_v3', ha: true } },
+        }),
+      ).not.toThrow();
+    });
+
+    it('should reject ha with backup false on GCP', () => {
+      useProvider('gcp');
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          prod: { database: { ha: true, backup: false } },
+        }),
+      ).toThrow('needs "database.backup" on GCP');
+    });
+
+    it('should accept ha on AWS with the default tier', () => {
+      useProvider('aws');
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          prod: { database: { ha: true } },
+        }),
+      ).not.toThrow();
+    });
+
+    it('should reject redis.memoryGb on AWS', () => {
+      useProvider('aws');
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { redis: { memoryGb: 2 } },
+        }),
+      ).toThrow('"redis.memoryGb" is not supported on AWS');
+    });
+
+    it('should accept redis.memoryGb on GCP', () => {
+      useProvider('gcp');
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { redis: { memoryGb: 2 } },
+        }),
+      ).not.toThrow();
+    });
+  });
+
+  describe('App Service plans on Azure', () => {
+    const useProvider = (provider: 'gcp' | 'aws' | 'azure'): void => {
+      mocks.loadFrameworkConfig.mockReturnValue({
+        project: { name: 'test-project' },
+        cloud: { provider },
+        services: [
+          { name: 'auth-service', type: 'nestjs' },
+          { name: 'frontend', type: 'nextjs' },
+        ],
+      });
+    };
+
+    it('should reject an explicit Kong ceiling on a Basic plan', () => {
+      useProvider('azure');
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { kong: { maxInstances: 3 } },
+        }),
+      ).toThrow(
+        'dev.kong.maxInstances: 3 is above minInstances (1) on a Basic plan',
+      );
+    });
+
+    it('should reject cpu on a Next.js app on Azure only', () => {
+      useProvider('azure');
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { frontend: { cpu: '1' } },
+        }),
+      ).toThrow('dev.frontend.cpu has no effect on Azure');
+
+      useProvider('gcp');
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { frontend: { cpu: '1' } },
+        }),
+      ).not.toThrow();
+    });
+
+    it('should accept autoscale on a Standard plan', () => {
+      useProvider('azure');
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { appService: { kongSku: 'S1' }, kong: { maxInstances: 3 } },
+        }),
+      ).not.toThrow();
+    });
+
+    it('should reject an unknown App Service SKU', () => {
+      useProvider('azure');
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { appService: { kongSku: 'D1' } },
+        }),
+      ).toThrow('dev.appService.kongSku');
     });
   });
 });

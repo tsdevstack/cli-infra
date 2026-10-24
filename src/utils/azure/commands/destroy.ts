@@ -12,6 +12,7 @@ import {
   buildAzureTerraformEnv,
   checkTerraformInstalled,
 } from '@tsdevstack/infra-core';
+import { deleteEnvironmentContainerResources } from '../delete/delete-environment-container-resources';
 import type { AzureCommandContext, DestroyOptions } from './types';
 
 /**
@@ -95,6 +96,28 @@ export async function azureDestroy(
 
   // Note: Azure PostgreSQL Flexible Server does not have a deletion_protection flag.
   // Protection is handled via resource locks (out of scope for now).
+
+  // Container Apps and migration jobs come from deploys (SDK), not Terraform,
+  // and Azure will not delete their managed environment while they exist
+  logger.info(
+    'Removing Container Apps and migration jobs created by deploys...',
+  );
+  const containerResources = await deleteEnvironmentContainerResources({
+    credentials: ctx.credentials,
+    resourceGroupName: `${ctx.projectName}-${ctx.targetEnv}-rg`,
+    environmentName: `${ctx.projectName}-${ctx.targetEnv}-cae`,
+  });
+  for (const name of containerResources.deleted) {
+    logger.success(`  Deleted ${name}`);
+  }
+  if (containerResources.failed.length > 0) {
+    throw new CliError(
+      `Could not delete ${containerResources.failed.map((f) => f.name).join(', ')}`,
+      'infra:destroy',
+      `${containerResources.failed.map((f) => `${f.name}: ${f.error}`).join('; ')}. Terraform cannot delete the Container Apps environment while they exist; run infra:destroy again.`,
+    );
+  }
+  logger.newline();
 
   // Build Terraform environment
   const tfEnv = buildAzureTerraformEnv(runtime, ctx.credentials);

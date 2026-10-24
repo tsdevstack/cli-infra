@@ -6,6 +6,7 @@
 
 import path from 'node:path';
 import { getContext } from '../../../context';
+import { AZURE_MIGRATION_JOB_PREFIX } from '../../../constants';
 import { getAcrIdentityOutputs, getTerraformOutput } from '../terraform';
 import { buildAzureTerraformEnv } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
@@ -98,7 +99,7 @@ export async function azureDbMigrateRun(
     credentials,
     resourceGroupName,
     containerAppsEnvId,
-    jobName: `migrate-${service.name}`,
+    jobName: `${AZURE_MIGRATION_JOB_PREFIX}${service.name}`,
     image: imageUri,
     command: [
       'node',

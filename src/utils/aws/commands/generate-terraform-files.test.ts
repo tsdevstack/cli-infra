@@ -78,21 +78,16 @@ rs.mock('../../infrastructure/merge-with-defaults', () => ({
     maxInstances: 3,
   })),
   getScheduledJobs: rs.fn(() => []),
-}));
-
-rs.mock('./get-aws-database-config', () => ({
-  getAWSDatabaseConfig: rs.fn(() => ({
+  getDatabaseConfig: rs.fn(() => ({
     tier: 'db.t3.micro',
-    storageSizeGb: 20,
+    diskSize: 20,
     deletionProtection: true,
+    ha: false,
     backup: true,
   })),
-}));
-
-rs.mock('./get-aws-redis-config', () => ({
-  getAWSRedisConfig: rs.fn(() => ({
+  getRedisConfig: rs.fn(() => ({
     tier: 'cache.t3.micro',
-    highAvailability: false,
+    memoryGb: 1,
   })),
 }));
 
@@ -127,6 +122,7 @@ import {
   getScheduledJobs,
   getServiceConfig,
   getKongConfig,
+  getDatabaseConfig,
 } from '../../infrastructure/merge-with-defaults';
 
 describe('generateTerraformFiles', () => {
@@ -392,6 +388,72 @@ describe('generateTerraformFiles', () => {
     );
     expect(writeCalls.some((p: string) => p.includes('redirect.tf'))).toBe(
       true,
+    );
+  });
+
+  it('should pass database.diskSize to Terraform as storageSizeGb', () => {
+    rs.mocked(getDatabaseConfig).mockReturnValueOnce({
+      tier: 'db.t3.small',
+      diskSize: 50,
+      deletionProtection: false,
+      ha: false,
+      backup: true,
+    });
+
+    const result = generateTerraformFiles(mockCtx, 'infra:generate');
+
+    expect(getDatabaseConfig).toHaveBeenCalledWith(null, 'dev', 'aws');
+    expect(result.generateConfig.database).toEqual({
+      tier: 'db.t3.small',
+      storageSizeGb: 50,
+      deletionProtection: false,
+      backup: true,
+      ha: false,
+    });
+  });
+
+  it('should pass database.ha to Terraform', () => {
+    rs.mocked(getDatabaseConfig).mockReturnValueOnce({
+      tier: 'db.t3.micro',
+      diskSize: 20,
+      deletionProtection: true,
+      ha: true,
+      backup: true,
+    });
+
+    const result = generateTerraformFiles(mockCtx, 'infra:generate');
+
+    expect(result.generateConfig.database.ha).toBe(true);
+  });
+
+  it('should pass only the Redis tier (AWS sizes Redis by node type)', () => {
+    const result = generateTerraformFiles(mockCtx, 'infra:generate');
+
+    expect(result.generateConfig.redis).toEqual({ tier: 'cache.t3.micro' });
+  });
+
+  it('should reject redis.memoryGb on AWS', () => {
+    rs.mocked(loadInfrastructureConfig).mockReturnValue({
+      version: '1.0.0',
+      dev: { redis: { memoryGb: 2 } },
+    } as ReturnType<typeof loadInfrastructureConfig>);
+
+    expect(() => generateTerraformFiles(mockCtx, 'infra:generate')).toThrow(
+      '"redis.memoryGb" is not supported on AWS',
+    );
+  });
+
+  it('should reject a disk size below the RDS minimum', () => {
+    rs.mocked(getDatabaseConfig).mockReturnValueOnce({
+      tier: 'db.t3.micro',
+      diskSize: 10,
+      deletionProtection: true,
+      ha: false,
+      backup: true,
+    });
+
+    expect(() => generateTerraformFiles(mockCtx, 'infra:generate')).toThrow(
+      mocks.CliError,
     );
   });
 

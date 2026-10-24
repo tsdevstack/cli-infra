@@ -26,8 +26,10 @@ import { getGcsLocationFromRegion } from '../get-gcs-location-from-region';
 import { fetchDbPasswordsFromSecretManager } from '../../credentials/fetch-db-passwords-from-secret-manager';
 import { setSecretViaCli } from '../../credentials/set-secret-via-cli';
 import { generateTerraformFiles } from './generate-terraform-files';
-import { toDnsAuthName } from '../terraform';
+import { applyWithCapacityRetry } from '../../deploy/apply-with-capacity-retry';
+import { applyWithServiceAgentRetry, toDnsAuthName } from '../terraform';
 import { padRight } from '../../display/pad-right';
+import { logAaaaRecords } from '../display/log-aaaa-records';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
 import { getFrontendServicesWithDomains } from '../../infrastructure/get-frontend-services-with-domains';
 import type {
@@ -179,11 +181,17 @@ export async function gcpDeploy(
   logger.info('Applying changes...');
   logger.newline();
 
-  const applyResult = await executeTerraform('apply', {
-    workDir: outputDir,
-    autoApprove: true,
-    env: tfEnv,
-  });
+  const applyResult = await applyWithCapacityRetry(
+    () =>
+      applyWithServiceAgentRetry(() =>
+        executeTerraform('apply', {
+          workDir: outputDir,
+          autoApprove: true,
+          env: tfEnv,
+        }),
+      ),
+    'gcp',
+  );
 
   if (!applyResult.success) {
     throw new CliError(
@@ -478,6 +486,20 @@ export async function gcpDeploy(
         logger.info(
           `    ${padRight(record.host, aHostWidth)}  ${record.value}`,
         );
+      }
+
+      // AAAA records for IPv6 visitors (state from before the IPv6 address
+      // has no such output: skip)
+      try {
+        logAaaaRecords(
+          [
+            ...aRecords.map((record) => record.host),
+            ...(redirectDomains ?? []).flatMap((d) => [d, `*.${d}`]),
+          ],
+          getTerraformOutput(outputDir, 'load_balancer_ipv6', tfEnv),
+        );
+      } catch {
+        // No IPv6 address yet
       }
 
       // SSL Certificate Validation CNAME records

@@ -132,13 +132,19 @@ describe('deployKongCloudRun', () => {
       expect(scaling.maxInstanceCount).toBe(5);
     });
 
-    it('should not inject any environment variables', async () => {
+    it('should set only the client address settings, no secrets', async () => {
       await deployKongCloudRun(baseOptions);
 
       const callArgs = mockUpdateService.mock.calls[0][0];
       const container = callArgs.service.template.containers[0];
 
-      expect(container.env).toBeUndefined();
+      // Secrets are baked into the image; the environment only tells Kong to
+      // read the client's address from the load balancer's header
+      expect(container.env).toEqual([
+        { name: 'KONG_TRUSTED_IPS', value: '0.0.0.0/0,::/0' },
+        { name: 'KONG_REAL_IP_HEADER', value: 'X-Tsdevstack-Edge-IP' },
+        { name: 'KONG_REAL_IP_RECURSIVE', value: 'off' },
+      ]);
     });
   });
 

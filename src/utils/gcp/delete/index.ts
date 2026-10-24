@@ -2,7 +2,7 @@
  * Delete Utilities
  *
  * GCP resource deletion with idempotency (NOT_FOUND = success).
- * Used by infra:remove-service command.
+ * Used by infra:remove-service and infra:destroy.
  */
 
 export { deleteCloudRunService } from './delete-cloud-run-service';
@@ -11,11 +11,20 @@ export type {
   DeleteResult,
 } from './delete-cloud-run-service';
 
-export { deleteBucket } from './delete-bucket';
+export { deleteCloudRunJob } from './delete-cloud-run-job';
+export type { DeleteCloudRunJobOptions } from './delete-cloud-run-job';
+
+export { getEnvironmentCloudRunNames } from './get-environment-cloud-run-names';
+export type { EnvironmentCloudRunNames } from './get-environment-cloud-run-names';
+
+export { deleteEnvironmentCloudRunResources } from './delete-environment-cloud-run-resources';
 export type {
-  DeleteBucketOptions,
-  DeleteBucketResult,
-} from './delete-bucket';
+  DeleteEnvironmentCloudRunResourcesOptions,
+  DeleteEnvironmentCloudRunResourcesResult,
+} from './delete-environment-cloud-run-resources';
+
+export { deleteBucket } from './delete-bucket';
+export type { DeleteBucketOptions, DeleteBucketResult } from './delete-bucket';
 
 export { deleteSecretsByPrefix } from './delete-secrets-by-prefix';
 export type {

@@ -24,6 +24,7 @@ import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructu
 import { getServiceConfig } from '../../infrastructure/get-service-config';
 import type { EnvironmentOverrides } from '../../infrastructure/types';
 import type { GCPCredentials, FrameworkService } from '@tsdevstack/cli/plugin';
+import { warnIfSmallDatabasePool } from '../../deploy/warn-if-small-database-pool';
 
 interface GcpDeployWorkerParams {
   projectRoot: string;
@@ -138,8 +139,7 @@ export async function gcpDeployWorker(
   const config = loadFrameworkConfig();
   const infraConfig = loadInfrastructureConfig();
   const envConfig = infraConfig?.[targetEnv] as
-    | EnvironmentOverrides
-    | undefined;
+    EnvironmentOverrides | undefined;
   const dbTier = envConfig?.database?.tier ?? DEFAULT_DATABASE_TIER;
   const totalServiceMax = getTotalServiceMaxInstances(
     config.services,
@@ -157,6 +157,7 @@ export async function gcpDeployWorker(
     totalServiceMaxInstances: totalServiceMax,
     totalWorkerMaxInstances: totalWorkerMax,
   });
+  warnIfSmallDatabasePool(poolResult, dbTier);
 
   // Workers use backend env vars and secrets (they need DB/Redis access)
   const envVars = buildBackendEnvVars({

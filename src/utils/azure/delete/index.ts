@@ -10,3 +10,4 @@ export { deleteStorageAccount } from './delete-storage-account';
 export { deleteDatabase } from './delete-database';
 export { deleteKeyVaultSecretsByPrefix } from './delete-keyvault-secrets-by-prefix';
 export { deleteSharedSecretsForService } from './delete-shared-secrets-for-service';
+export { deleteEnvironmentContainerResources } from './delete-environment-container-resources';

@@ -18,6 +18,7 @@ import { infraDockerPush } from '../../../commands/infra-docker-push';
 import { getGitSha } from '../../docker';
 import { fetchSecret } from '../../credentials/fetch-secret';
 import {
+  AZURE_NEXTJS_CLIENT_IP_SETTINGS,
   buildAzureTerraformEnv,
   buildFrontendEnvVars,
   buildFrontendSecrets,
@@ -192,6 +193,10 @@ export async function deployNextjsAppServices(
     for (const [name, value] of Object.entries(standardEnvVars)) {
       settings[name] = String(value);
     }
+
+    // Header with the visitor's address (Front Door), which the frontend
+    // forwards to Kong with KONG_FRONTEND_TOKEN for per-visitor rate limits
+    Object.assign(settings, AZURE_NEXTJS_CLIENT_IP_SETTINGS);
 
     // Frontend secrets — scoped to what this service references
     const frontendKeys = getServiceSecretKeys(service.name, config);

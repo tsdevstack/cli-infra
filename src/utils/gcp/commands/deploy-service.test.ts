@@ -37,6 +37,9 @@ rs.mock('@tsdevstack/infra-core', () => ({
   deployCloudRunService: rs.fn(),
   getTotalWorkerMaxInstances: rs.fn(),
   waitForImage: rs.fn(),
+  GCP_NEXTJS_CLIENT_IP_SETTINGS: {
+    TSDEVSTACK_CLIENT_IP_HEADER: 'X-Tsdevstack-Edge-IP',
+  },
 }));
 
 rs.mock('../../deploy/get-service-secret-keys', () => ({
@@ -336,6 +339,35 @@ describe('gcpDeployService', () => {
 
     expect(buildFrontendEnvVars).toHaveBeenCalled();
     expect(buildFrontendSecrets).toHaveBeenCalled();
+  });
+
+  it("should tell a nextjs app which header has the visitor's address", async () => {
+    await gcpDeployService({
+      ...baseOptions,
+      service: { name: 'frontend', type: 'nextjs' },
+    });
+
+    expect(deployCloudRunService).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        envVars: expect.objectContaining({
+          NODE_ENV: 'production',
+          TSDEVSTACK_CLIENT_IP_HEADER: 'X-Tsdevstack-Edge-IP',
+        }),
+      }),
+    );
+  });
+
+  it('should not set the visitor header on nestjs services', async () => {
+    await gcpDeployService({
+      ...baseOptions,
+      service: { name: 'auth-service', type: 'nestjs', hasDatabase: true },
+    });
+
+    const options = rs.mocked(deployCloudRunService).mock.calls[0][1] as {
+      envVars: Record<string, string>;
+    };
+    expect(options.envVars).not.toHaveProperty('TSDEVSTACK_CLIENT_IP_HEADER');
   });
 
   it('should pass service config to Cloud Run', async () => {

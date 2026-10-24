@@ -121,3 +121,22 @@ export const VALID_APP_SERVICE_SKUS = [
   'P2v3',
   'P3v3',
 ] as const;
+
+/**
+ * Commands that build or deploy from infrastructure.json validate it first
+ * (setupInfraCommand; infra:lb-deploy validates on its own). Destroy, status,
+ * list, removal and migration commands do not: an invalid file must never
+ * block tearing down or inspecting an environment.
+ */
+export const INFRASTRUCTURE_VALIDATING_COMMANDS = [
+  'infra:generate',
+  'infra:plan',
+  'infra:deploy',
+  'infra:deploy-service',
+  'infra:deploy-services',
+  'infra:deploy-kong',
+  'infra:generate-kong',
+  'infra:worker-deploy',
+  'infra:deploy-scheduler',
+  'infra:deploy-schedulers',
+] as const;

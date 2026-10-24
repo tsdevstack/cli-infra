@@ -9,7 +9,10 @@ import path from 'node:path';
 import { getContext } from '../../../context';
 import { buildRuntime } from '../../build-runtime';
 import { getTerraformOutput } from '../terraform';
-import { buildAzureTerraformEnv } from '@tsdevstack/infra-core';
+import {
+  AZURE_KONG_CLIENT_IP_SETTINGS,
+  buildAzureTerraformEnv,
+} from '@tsdevstack/infra-core';
 import { deployAppService } from './deploy-app-service';
 import type { AzureCredentials } from '@tsdevstack/cli/plugin';
 
@@ -80,6 +83,8 @@ export async function azureKongDeploy(
     appServiceName: kongAppServiceName,
     acrLoginServer,
     imageUri,
+    // Kong's per-IP limits need the client address from Front Door
+    appSettings: { ...AZURE_KONG_CLIENT_IP_SETTINGS },
   });
 
   logger.newline();

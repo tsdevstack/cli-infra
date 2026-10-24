@@ -17,6 +17,7 @@ import {
 import { setSecretViaCli } from '../../credentials/set-secret-via-cli';
 import { createStateBackend } from '../bootstrap/create-state-backend';
 import { generateTerraformFiles } from './generate-terraform-files';
+import { applyWithCapacityRetry } from '../../deploy/apply-with-capacity-retry';
 import { buildFrontdoorRouteTargets } from './build-frontdoor-route-targets';
 import {
   buildAzureTerraformEnv,
@@ -26,6 +27,8 @@ import {
   detectRouteAssociationError,
 } from '@tsdevstack/infra-core';
 import { checkPostgresAvailability } from '../preflight/check-postgres-availability';
+import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
+import { getDatabaseConfig } from '../../infrastructure/get-database-config';
 import { infraDeployServices } from '../../../commands/infra-deploy-services';
 import { infraKongGenerate } from '../../../commands/infra-kong-generate';
 import { infraKongBuild } from '../../../commands/infra-kong-build';
@@ -54,8 +57,16 @@ export async function azureDeploy(
   logger.newline();
 
   // Pre-flight: check PostgreSQL availability in target region
+  // (and zone-redundant HA when database.ha is on)
   logger.info('Checking resource availability...');
-  const pgCheck = await checkPostgresAvailability(ctx.credentials);
+  const databaseConfig = getDatabaseConfig(
+    loadInfrastructureConfig(),
+    ctx.targetEnv,
+    'azure',
+  );
+  const pgCheck = await checkPostgresAvailability(ctx.credentials, {
+    zoneRedundantHa: databaseConfig.ha,
+  });
   if (!pgCheck.available) {
     throw new CliError(
       pgCheck.error || 'PostgreSQL is not available in this region',
@@ -125,11 +136,15 @@ export async function azureDeploy(
   logger.info('Applying infrastructure...');
   logger.newline();
 
-  let applyResult = await executeTerraform('apply', {
-    workDir: outputDir,
-    autoApprove: true,
-    env: tfEnv,
-  });
+  let applyResult = await applyWithCapacityRetry(
+    () =>
+      executeTerraform('apply', {
+        workDir: outputDir,
+        autoApprove: true,
+        env: tfEnv,
+      }),
+    'azure',
+  );
 
   // If apply failed and --force-unlock is set, try to unlock and retry
   if (!applyResult.success && options.forceUnlock) {
@@ -507,6 +522,24 @@ export async function azureDeploy(
       const url = `https://${ctx.projectName}-${service.name}.${caeDefaultDomain}`;
       await setSecretWithRetry(urlKey, url, ctx.targetEnv);
       logger.success(`  ✓ ${urlKey} = ${url}`);
+    }
+
+    // KONG_INTERNAL_URL: Next.js server-side calls to Kong, at Kong's default
+    // host name, which resolves to Kong's private endpoint in the VNet. Through
+    // Front Door, its WAF would count every visitor as the Next.js app's
+    // outbound address. Only projects with Next.js apps get the endpoint.
+    if (Object.keys(generateConfig.frontends).length > 0) {
+      const kongInternalUrl = getTerraformOutput(
+        outputDir,
+        'kong_internal_url',
+        tfEnv,
+      );
+      await setSecretWithRetry(
+        'KONG_INTERNAL_URL',
+        kongInternalUrl,
+        ctx.targetEnv,
+      );
+      logger.success(`  ✓ KONG_INTERNAL_URL = ${kongInternalUrl}`);
     }
 
     logger.newline();

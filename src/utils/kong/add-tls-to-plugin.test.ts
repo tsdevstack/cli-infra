@@ -3,7 +3,7 @@ import { addTlsToPlugin } from './add-tls-to-plugin';
 import type { KongPlugin } from '@tsdevstack/cli/plugin';
 
 describe('addTlsToPlugin', () => {
-  it('should add ssl and ssl_verify to rate-limiting plugin redis config', () => {
+  it('should add verified TLS to rate-limiting plugin redis config', () => {
     const plugin: KongPlugin = {
       name: 'rate-limiting',
       config: {
@@ -21,7 +21,8 @@ describe('addTlsToPlugin', () => {
     const redis = result.config.redis as Record<string, unknown>;
 
     expect(redis.ssl).toBe(true);
-    expect(redis.ssl_verify).toBe(false);
+    expect(redis.ssl_verify).toBe(true);
+    expect(redis.server_name).toBe('redis.example.com');
     expect(redis.host).toBe('redis.example.com');
   });
 
@@ -47,7 +48,7 @@ describe('addTlsToPlugin', () => {
     expect(result).toEqual(plugin);
   });
 
-  it('should add ssl and ssl_verify to the tsdevstack-api-key redis config', () => {
+  it('should add verified TLS to the tsdevstack-api-key redis config', () => {
     const plugin: KongPlugin = {
       name: 'tsdevstack-api-key',
       config: {
@@ -74,7 +75,8 @@ describe('addTlsToPlugin', () => {
         database: 0,
         timeout: 2000,
         ssl: true,
-        ssl_verify: false,
+        ssl_verify: true,
+        server_name: '${REDIS_HOST}',
       },
       default_limits: { minute: 100 },
     });
@@ -82,6 +84,43 @@ describe('addTlsToPlugin', () => {
     expect(
       (plugin.config.redis as Record<string, unknown>).ssl,
     ).toBeUndefined();
+  });
+
+  it('should keep an explicit ssl_verify and server_name', () => {
+    const plugin: KongPlugin = {
+      name: 'rate-limiting',
+      config: {
+        redis: {
+          host: 'redis.internal',
+          ssl_verify: false,
+          server_name: 'cache.example.com',
+        },
+      },
+    };
+
+    const redis = addTlsToPlugin(plugin).config.redis as Record<
+      string,
+      unknown
+    >;
+
+    expect(redis.ssl).toBe(true);
+    expect(redis.ssl_verify).toBe(false);
+    expect(redis.server_name).toBe('cache.example.com');
+  });
+
+  it('should not set server_name for an IP address host', () => {
+    const plugin: KongPlugin = {
+      name: 'rate-limiting',
+      config: { redis: { host: '10.0.0.5', port: 6379 } },
+    };
+
+    const redis = addTlsToPlugin(plugin).config.redis as Record<
+      string,
+      unknown
+    >;
+
+    expect(redis.ssl_verify).toBe(true);
+    expect(redis).not.toHaveProperty('server_name');
   });
 
   it('should not modify other plugins with a redis block', () => {

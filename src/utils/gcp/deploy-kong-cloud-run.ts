@@ -8,6 +8,7 @@
  */
 
 import { ServicesClient } from '@google-cloud/run';
+import { GCP_KONG_CLIENT_IP_SETTINGS } from '@tsdevstack/infra-core';
 import type { GCPCredentials } from '@tsdevstack/cli/plugin';
 import { getContext } from '../../context';
 
@@ -59,6 +60,11 @@ export async function deployKongCloudRun(
       {
         image: options.imageUri,
         ports: [{ containerPort: 8080 }],
+        // The client's address from the load balancer's header (overrides
+        // the image defaults, which trust private ranges and X-Forwarded-For)
+        env: Object.entries(GCP_KONG_CLIENT_IP_SETTINGS).map(
+          ([name, value]) => ({ name, value }),
+        ),
         resources: {
           limits: {
             cpu: options.cpu,

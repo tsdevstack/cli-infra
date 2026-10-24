@@ -11,7 +11,7 @@ import { getContext } from '../../../context';
 import { getTerraformOutput } from '../terraform';
 import {
   buildAwsTerraformEnv,
-  updateEcsService,
+  deployEcsServiceWithSecrets,
   waitForEcsStable,
 } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
@@ -81,21 +81,26 @@ export async function awsDeployWorker(
   logger.info(`Cluster: ${clusterName}`);
   logger.newline();
 
-  // Update ECS service to trigger new deployment with latest task definition
-  // Task definition family name: ${projectName}-${workerName}
-  const taskDefinitionFamily = `${projectName}-${worker.name}`;
-
+  // Register a task definition with this image and move the service to it,
+  // as the backends do. Terraform's definition names the base service's
+  // `:latest` image: forcing a new deployment of that would keep the worker
+  // on whatever was pushed last instead of this tag. The worker's definition
+  // injects no secrets (it reads them at runtime), so none are added.
   try {
-    logger.info('Updating ECS service...');
-    const updateResult = await updateEcsService(runtime, {
+    logger.info('Registering task definition and updating ECS service...');
+    const result = await deployEcsServiceWithSecrets(runtime, {
       credentials,
+      projectName,
       clusterName,
       serviceName: worker.name,
-      taskDefinitionArn: taskDefinitionFamily,
-      forceNewDeployment: true,
+      imageUri,
+      hasDatabase: false,
     });
 
-    logger.info(`Deployment started: ${updateResult.deploymentId}`);
+    logger.info(`Task definition: ${result.taskDefinitionArn}`);
+    if (result.deploymentId) {
+      logger.info(`Deployment started: ${result.deploymentId}`);
+    }
     logger.newline();
 
     // Wait for service to stabilize

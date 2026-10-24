@@ -12,6 +12,7 @@ import {
 } from '@tsdevstack/infra-core';
 import { getTerraformOutput, getTerraformOutputJson } from '../terraform';
 import { buildRuntime } from '../../build-runtime';
+import { GCP_MIGRATION_JOB_PREFIX } from '../../../constants';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
 import { getMigrationJobConfig } from '../../infrastructure/merge-with-defaults';
 import type { GCPCredentials, FrameworkService } from '@tsdevstack/cli/plugin';
@@ -116,7 +117,7 @@ export async function gcpDbMigrateRun(
   const result = await executeCloudRunJob(runtime, {
     projectId: credentials.project_id,
     region: credentials.region,
-    jobName: `migrate-${service.name}`,
+    jobName: `${GCP_MIGRATION_JOB_PREFIX}${service.name}`,
     imageUri,
     command: ['sh', '-c', retryScript],
     vpcNetwork,

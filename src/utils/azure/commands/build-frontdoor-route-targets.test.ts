@@ -32,6 +32,8 @@ function makeConfig(
     frontdoorPremium: false,
     kongAppServiceSku: 'B1',
     nextjsAppServiceSku: 'B1',
+    kongScaling: { instances: 1, autoscaleMax: null },
+    nextjsScaling: { instances: 1, autoscaleMax: null },
     ...overrides,
   };
 }

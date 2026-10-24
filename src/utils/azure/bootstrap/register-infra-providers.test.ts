@@ -3,6 +3,16 @@ import { describe, it, expect, rs, beforeEach } from '@rstest/core';
 const mockRegister = rs.fn();
 const mockGet = rs.fn();
 
+rs.mock('../../../context', () => ({
+  initContext: rs.fn(),
+  getContext: rs.fn(
+    () =>
+      (globalThis as unknown as { contextMocks: Record<string, unknown> })
+        .contextMocks,
+  ),
+  wrapCommand: rs.fn((fn: unknown) => fn),
+}));
+
 rs.mock('../../build-runtime', () => ({
   buildRuntime: () => ({}),
 }));

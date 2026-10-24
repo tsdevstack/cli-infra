@@ -4,7 +4,7 @@ import type { KongTemplate } from '@tsdevstack/cli/plugin';
 
 describe('addRedisTlsToKongConfig', () => {
   describe('Global plugins', () => {
-    it('should add ssl and ssl_verify to rate-limiting plugin redis config', () => {
+    it('should add verified TLS to rate-limiting plugin redis config', () => {
       const config: KongTemplate = {
         _format_version: '3.0',
         services: [],
@@ -31,7 +31,7 @@ describe('addRedisTlsToKongConfig', () => {
       const redis = rateLimiting.config.redis as Record<string, unknown>;
 
       expect(redis.ssl).toBe(true);
-      expect(redis.ssl_verify).toBe(false);
+      expect(redis.ssl_verify).toBe(true);
       expect(redis.host).toBe('${REDIS_HOST}');
       expect(redis.port).toBe('${REDIS_PORT}');
     });
@@ -125,7 +125,8 @@ describe('addRedisTlsToKongConfig', () => {
         expect(plugin.config.redis).toEqual({
           ...redisBlock,
           ssl: true,
-          ssl_verify: false,
+          ssl_verify: true,
+          server_name: redisBlock.host,
         });
       }
       expect(plugins[2]).toEqual({
@@ -155,7 +156,7 @@ describe('addRedisTlsToKongConfig', () => {
   });
 
   describe('Consumer plugins', () => {
-    it('should add ssl and ssl_verify to consumer rate-limiting plugin', () => {
+    it('should add verified TLS to consumer rate-limiting plugin', () => {
       const config: KongTemplate = {
         _format_version: '3.0',
         services: [],
@@ -188,7 +189,7 @@ describe('addRedisTlsToKongConfig', () => {
       const redis = rateLimiting.config.redis as Record<string, unknown>;
 
       expect(redis.ssl).toBe(true);
-      expect(redis.ssl_verify).toBe(false);
+      expect(redis.ssl_verify).toBe(true);
     });
 
     it('should not modify consumers without plugins', () => {

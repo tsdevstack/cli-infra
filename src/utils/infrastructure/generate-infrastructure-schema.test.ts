@@ -84,8 +84,32 @@ describe('generateInfrastructureSchema', () => {
     it('should have diskSize constraints', () => {
       const result = JSON.parse(generateInfrastructureSchema());
       const diskSize = result.definitions.DatabaseOverride.properties.diskSize;
-      expect(diskSize.minimum).toBeDefined();
-      expect(diskSize.maximum).toBeDefined();
+      expect(diskSize.minimum).toBe(10);
+      expect(diskSize.maximum).toBe(1000);
+    });
+
+    it('should start AWS diskSize at the 20 GB gp3 minimum', () => {
+      const result = JSON.parse(generateInfrastructureSchema('aws'));
+      const diskSize = result.definitions.DatabaseOverride.properties.diskSize;
+      expect(diskSize.minimum).toBe(20);
+      expect(diskSize.maximum).toBe(1000);
+    });
+
+    it('should describe ha per provider', () => {
+      const ha = (provider: 'gcp' | 'aws' | 'azure'): string =>
+        JSON.parse(generateInfrastructureSchema(provider)).definitions
+          .DatabaseOverride.properties.ha.description;
+
+      expect(ha('gcp')).toContain('Requires backup: true');
+      expect(ha('aws')).toContain('Multi-AZ');
+      expect(ha('azure')).toContain('Burstable');
+    });
+
+    it('should limit Azure diskSize to the sizes Flexible Server offers', () => {
+      const result = JSON.parse(generateInfrastructureSchema('azure'));
+      const diskSize = result.definitions.DatabaseOverride.properties.diskSize;
+      expect(diskSize.enum).toEqual([32, 64, 128, 256, 512]);
+      expect(diskSize.minimum).toBeUndefined();
     });
 
     it('should have ha and backup boolean fields', () => {
@@ -172,6 +196,18 @@ describe('generateInfrastructureSchema', () => {
       expect(memoryGb.minimum).toBeDefined();
       expect(memoryGb.maximum).toBeDefined();
     });
+
+    it('should leave memoryGb out on AWS and Azure (sized by tier)', () => {
+      for (const provider of ['aws', 'azure'] as const) {
+        const result = JSON.parse(generateInfrastructureSchema(provider));
+        expect(
+          result.definitions.RedisOverride.properties.memoryGb,
+        ).toBeUndefined();
+        expect(result.definitions.RedisOverride.additionalProperties).toBe(
+          false,
+        );
+      }
+    });
   });
 
   describe('KongOverride definition', () => {
@@ -189,10 +225,28 @@ describe('generateInfrastructureSchema', () => {
       expect(kong.memory.enum).toBeDefined();
     });
 
-    it('should only have maxUploadSize for Azure (Kong uses App Service)', () => {
+    it('should have instance counts but no cpu or memory for Azure (the App Service SKU sets them)', () => {
       const result = JSON.parse(generateInfrastructureSchema('azure'));
       const kong = result.definitions.KongOverride.properties;
-      expect(Object.keys(kong)).toEqual(['maxUploadSize']);
+      expect(Object.keys(kong)).toEqual([
+        'minInstances',
+        'maxInstances',
+        'maxUploadSize',
+      ]);
+    });
+
+    it('should explain the App Service tier rules on Azure Kong instance counts', () => {
+      const result = JSON.parse(generateInfrastructureSchema('azure'));
+      const kong = result.definitions.KongOverride.properties;
+      expect(kong.minInstances.description).toContain(
+        'Basic SKUs run this fixed count (up to 3)',
+      );
+      expect(kong.minInstances.description).toContain(
+        'Standard (up to 10) and Premium (up to 30)',
+      );
+      expect(kong.maxInstances.description).toContain(
+        'Basic SKUs cannot autoscale',
+      );
     });
 
     it('should reject additional properties for Azure', () => {
@@ -580,6 +634,17 @@ describe('generateInfrastructureSchema', () => {
         expect(props.nextjsSku.enum).toEqual([...VALID_APP_SERVICE_SKUS]);
       });
 
+      it('should describe which SKUs autoscale', () => {
+        const result = JSON.parse(generateInfrastructureSchema('azure'));
+        const props = result.definitions.AppServiceOverride.properties;
+        expect(props.kongSku.description).toContain(
+          'B1-B3: a fixed kong.minInstances, no autoscale',
+        );
+        expect(props.nextjsSku.description).toContain(
+          'S1-S3 and P1v3-P3v3: CPU autoscale between minInstances and maxInstances',
+        );
+      });
+
       it('should include appService in EnvironmentConfig properties', () => {
         const result = JSON.parse(generateInfrastructureSchema('azure'));
         const envProps = result.definitions.EnvironmentConfig.properties;
@@ -624,7 +689,8 @@ describe('generateInfrastructureSchema', () => {
           type: 'integer',
           minimum: 0,
           maximum: 100,
-          description: 'Minimum number of instances (0 = scale to zero)',
+          description:
+            'Minimum number of instances (0 = scale to zero). Next.js apps run on an App Service plan: at least 1, a fixed count on Basic SKUs (see appService.nextjsSku)',
         },
       );
     });

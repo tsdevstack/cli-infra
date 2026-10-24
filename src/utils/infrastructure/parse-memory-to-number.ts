@@ -1,7 +1,8 @@
 /**
- * Parse memory string to AWS Fargate memory in MB
+ * Parse memory string to MiB
  *
- * Converts GCP-style memory strings (e.g., "512Mi", "1Gi") to AWS memory in MB.
+ * Converts memory strings from infrastructure.json (e.g., "512Mi", "1Gi")
+ * to MiB: AWS Fargate takes the number, Cloud Run limits are checked with it.
  * Handles both "Mi" (mebibytes) and "Gi" (gibibytes) suffixes.
  */
 

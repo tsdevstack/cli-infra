@@ -31,6 +31,7 @@ import { getServiceConfig } from '../../infrastructure/merge-with-defaults';
 import type { EnvironmentOverrides } from '../../infrastructure/types';
 import { azureDbMigrateRun } from './db-migrate-run';
 import type { AzureCommandContext } from './types';
+import { warnIfSmallDatabasePool } from '../../deploy/warn-if-small-database-pool';
 
 interface DeployContainerAppServicesOptions {
   service?: string;
@@ -51,8 +52,7 @@ export async function deployContainerAppServices(
   const config = loadFrameworkConfig();
   const infraConfig = loadInfrastructureConfig();
   const envConfig = infraConfig?.[targetEnv] as
-    | EnvironmentOverrides
-    | undefined;
+    EnvironmentOverrides | undefined;
   const dbTier = envConfig?.database?.tier ?? DEFAULT_AZURE_DATABASE_TIER;
   const totalServiceMax = getTotalServiceMaxInstances(
     config.services,
@@ -250,6 +250,7 @@ export async function deployContainerAppServices(
         totalWorkerMaxInstances: totalWorkerMax,
       });
       const poolMax = poolResult.poolMax;
+      warnIfSmallDatabasePool(poolResult, dbTier);
 
       logger.newline();
       logger.info(`Deploying ${service.name} (${service.type})...`);

@@ -123,6 +123,20 @@ export const VALID_CPU_VALUES_GCP = [
   '8',
 ] as const;
 export const VALID_CPU_VALUES_AWS = ['0.25', '0.5', '1', '2', '4'] as const;
+
+/**
+ * Cloud Run memory range per CPU, in MiB: an entry applies from its cpu up
+ * to the next entry's (docs: configuring/services/memory-limits)
+ */
+export const CLOUD_RUN_MEMORY_BY_CPU = [
+  { cpu: 0.08, minMiB: 128, maxMiB: 512 },
+  { cpu: 0.5, minMiB: 128, maxMiB: 1024 },
+  { cpu: 1, minMiB: 128, maxMiB: 4096 },
+  { cpu: 2, minMiB: 128, maxMiB: 8192 },
+  { cpu: 4, minMiB: 2048, maxMiB: 16384 },
+  { cpu: 6, minMiB: 4096, maxMiB: 24576 },
+  { cpu: 8, minMiB: 4096, maxMiB: 32768 },
+] as const;
 export const VALID_CPU_VALUES_AZURE = ['0.25', '0.5', '1', '2', '4'] as const;
 
 /**
@@ -190,7 +204,10 @@ export const INFRASTRUCTURE_CONFIG_FILENAME = 'infrastructure.json';
 export const INFRASTRUCTURE_SCHEMA_FILENAME = 'infrastructure.schema.json';
 
 /**
- * Valid Cloud SQL database tiers (GCP)
+ * Valid database tiers per provider: exactly the tiers deploys can size the
+ * connection pool for (infra-core's *_DATABASE_CONNECTION_LIMITS), so a tier
+ * the schema accepts never fails at deploy with "Unknown database tier".
+ * defaults.test.ts keeps the lists and the limits in step.
  */
 export const VALID_DATABASE_TIERS_GCP = [
   'db-f1-micro',
@@ -198,18 +215,17 @@ export const VALID_DATABASE_TIERS_GCP = [
   'db-n1-standard-1',
   'db-n1-standard-2',
   'db-n1-standard-4',
+  'db-n1-standard-8',
+  'db-n1-standard-16',
 ] as const;
-
-/**
- * Valid RDS database tiers (AWS)
- */
 export const VALID_DATABASE_TIERS_AWS = [
   'db.t3.micro',
   'db.t3.small',
   'db.t3.medium',
-  'db.t3.large',
-  'db.r5.large',
-  'db.r5.xlarge',
+  'db.t4g.micro',
+  'db.t4g.small',
+  'db.t4g.medium',
+  'db.r6g.large',
 ] as const;
 
 /**
@@ -244,11 +260,22 @@ export const VALID_SERVICE_TYPES_AWS = [
 ] as const;
 
 /**
- * Database validation constraints
+ * Database validation constraints (disk sizes in GB)
  */
 export const DATABASE_CONSTRAINTS = {
   diskSize: { min: 10, max: 1000 },
+  /** RDS gp3 storage starts at 20 GB */
+  diskSizeAws: { min: 20, max: 1000 },
+  /** Azure Flexible Server offers fixed storage sizes; these are the ones up to 1000 GB */
+  diskSizesAzure: [32, 64, 128, 256, 512],
 } as const;
+
+/**
+ * Smallest database pool per instance that deploys accept without a warning:
+ * with one connection, a slow query blocks every other request of the
+ * instance
+ */
+export const MIN_RECOMMENDED_DATABASE_POOL = 2;
 
 /**
  * Azure PostgreSQL Flexible Server name rules (database.serverName).
@@ -355,15 +382,21 @@ export const APP_SERVICE_DEFAULTS_AZURE = {
 } as const;
 
 /**
- * Valid PostgreSQL Flexible Server tiers (Azure)
+ * Valid PostgreSQL Flexible Server tiers (Azure), see VALID_DATABASE_TIERS_GCP
  */
 export const VALID_DATABASE_TIERS_AZURE = [
   'B_Standard_B1ms',
   'B_Standard_B2s',
+  'B_Standard_B2ms',
   'GP_Standard_D2s_v3',
   'GP_Standard_D4s_v3',
   'MO_Standard_E4s_v3',
 ] as const;
+
+/**
+ * Prefix of the Burstable PostgreSQL tiers (Azure), which have no high availability
+ */
+export const AZURE_BURSTABLE_DATABASE_TIER_PREFIX = 'B_';
 
 /**
  * Valid Azure Managed Redis tiers

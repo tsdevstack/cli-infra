@@ -43,6 +43,31 @@ describe('getServiceSecretKeys', () => {
       ]);
     });
 
+    it('should add framework secrets a newer CLI defines that the map predates', () => {
+      mocks.readJsonFile.mockReturnValue({
+        frontend: ['KONG_INTERNAL_URL', 'API_URL'],
+      });
+      mocks.generateFrameworkSecretsFile.mockReturnValue({
+        secrets: {},
+        frontend: {
+          PORT: '3000',
+          secrets: ['KONG_INTERNAL_URL', 'KONG_FRONTEND_TOKEN'],
+        },
+      });
+
+      const result = getServiceSecretKeys('frontend', mockConfig);
+
+      expect(mocks.generateFrameworkSecretsFile).toHaveBeenCalledWith(
+        mockConfig,
+        null,
+      );
+      expect(result).toEqual([
+        'KONG_INTERNAL_URL',
+        'API_URL',
+        'KONG_FRONTEND_TOKEN',
+      ]);
+    });
+
     it('should return empty array when service not in secret map', () => {
       mocks.readJsonFile.mockReturnValue({
         'auth-service': ['NODE_ENV'],

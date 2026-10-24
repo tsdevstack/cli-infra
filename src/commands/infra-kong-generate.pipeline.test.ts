@@ -201,7 +201,10 @@ describe.each(['gcp', 'aws', 'azure'] as const)(
     });
 
     it('should put the per-IP ceiling, the key plugin and the prefix plugin on every partner route', () => {
-      const tls = provider === 'gcp' ? {} : { ssl: true, ssl_verify: false };
+      const tls =
+        provider === 'gcp'
+          ? {}
+          : { ssl: true, ssl_verify: true, server_name: '${REDIS_HOST}' };
       const redis = {
         host: '${REDIS_HOST}',
         port: '${REDIS_PORT}',

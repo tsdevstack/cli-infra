@@ -22,6 +22,7 @@ import {
   getTerraformOutputJson,
 } from '../terraform';
 import {
+  AWS_KONG_CLOUD_MAP_NAME,
   buildAwsTerraformEnv,
   checkTerraformInstalled,
   extractLockId,
@@ -30,6 +31,8 @@ import { buildRuntime } from '../../build-runtime';
 import { createStateBackend } from '../bootstrap/create-state-backend';
 import { setSecretViaCli } from '../../credentials/set-secret-via-cli';
 import { generateTerraformFiles } from './generate-terraform-files';
+import { applyWithCapacityRetry } from '../../deploy/apply-with-capacity-retry';
+import { buildCloudMapUrl } from '../build-cloud-map-url';
 import { deployEcsServices } from './deploy-ecs-services';
 import { deployNextjsServices } from './deploy-nextjs-services';
 import { awsKongDeploy } from './deploy-kong';
@@ -270,11 +273,15 @@ export async function awsDeploy(
   logger.info('Applying changes...');
   logger.newline();
 
-  const applyResult = await executeTerraform('apply', {
-    workDir: outputDir,
-    autoApprove: true,
-    env: tfEnv,
-  });
+  const applyResult = await applyWithCapacityRetry(
+    () =>
+      executeTerraform('apply', {
+        workDir: outputDir,
+        autoApprove: true,
+        env: tfEnv,
+      }),
+    'aws',
+  );
 
   if (!applyResult.success) {
     // Attempt to recover from CloudFront CNAME conflicts
@@ -345,12 +352,16 @@ export async function awsDeploy(
     setSecretViaCli('REDIS_TLS', 'true', ctx.targetEnv);
     logger.success('  ✓ REDIS_TLS');
 
-    // KONG_INTERNAL_URL for Next.js SSR calls to Kong
-    // Uses the public API URL (through CloudFront) because the ALB's internal DNS
-    // doesn't match the ACM certificate, causing TLS verification failures in Node.js.
-    const apiUrl = getTerraformOutput(outputDir, 'api_url', tfEnv);
-    setSecretViaCli('KONG_INTERNAL_URL', apiUrl, ctx.targetEnv);
-    logger.success(`  ✓ KONG_INTERNAL_URL = ${apiUrl}`);
+    // KONG_INTERNAL_URL: the Next.js servers' calls to Kong, over Cloud Map
+    // inside the VPC (plain HTTP on the container port, like Kong's own calls to
+    // the backends). Off CloudFront and its WAF, whose per-IP rule would count
+    // every visitor as the tasks' NAT address.
+    const kongInternalUrl = buildCloudMapUrl(
+      AWS_KONG_CLOUD_MAP_NAME,
+      ctx.projectName,
+    );
+    setSecretViaCli('KONG_INTERNAL_URL', kongInternalUrl, ctx.targetEnv);
+    logger.success(`  ✓ KONG_INTERNAL_URL = ${kongInternalUrl}`);
 
     logger.newline();
     logger.complete('Infrastructure secrets synced to Secrets Manager');
@@ -499,7 +510,7 @@ export async function awsDeploy(
     for (const service of frameworkConfig.services) {
       if (!service.port) continue;
       const urlKey = `${service.name.replace(/-/g, '_').toUpperCase()}_URL`;
-      const url = `http://${service.name}.${ctx.projectName}.local:8080`;
+      const url = buildCloudMapUrl(service.name, ctx.projectName);
       setSecretViaCli(urlKey, url, ctx.targetEnv);
       logger.success(`  ✓ ${urlKey} = ${url}`);
     }

@@ -45,6 +45,10 @@ rs.mock('../preflight/check-postgres-availability', () => ({
   checkPostgresAvailability: rs.fn(),
 }));
 
+rs.mock('../../infrastructure/load-infrastructure-config', () => ({
+  loadInfrastructureConfig: rs.fn(),
+}));
+
 rs.mock('./upgrade-frontdoor-sku', () => ({
   upgradeFrontdoorSku: rs.fn(),
 }));
@@ -79,10 +83,20 @@ import { createStateBackend } from '../bootstrap/create-state-backend';
 import { generateTerraformFiles } from './generate-terraform-files';
 import { extractLockId, buildAzureTerraformEnv } from '@tsdevstack/infra-core';
 import { checkPostgresAvailability } from '../preflight/check-postgres-availability';
+import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
 import { setSecretViaCli } from '../../credentials/set-secret-via-cli';
 import { setSecretWithRetry } from '../set-secret-with-retry';
 import { upgradeFrontdoorSku } from './upgrade-frontdoor-sku';
 import { lockDownPublicAccess } from './lock-down-public-access';
+
+// Pass-through: the retry itself is covered by apply-with-capacity-retry.test.ts
+const mockApplyWithCapacityRetry = rs.fn();
+rs.mock('../../deploy/apply-with-capacity-retry', () => ({
+  applyWithCapacityRetry: (apply: () => Promise<unknown>, provider: string) => {
+    mockApplyWithCapacityRetry(provider);
+    return apply();
+  },
+}));
 
 describe('azureDeploy', () => {
   const mockCtx = {
@@ -139,6 +153,8 @@ describe('azureDeploy', () => {
         frontdoorPremium: false,
         kongAppServiceSku: 'B1',
         nextjsAppServiceSku: 'B1',
+        kongScaling: { instances: 1, autoscaleMax: null },
+        nextjsScaling: { instances: 1, autoscaleMax: null },
       },
     });
 
@@ -168,6 +184,7 @@ describe('azureDeploy', () => {
           database_admin_password: 'test-db-password',
           container_apps_env_default_domain:
             'nicefish-abc123.eastus.azurecontainerapps.io',
+          api_url: 'https://api.example.com',
         };
         return outputs[name] || '';
       },
@@ -237,6 +254,12 @@ describe('azureDeploy', () => {
     );
   });
 
+  it('should apply through the capacity retry', async () => {
+    await azureDeploy(mockCtx, { autoApprove: true });
+
+    expect(mockApplyWithCapacityRetry).toHaveBeenCalledWith('azure');
+  });
+
   it('should throw when terraform init fails', async () => {
     rs.mocked(executeTerraform).mockResolvedValueOnce({
       success: false,
@@ -260,6 +283,31 @@ describe('azureDeploy', () => {
 
     await expect(azureDeploy(mockCtx, { autoApprove: true })).rejects.toThrow(
       mocks.CliError,
+    );
+  });
+
+  it('should ask the preflight for zone-redundant HA when database.ha is on', async () => {
+    rs.mocked(loadInfrastructureConfig).mockReturnValue({
+      version: '1.0.0',
+      dev: { database: { tier: 'GP_Standard_D2s_v3', ha: true } },
+    } as ReturnType<typeof loadInfrastructureConfig>);
+
+    await azureDeploy(mockCtx, { autoApprove: true });
+
+    expect(checkPostgresAvailability).toHaveBeenCalledWith(
+      mockCtx.credentials,
+      { zoneRedundantHa: true },
+    );
+  });
+
+  it('should not ask for zone-redundant HA by default', async () => {
+    rs.mocked(loadInfrastructureConfig).mockReturnValue(null);
+
+    await azureDeploy(mockCtx, { autoApprove: true });
+
+    expect(checkPostgresAvailability).toHaveBeenCalledWith(
+      mockCtx.credentials,
+      { zoneRedundantHa: false },
     );
   });
 
@@ -356,6 +404,8 @@ describe('azureDeploy', () => {
         frontdoorPremium: true,
         kongAppServiceSku: 'B1',
         nextjsAppServiceSku: 'B1',
+        kongScaling: { instances: 1, autoscaleMax: null },
+        nextjsScaling: { instances: 1, autoscaleMax: null },
       },
     });
 
@@ -448,6 +498,8 @@ describe('azureDeploy', () => {
           frontdoorPremium: false,
           kongAppServiceSku: 'B1',
           nextjsAppServiceSku: 'B1',
+          kongScaling: { instances: 1, autoscaleMax: null },
+          nextjsScaling: { instances: 1, autoscaleMax: null },
         },
       });
 
@@ -490,6 +542,53 @@ describe('azureDeploy', () => {
       // frontend has no port — should NOT get a URL
       expect(setSecretWithRetry).not.toHaveBeenCalledWith(
         'FRONTEND_URL',
+        expect.anything(),
+        'dev',
+      );
+    });
+
+    it('should set KONG_INTERNAL_URL from the kong_internal_url output with Next.js apps', async () => {
+      const base = (
+        rs.mocked(generateTerraformFiles) as unknown as () => ReturnType<
+          typeof generateTerraformFiles
+        >
+      )();
+      rs.mocked(generateTerraformFiles).mockReturnValue({
+        ...base,
+        generateConfig: {
+          ...base.generateConfig,
+          frontends: {
+            frontend: {
+              domain: 'example.com',
+              cpu: 1,
+              memory: '1Gi',
+              minInstances: 1,
+              maxInstances: 1,
+            },
+          },
+        },
+      });
+      rs.mocked(getTerraformOutput).mockImplementation(
+        (_dir: string, name: string) =>
+          name === 'kong_internal_url'
+            ? 'https://my-app-dev-kong.azurewebsites.net'
+            : 'nicefish-abc123.eastus.azurecontainerapps.io',
+      );
+
+      await azureDeploy(mockCtx, { autoApprove: true });
+
+      expect(setSecretWithRetry).toHaveBeenCalledWith(
+        'KONG_INTERNAL_URL',
+        'https://my-app-dev-kong.azurewebsites.net',
+        'dev',
+      );
+    });
+
+    it('should not set KONG_INTERNAL_URL without Next.js apps', async () => {
+      await azureDeploy(mockCtx, { autoApprove: true });
+
+      expect(setSecretWithRetry).not.toHaveBeenCalledWith(
+        'KONG_INTERNAL_URL',
         expect.anything(),
         'dev',
       );

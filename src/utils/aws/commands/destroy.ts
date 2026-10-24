@@ -13,6 +13,7 @@ import {
 } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
 import { disableDeletionProtection } from '../disable-deletion-protection';
+import { disableAlbDeletionProtection } from '../disable-alb-deletion-protection';
 import type { AWSCommandContext, DestroyOptions } from './types';
 
 /**
@@ -65,6 +66,9 @@ export async function awsDestroy(
   // Confirm
   if (!options.autoApprove && !ctx.runningInCI) {
     logger.warn('This will DESTROY all infrastructure resources!');
+    logger.warn(
+      'Storage buckets (uploaded files), logs and the CloudTrail audit trail are deleted too.',
+    );
     logger.newline();
 
     if (hasDatabase) {
@@ -95,6 +99,28 @@ export async function awsDestroy(
   }
 
   // Disable deletion protection before terraform destroy
+  logger.info('Disabling load balancer deletion protection...');
+
+  const albResult = await disableAlbDeletionProtection({
+    loadBalancerName: `${ctx.projectName}-alb`,
+    credentials: ctx.credentials,
+  });
+
+  if (!albResult.success) {
+    throw new CliError(
+      `Failed to disable load balancer deletion protection: ${albResult.error}`,
+      'infra:destroy',
+      'Disable deletion protection manually via EC2 Console → Load Balancers → Attributes, then retry',
+    );
+  }
+
+  if (albResult.wasAlreadyDisabled) {
+    logger.info('  Deletion protection already disabled.');
+  } else {
+    logger.info('  Deletion protection disabled.');
+  }
+  logger.newline();
+
   if (hasDatabase) {
     const instanceIdentifier = `${ctx.projectName}-db`;
     logger.info('Disabling database deletion protection...');
@@ -166,10 +192,10 @@ export async function awsDestroy(
   if (hasDatabase) {
     logger.info('Data recovery:');
     logger.info(
-      `  Final snapshot: ${ctx.projectName}-db-final (RDS Console → Snapshots)`,
+      `  Final snapshot: ${ctx.projectName}-db-final-<suffix> (RDS Console → Snapshots)`,
     );
     logger.info(
-      '  Automated backups retained for the backup retention period.',
+      '  The master password secret is deleted with the environment: after restoring the snapshot, set a new master password (RDS Console → Modify).',
     );
     logger.newline();
   }

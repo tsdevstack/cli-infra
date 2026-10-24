@@ -14,7 +14,11 @@ import {
 } from '@aws-sdk/client-ecs';
 import { getContext } from '../../../context';
 import { getTerraformOutput } from '../../terraform';
-import { buildAwsTerraformEnv, waitForEcsStable } from '@tsdevstack/infra-core';
+import {
+  AWS_KONG_CLIENT_IP_SETTINGS,
+  buildAwsTerraformEnv,
+  waitForEcsStable,
+} from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
 import type { AWSCredentials } from '@tsdevstack/cli/plugin';
 
@@ -109,8 +113,20 @@ export async function awsKongDeploy(
     );
   }
 
-  // Preserve existing environment variables
-  const existingEnv = existingContainer.environment ?? [];
+  // Keep the task definition's environment, with the client address settings
+  // on top: Terraform sets them at creation, but the service keeps the CLI's
+  // task definitions afterwards, so this is how they reach an existing
+  // environment (and how a changed setting takes effect on redeploy)
+  const clientIpSettings: Record<string, string> = AWS_KONG_CLIENT_IP_SETTINGS;
+  const existingEnv = [
+    ...(existingContainer.environment ?? []).filter(
+      (entry) => entry.name === undefined || !(entry.name in clientIpSettings),
+    ),
+    ...Object.entries(clientIpSettings).map(([name, value]) => ({
+      name,
+      value,
+    })),
+  ];
 
   // Step 2: Register new task definition with updated image
   logger.info('Registering new task definition...');

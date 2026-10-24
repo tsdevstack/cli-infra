@@ -82,6 +82,8 @@ export const AWS_REQUIRED_ACTIONS = [
   'elasticloadbalancing:CreateTargetGroup',
   'elasticloadbalancing:CreateListener',
   'elasticloadbalancing:DescribeLoadBalancers',
+  'elasticloadbalancing:DescribeLoadBalancerAttributes',
+  'elasticloadbalancing:ModifyLoadBalancerAttributes',
 
   // CloudFront
   'cloudfront:CreateDistribution',

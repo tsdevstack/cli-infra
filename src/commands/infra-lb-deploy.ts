@@ -31,8 +31,10 @@ import {
 import { buildRuntime } from '../utils/build-runtime';
 import { toTfVarSuffix, toTerraformId } from '../utils/terraform';
 import { padRight } from '../utils/display/pad-right';
+import { logAaaaRecords } from '../utils/gcp/display/log-aaaa-records';
 import { fetchDbPasswordsFromSecretManager } from '../utils/credentials/fetch-db-passwords-from-secret-manager';
 import { loadInfrastructureConfig } from '../utils/infrastructure/load-infrastructure-config';
+import { validateInfrastructureConfig } from '../utils/infrastructure/validate-infrastructure-config';
 import { getFrontendServicesWithDomains } from '../utils/infrastructure/get-frontend-services-with-domains';
 import type {
   EnvironmentOverrides,
@@ -105,6 +107,9 @@ export async function infraLbDeploy(
 
   // Load infrastructure.json to get frontend domains and security config
   const infraConfig = loadInfrastructureConfig();
+  if (infraConfig) {
+    validateInfrastructureConfig(infraConfig);
+  }
   const envOverrides = infraConfig?.[targetEnv] as
     EnvironmentOverrides | undefined;
   const frontendServices = getFrontendServicesWithDomains(
@@ -305,6 +310,20 @@ export async function infraLbDeploy(
     logger.info(`    ${'─'.repeat(aHostWidth + 2 + lbIp.length)}`);
     for (const record of aRecords) {
       logger.info(`    ${padRight(record.host, aHostWidth)}  ${record.value}`);
+    }
+
+    // AAAA records for IPv6 visitors (state from before the IPv6 address
+    // has no such output: skip)
+    try {
+      logAaaaRecords(
+        [
+          ...aRecords.map((record) => record.host),
+          ...(redirectDomains ?? []).flatMap((d) => [d, `*.${d}`]),
+        ],
+        getTerraformOutput(terraformDir, 'load_balancer_ipv6', tfEnv),
+      );
+    } catch {
+      // No IPv6 address yet
     }
 
     // SSL Certificate Validation CNAME records

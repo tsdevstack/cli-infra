@@ -10,17 +10,26 @@ import { getContext } from '../../../context';
 import {
   azure,
   type AzureInfraConfig,
+  type AppServicePlanScaling,
   type WafConfig,
 } from '@tsdevstack/infra-core';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
+import { validateDatabaseDiskSize } from '../../infrastructure/validate-database-disk-size';
+import { validateDatabaseHa } from '../../infrastructure/validate-database-ha';
+import { validateRedisMemoryGb } from '../../infrastructure/validate-redis-memory-gb';
 import {
   getScheduledJobs,
   getDatabaseConfig,
   getRedisConfig,
   getServiceConfig,
   getAppServiceConfig,
+  getKongConfig,
 } from '../../infrastructure/merge-with-defaults';
-import type { SecurityOverride } from '../../infrastructure/types';
+import { resolveAppServiceScaling } from '../infrastructure/resolve-app-service-scaling';
+import type {
+  SecurityOverride,
+  RedisOverride,
+} from '../../infrastructure/types';
 import { resolvePostgresServerName } from '../resolve-postgres-server-name';
 import type { AzureCommandContext } from './types';
 
@@ -57,8 +66,17 @@ export function generateTerraformFiles(
   const projectName = config.project.name;
   const infraConfig = loadInfrastructureConfig();
   const databaseConfig = getDatabaseConfig(infraConfig, ctx.targetEnv, 'azure');
+  validateDatabaseDiskSize(ctx.targetEnv, databaseConfig.diskSize, 'azure');
+  validateDatabaseHa(ctx.targetEnv, databaseConfig, 'azure');
   const redisConfig = getRedisConfig(infraConfig, ctx.targetEnv, 'azure');
+  validateRedisMemoryGb(
+    ctx.targetEnv,
+    (infraConfig?.[ctx.targetEnv] as { redis?: RedisOverride } | undefined)
+      ?.redis?.memoryGb,
+    'azure',
+  );
   const appServiceConfig = getAppServiceConfig(infraConfig, ctx.targetEnv);
+  const kongConfig = getKongConfig(infraConfig, ctx.targetEnv, 'azure');
   const postgresServerName = resolvePostgresServerName(
     projectName,
     ctx.targetEnv,
@@ -140,6 +158,44 @@ export function generateTerraformFiles(
     }
   }
 
+  // Next.js plan default when the project has no Next.js app (no plan is created)
+  let nextjsScaling: AppServicePlanScaling = {
+    instances: 1,
+    autoscaleMax: null,
+  };
+
+  // App Service plans: Kong's own, one shared by every Next.js app (the plan
+  // takes the highest minInstances and maxInstances across them)
+  const kongScaling = resolveAppServiceScaling(
+    appServiceConfig.kongSku,
+    kongConfig.minInstances,
+    kongConfig.maxInstances,
+  );
+  reportPlanScaling(
+    'Kong',
+    appServiceConfig.kongSku,
+    kongScaling,
+    kongConfig.minInstances,
+    kongConfig.maxInstances,
+  );
+  const frontendConfigs = Object.values(frontends);
+  if (frontendConfigs.length > 0) {
+    const nextjsMin = Math.max(...frontendConfigs.map((f) => f.minInstances));
+    const nextjsMax = Math.max(...frontendConfigs.map((f) => f.maxInstances));
+    nextjsScaling = resolveAppServiceScaling(
+      appServiceConfig.nextjsSku,
+      nextjsMin,
+      nextjsMax,
+    );
+    reportPlanScaling(
+      'Next.js',
+      appServiceConfig.nextjsSku,
+      nextjsScaling,
+      nextjsMin,
+      nextjsMax,
+    );
+  }
+
   // Get DOMAIN from secrets
   // DOMAIN secret is the base domain (e.g., "example.com")
   // Subdomains are derived: api.{base}, {service}.{base}, etc.
@@ -187,6 +243,7 @@ export function generateTerraformFiles(
       storageSizeGb: databaseConfig.diskSize,
       deletionProtection: getDeleteProtection(infraConfig, ctx.targetEnv),
       backup: databaseConfig.backup,
+      ha: databaseConfig.ha,
       // Only pass an override: the default name stays a Terraform expression
       ...(postgresServerName.isOverride
         ? { serverName: postgresServerName.name }
@@ -208,6 +265,8 @@ export function generateTerraformFiles(
     skipCustomDomainAssociations: options.skipCustomDomainAssociations,
     kongAppServiceSku: appServiceConfig.kongSku,
     nextjsAppServiceSku: appServiceConfig.nextjsSku,
+    kongScaling,
+    nextjsScaling,
   };
 
   // Generate core files
@@ -260,6 +319,16 @@ export function generateTerraformFiles(
     });
   }
 
+  // Add app-service-autoscale.tf only when a plan autoscales (Standard or
+  // Premium SKU with maxInstances above the fixed count)
+  const autoscaleContent = azure.generateAppServiceAutoscaleTf(generateConfig);
+  if (autoscaleContent) {
+    files.push({
+      name: 'app-service-autoscale.tf',
+      content: autoscaleContent,
+    });
+  }
+
   // Add storage.tf when storage buckets are configured
   if (generateConfig.storageBuckets.length > 0) {
     files.push({
@@ -308,6 +377,42 @@ function buildScheduledJobsMap(
  */
 function buildScheduledJobKey(_targetService: string, jobName: string): string {
   return jobName;
+}
+
+/**
+ * Say what an App Service plan runs when it differs from what the config
+ * asks for, so nothing is silently ignored: minInstances 0 runs one instance
+ * (App Service cannot scale to zero), and a Basic plan runs a fixed count
+ * however high maxInstances is (only the defaults get here: an explicit
+ * ceiling on a Basic plan fails validation).
+ */
+function reportPlanScaling(
+  plan: 'Kong' | 'Next.js',
+  sku: string,
+  scaling: AppServicePlanScaling,
+  minInstances: number,
+  maxInstances: number,
+): void {
+  const notes: string[] = [];
+  if (minInstances < 1) {
+    notes.push(
+      'minInstances 0 runs 1 instance: App Service cannot scale to zero.',
+    );
+  }
+  if (scaling.autoscaleMax === null && maxInstances > scaling.instances) {
+    const skuField = plan === 'Kong' ? 'kongSku' : 'nextjsSku';
+    notes.push(
+      `Basic plans cannot autoscale: set appService.${skuField} to S1 or higher for CPU autoscale up to maxInstances (${maxInstances}).`,
+    );
+  }
+  if (notes.length === 0) return;
+
+  const runs =
+    scaling.autoscaleMax === null
+      ? `${scaling.instances} fixed instance(s)`
+      : `CPU autoscale from ${scaling.instances} to ${scaling.autoscaleMax} instances`;
+  const { logger } = getContext();
+  logger.info(`${plan} plan on ${sku}: ${runs}. ${notes.join(' ')}`);
 }
 
 /**

@@ -23,6 +23,7 @@ import {
   calculatePoolSize,
   deployCloudRunService,
   getTotalWorkerMaxInstances,
+  GCP_NEXTJS_CLIENT_IP_SETTINGS,
   waitForImage,
 } from '@tsdevstack/infra-core';
 import { getServiceSecretKeys } from '../../deploy/get-service-secret-keys';
@@ -30,6 +31,7 @@ import { getTotalServiceMaxInstances } from '../../deploy/get-total-service-max-
 import type { SecretConfig } from '@tsdevstack/infra-core';
 import type { EnvironmentOverrides } from '../../infrastructure/types';
 import type { GCPCredentials, FrameworkService } from '@tsdevstack/cli/plugin';
+import { warnIfSmallDatabasePool } from '../../deploy/warn-if-small-database-pool';
 
 export interface GcpDeployServiceOptions {
   projectRoot: string;
@@ -147,8 +149,7 @@ export async function gcpDeployService(
   if (isNestJs) {
     const config = loadFrameworkConfig();
     const envConfig = infraConfig?.[targetEnv] as
-      | EnvironmentOverrides
-      | undefined;
+      EnvironmentOverrides | undefined;
     dbTier = envConfig?.database?.tier ?? DEFAULT_DATABASE_TIER;
     const totalServiceMax = getTotalServiceMaxInstances(
       config.services,
@@ -168,6 +169,7 @@ export async function gcpDeployService(
     });
     poolMax = poolResult.poolMax;
     dbConnections = poolResult.dbConnections;
+    warnIfSmallDatabasePool(poolResult, dbTier);
   }
 
   // Build image URI
@@ -200,7 +202,9 @@ export async function gcpDeployService(
         projectId: credentials.project_id,
         poolMax,
       })
-    : buildFrontendEnvVars();
+    : // Next.js: the header with the visitor's address, which the frontend
+      // forwards to Kong on its server-side calls
+      { ...buildFrontendEnvVars(), ...GCP_NEXTJS_CLIENT_IP_SETTINGS };
 
   let secrets: SecretConfig[];
   if (isNestJs) {

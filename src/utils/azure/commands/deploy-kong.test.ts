@@ -22,6 +22,11 @@ rs.mock('../terraform', () => ({
 
 rs.mock('@tsdevstack/infra-core', () => ({
   buildAzureTerraformEnv: rs.fn(),
+  AZURE_KONG_CLIENT_IP_SETTINGS: {
+    KONG_TRUSTED_IPS: '169.254.0.0/16',
+    KONG_REAL_IP_HEADER: 'X-Azure-SocketIP',
+    KONG_REAL_IP_RECURSIVE: 'off',
+  },
 }));
 
 rs.mock('./deploy-app-service', () => ({
@@ -80,6 +85,20 @@ describe('azureKongDeploy', () => {
           appServiceName: 'myapp-kong-app',
           acrLoginServer: 'myacr.azurecr.io',
           imageUri: 'myacr.azurecr.io/kong:abc123',
+        }),
+      );
+    });
+
+    it('should set the client address settings for Kong on every deploy', async () => {
+      await azureKongDeploy(baseParams);
+
+      expect(deployAppService).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appSettings: {
+            KONG_TRUSTED_IPS: '169.254.0.0/16',
+            KONG_REAL_IP_HEADER: 'X-Azure-SocketIP',
+            KONG_REAL_IP_RECURSIVE: 'off',
+          },
         }),
       );
     });

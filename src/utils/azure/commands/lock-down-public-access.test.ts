@@ -22,6 +22,11 @@ rs.mock('@tsdevstack/infra-core', () => ({
   createAzureCredential: rs.fn(() => ({
     getToken: mockGetToken,
   })),
+  AZURE_KONG_PRIVATE_ENDPOINT: {
+    nameSuffix: '-kong-pe',
+    dnsZone: 'privatelink.azurewebsites.net',
+    subresource: 'sites',
+  },
 }));
 
 const mockFetch = rs.fn();
@@ -50,7 +55,7 @@ const appServiceBaseUrl =
   'https://management.azure.com/subscriptions/sub-123/resourceGroups/my-app-dev-rg/providers/Microsoft.Web/sites';
 
 function mockPeListResponse(
-  connections: Array<{ name: string; status: string }>,
+  connections: Array<{ name: string; status: string; endpointId?: string }>,
 ): { ok: boolean; json: () => Promise<unknown> } {
   return {
     ok: true,
@@ -58,12 +63,17 @@ function mockPeListResponse(
       value: connections.map((c) => ({
         name: c.name,
         properties: {
+          privateEndpoint: c.endpointId ? { id: c.endpointId } : undefined,
           privateLinkServiceConnectionState: { status: c.status },
         },
       })),
     }),
   };
 }
+
+// Kong's own endpoint for the Next.js servers, as Azure reports it (other case)
+const ownKongEndpointId =
+  '/subscriptions/sub-123/resourceGroups/MY-APP-DEV-RG/providers/Microsoft.Network/privateEndpoints/my-app-dev-kong-pe';
 
 function mockEmptyPeList(): {
   ok: boolean;
@@ -171,6 +181,69 @@ describe('lockDownPublicAccess', () => {
 
       expect(mocks.logger.success).toHaveBeenCalledWith(
         '  Public network access lockdown complete',
+      );
+    });
+  });
+
+  describe("Kong's own private endpoint", () => {
+    it('should not count it as Front Door reaching Kong', async () => {
+      // Poll 1: Kong has only its own endpoint (approved at creation)
+      mockFetch.mockResolvedValueOnce(
+        mockPeListResponse([
+          { name: 'own', status: 'Approved', endpointId: ownKongEndpointId },
+        ]),
+      );
+      mockFetch.mockResolvedValueOnce(
+        mockPeListResponse([{ name: 'pe-fe-1', status: 'Approved' }]),
+      );
+
+      // Poll 2: Front Door's connection is there too
+      mockFetch.mockResolvedValueOnce(
+        mockPeListResponse([
+          { name: 'own', status: 'Approved', endpointId: ownKongEndpointId },
+          { name: 'pe-kong-1', status: 'Approved' },
+        ]),
+      );
+      mockFetch.mockResolvedValueOnce(
+        mockPeListResponse([{ name: 'pe-fe-1', status: 'Approved' }]),
+      );
+
+      // PATCH calls
+      mockFetch.mockResolvedValueOnce({ ok: true });
+      mockFetch.mockResolvedValueOnce({ ok: true });
+
+      const promise = lockDownPublicAccess(baseParams);
+      await rs.advanceTimersByTimeAsync(15_000);
+      await promise;
+
+      expect(mocks.logger.info).toHaveBeenCalledWith(
+        '  [1/40] my-app-dev-kong: No PE connections yet',
+      );
+      // Public access stays on until poll 2
+      expect(mockFetch).toHaveBeenCalledTimes(6);
+      expect(mocks.logger.success).toHaveBeenCalledWith(
+        '  Public network access lockdown complete',
+      );
+    });
+
+    it('should not approve it', async () => {
+      mockFetch.mockResolvedValueOnce(
+        mockPeListResponse([
+          { name: 'own', status: 'Pending', endpointId: ownKongEndpointId },
+          { name: 'pe-kong-1', status: 'Approved' },
+        ]),
+      );
+      mockFetch.mockResolvedValueOnce(
+        mockPeListResponse([{ name: 'pe-fe-1', status: 'Approved' }]),
+      );
+      mockFetch.mockResolvedValueOnce({ ok: true });
+      mockFetch.mockResolvedValueOnce({ ok: true });
+
+      await lockDownPublicAccess(baseParams);
+
+      expect(mockFetch).not.toHaveBeenCalledWith(
+        `${peBaseUrl('my-app-dev-kong')}/own?api-version=2024-04-01`,
+        expect.anything(),
       );
     });
   });

@@ -75,10 +75,16 @@ const mockGetTerraformOutput = rs.fn();
 const mockToTfVarSuffix = rs.fn((name: string) =>
   name.replace(/-service$/, '').replace(/-/g, '_'),
 );
+// Pass-through: the retry itself is covered by apply-with-service-agent-retry.test.ts
+const mockApplyWithServiceAgentRetry = rs.fn();
 rs.mock('../terraform', () => ({
   executeTerraform: (...args: unknown[]) => mockExecuteTerraform(...args),
   getTerraformOutput: (...args: unknown[]) => mockGetTerraformOutput(...args),
   toTfVarSuffix: (name: string) => mockToTfVarSuffix(name),
+  applyWithServiceAgentRetry: (apply: () => Promise<unknown>) => {
+    mockApplyWithServiceAgentRetry();
+    return apply();
+  },
 }));
 
 const mockCreateBucket = rs.fn();
@@ -162,6 +168,15 @@ rs.mock('../../../commands/infra-lb-deploy', () => ({
 
 import { gcpDeploy } from './deploy';
 import type { GCPCommandContext } from './types';
+
+// Pass-through: the retry itself is covered by apply-with-capacity-retry.test.ts
+const mockApplyWithCapacityRetry = rs.fn();
+rs.mock('../../deploy/apply-with-capacity-retry', () => ({
+  applyWithCapacityRetry: (apply: () => Promise<unknown>, provider: string) => {
+    mockApplyWithCapacityRetry(provider);
+    return apply();
+  },
+}));
 
 describe('gcpDeploy', () => {
   const mockContext: GCPCommandContext = {
@@ -251,6 +266,18 @@ describe('gcpDeploy', () => {
         'apply',
         expect.objectContaining({ autoApprove: true }),
       );
+    });
+
+    it('should apply through the capacity retry', async () => {
+      await gcpDeploy(mockContext, { autoApprove: true });
+
+      expect(mockApplyWithCapacityRetry).toHaveBeenCalledWith('gcp');
+    });
+
+    it('should apply through the Service Networking agent retry', async () => {
+      await gcpDeploy(mockContext, { autoApprove: true });
+
+      expect(mockApplyWithServiceAgentRetry).toHaveBeenCalledTimes(1);
     });
 
     it('should throw when init fails', async () => {

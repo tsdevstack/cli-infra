@@ -27,7 +27,17 @@ rs.mock('../../context', () => ({
   wrapCommand: rs.fn((fn: unknown) => fn),
 }));
 
+rs.mock('../infrastructure/load-infrastructure-config', () => ({
+  loadInfrastructureConfig: rs.fn(),
+}));
+
+rs.mock('../infrastructure/validate-infrastructure-config', () => ({
+  validateInfrastructureConfig: rs.fn(),
+}));
+
 import { setupInfraCommand } from './setup-infra-command';
+import { loadInfrastructureConfig } from '../infrastructure/load-infrastructure-config';
+import { validateInfrastructureConfig } from '../infrastructure/validate-infrastructure-config';
 
 describe('setupInfraCommand', () => {
   beforeEach(() => {
@@ -213,6 +223,62 @@ describe('setupInfraCommand', () => {
       expect(result.credentials).toEqual(mockCredentials);
       expect(result.provider).toBe('azure');
       expect(result.targetEnv).toBe('dev');
+    });
+  });
+
+  describe('infrastructure.json validation', () => {
+    const infraConfig = { version: '1.0.0', dev: {} };
+
+    beforeEach(() => {
+      mocks.loadFrameworkConfig.mockReturnValue({
+        project: { name: 'test-project' },
+        cloud: { provider: 'gcp' },
+        services: [],
+      });
+      mocks.findProjectRoot.mockReturnValue('/test/project');
+      mocks.isCIEnv.mockReturnValue(false);
+      mocks.loadCredentialsFile.mockReturnValue({ dev: { project_id: 'p' } });
+      mocks.getAvailableEnvironments.mockReturnValue(['dev']);
+      mocks.resolveEnvironment.mockResolvedValue('dev');
+      rs.mocked(loadInfrastructureConfig).mockReturnValue(
+        infraConfig as ReturnType<typeof loadInfrastructureConfig>,
+      );
+    });
+
+    it('should validate it for commands that build or deploy', async () => {
+      await setupInfraCommand({}, 'infra:deploy');
+
+      expect(validateInfrastructureConfig).toHaveBeenCalledWith(infraConfig);
+    });
+
+    it('should stop the command when it is invalid', async () => {
+      rs.mocked(validateInfrastructureConfig).mockImplementationOnce(() => {
+        throw new Error('Unknown service "old-service" in environment "dev"');
+      });
+
+      await expect(setupInfraCommand({}, 'infra:generate')).rejects.toThrow(
+        'Unknown service "old-service"',
+      );
+    });
+
+    it('should never block infra:destroy', async () => {
+      await setupInfraCommand({}, 'infra:destroy');
+
+      expect(validateInfrastructureConfig).not.toHaveBeenCalled();
+    });
+
+    it('should not validate for read-only commands', async () => {
+      await setupInfraCommand({}, 'infra:service-status');
+
+      expect(validateInfrastructureConfig).not.toHaveBeenCalled();
+    });
+
+    it('should do nothing without infrastructure.json (defaults)', async () => {
+      rs.mocked(loadInfrastructureConfig).mockReturnValue(null);
+
+      await setupInfraCommand({}, 'infra:deploy');
+
+      expect(validateInfrastructureConfig).not.toHaveBeenCalled();
     });
   });
 

@@ -38,6 +38,9 @@ rs.mock('../../credentials/fetch-secret', () => ({
 
 const mockConfigureAcrAuth = rs.fn();
 rs.mock('@tsdevstack/infra-core', () => ({
+  AZURE_NEXTJS_CLIENT_IP_SETTINGS: {
+    TSDEVSTACK_CLIENT_IP_HEADER: 'X-Azure-SocketIP',
+  },
   buildFrontendEnvVars: rs.fn(),
   buildFrontendSecrets: rs.fn(),
   configureAcrAuth: (...args: unknown[]) => mockConfigureAcrAuth(...args),
@@ -268,6 +271,19 @@ describe('deployNextjsAppServices', () => {
       'my-app-frontend-app',
       expect.objectContaining({
         NODE_ENV: 'production',
+      }),
+    );
+  });
+
+  it('should tell the frontend which header holds the visitor address', async () => {
+    await deployNextjsAppServices(mockCtx, {});
+
+    expect(setAppServiceSettings).toHaveBeenCalledWith(
+      mockCtx.credentials,
+      'my-app-dev-rg',
+      'my-app-frontend-app',
+      expect.objectContaining({
+        TSDEVSTACK_CLIENT_IP_HEADER: 'X-Azure-SocketIP',
       }),
     );
   });

@@ -16,10 +16,15 @@ import {
 } from '@tsdevstack/infra-core';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
 import { validateAwsMinInstances } from '../infrastructure/validate-aws-min-instances';
+import { validateDatabaseDiskSize } from '../../infrastructure/validate-database-disk-size';
+import { validateDatabaseHa } from '../../infrastructure/validate-database-ha';
+import { validateRedisMemoryGb } from '../../infrastructure/validate-redis-memory-gb';
 import {
   getServiceConfig,
   getKongConfig,
   getScheduledJobs,
+  getDatabaseConfig,
+  getRedisConfig,
 } from '../../infrastructure/merge-with-defaults';
 import type {
   EnvironmentOverrides,
@@ -27,15 +32,14 @@ import type {
   SecurityOverride,
   LoadBalancerOverride,
 } from '../../infrastructure/types';
-import { getAWSDatabaseConfig } from './get-aws-database-config';
-import { getAWSRedisConfig } from './get-aws-redis-config';
 import type { AWSCommandContext } from './types';
 import { parseCpuToNumber } from './parse-cpu-to-number';
-import { parseMemoryToNumber } from './parse-memory-to-number';
+import { parseMemoryToNumber } from '../../infrastructure/parse-memory-to-number';
 import { FARGATE_DEFAULT } from './normalize-fargate-config';
 import { convertCronToEventBridge } from './convert-cron-to-eventbridge';
 import type { ServiceOverride, KongOverride } from '../../infrastructure/types';
 import { getTotalServiceMaxInstances } from '../../deploy/get-total-service-max-instances';
+import { warnIfSmallDatabasePool } from '../../deploy/warn-if-small-database-pool';
 
 export interface GenerateTerraformFilesOptions {
   /** Log each file as it's generated (used by infra:generate) */
@@ -71,8 +75,16 @@ export function generateTerraformFiles(
 
   const frameworkConfig = loadFrameworkConfig();
   const infraConfig = loadInfrastructureConfig();
-  const databaseConfig = getAWSDatabaseConfig(infraConfig, ctx.targetEnv);
-  const redisConfig = getAWSRedisConfig(infraConfig, ctx.targetEnv);
+  const databaseConfig = getDatabaseConfig(infraConfig, ctx.targetEnv, 'aws');
+  validateDatabaseDiskSize(ctx.targetEnv, databaseConfig.diskSize, 'aws');
+  validateDatabaseHa(ctx.targetEnv, databaseConfig, 'aws');
+  const redisConfig = getRedisConfig(infraConfig, ctx.targetEnv, 'aws');
+  validateRedisMemoryGb(
+    ctx.targetEnv,
+    (infraConfig?.[ctx.targetEnv] as EnvironmentOverrides | undefined)?.redis
+      ?.memoryGb,
+    'aws',
+  );
 
   const outputDir = path.join(
     ctx.projectRoot,
@@ -145,12 +157,14 @@ export function generateTerraformFiles(
     infraConfig,
     targetEnv: ctx.targetEnv,
   });
-  const { poolMax: computedPoolMax } = calculatePoolSize({
+  const computedPool = calculatePoolSize({
     dbTier,
     provider: 'aws',
     totalServiceMaxInstances: totalServiceMax,
     totalWorkerMaxInstances: totalWorkerMax,
   });
+  const computedPoolMax = computedPool.poolMax;
+  warnIfSmallDatabasePool(computedPool, dbTier);
 
   // Build services map (nestjs services only + kong)
   // Use FARGATE_DEFAULT (smallest/cheapest) unless user overrides in infrastructure.json
@@ -364,8 +378,14 @@ export function generateTerraformFiles(
     region: ctx.credentials.region,
     stateBucket,
     lockTable,
-    database: databaseConfig,
-    redis: redisConfig,
+    database: {
+      tier: databaseConfig.tier,
+      storageSizeGb: databaseConfig.diskSize,
+      deletionProtection: databaseConfig.deletionProtection,
+      backup: databaseConfig.backup,
+      ha: databaseConfig.ha,
+    },
+    redis: { tier: redisConfig.tier },
     servicesWithDatabase,
     baseDomain,
     services,

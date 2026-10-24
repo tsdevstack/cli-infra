@@ -121,4 +121,106 @@ describe('checkPostgresAvailability', () => {
       }),
     );
   });
+
+  describe('zone-redundant high availability', () => {
+    it('should pass when the region reports zoneRedundantHaSupported Enabled', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            value: [
+              {
+                name: 'FlexibleServerCapabilities',
+                zoneRedundantHaSupported: 'Enabled',
+              },
+            ],
+          }),
+      });
+
+      const result = await checkPostgresAvailability(credentials, {
+        zoneRedundantHa: true,
+      });
+
+      expect(result.available).toBe(true);
+    });
+
+    it('should pass when the ZoneRedundantHa feature is Enabled', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            value: [
+              {
+                name: 'FlexibleServerCapabilities',
+                supportedFeatures: [
+                  { name: 'ZoneRedundantHa', status: 'Enabled' },
+                ],
+              },
+            ],
+          }),
+      });
+
+      const result = await checkPostgresAvailability(credentials, {
+        zoneRedundantHa: true,
+      });
+
+      expect(result.available).toBe(true);
+    });
+
+    it('should fail when the region reports zone-redundant HA as Disabled', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            value: [
+              {
+                name: 'FlexibleServerCapabilities',
+                zoneRedundantHaSupported: 'Disabled',
+              },
+            ],
+          }),
+      });
+
+      const result = await checkPostgresAvailability(credentials, {
+        zoneRedundantHa: true,
+      });
+
+      expect(result.available).toBe(false);
+      expect(result.error).toContain('zone-redundant high availability');
+      expect(result.error).toContain("'eastus'");
+    });
+
+    it('should not block when the region does not report zone redundancy', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({ value: [{ name: 'FlexibleServerCapabilities' }] }),
+      });
+
+      const result = await checkPostgresAvailability(credentials, {
+        zoneRedundantHa: true,
+      });
+
+      expect(result.available).toBe(true);
+    });
+
+    it('should ignore zone redundancy when ha is off', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            value: [
+              {
+                name: 'FlexibleServerCapabilities',
+                zoneRedundantHaSupported: 'Disabled',
+              },
+            ],
+          }),
+      });
+
+      const result = await checkPostgresAvailability(credentials);
+
+      expect(result.available).toBe(true);
+    });
+  });
 });

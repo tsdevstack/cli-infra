@@ -33,6 +33,7 @@ import type {
   AWSCredentials,
   AzureCredentials,
 } from '@tsdevstack/cli/plugin';
+import { warnIfSmallDatabasePool } from '../utils/deploy/warn-if-small-database-pool';
 
 interface InfraWorkerDeployOptions {
   env?: string;
@@ -130,8 +131,7 @@ export async function infraWorkerDeploy(
     const azureCredentials = ctx.credentials as AzureCredentials;
     const infraConfig = loadInfrastructureConfig();
     const envConfig = infraConfig?.[targetEnv] as
-      | EnvironmentOverrides
-      | undefined;
+      EnvironmentOverrides | undefined;
     const dbTier = envConfig?.database?.tier ?? DEFAULT_AZURE_DATABASE_TIER;
     const totalServiceMax = getTotalServiceMaxInstances(
       config.services,
@@ -144,12 +144,14 @@ export async function infraWorkerDeploy(
       targetEnv,
     });
 
-    const { poolMax: workerPoolMax } = calculatePoolSize({
+    const workerPool = calculatePoolSize({
       dbTier,
       provider: 'azure',
       totalServiceMaxInstances: totalServiceMax,
       totalWorkerMaxInstances: totalWorkerMax,
     });
+    const workerPoolMax = workerPool.poolMax;
+    warnIfSmallDatabasePool(workerPool, dbTier);
 
     // Read managed identity client ID from Terraform for Key Vault access
     const runtime = buildRuntime();

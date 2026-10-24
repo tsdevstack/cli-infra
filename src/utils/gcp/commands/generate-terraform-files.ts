@@ -13,6 +13,9 @@ import {
   type ScheduledJobConfig,
 } from '@tsdevstack/infra-core';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
+import { validateDatabaseDiskSize } from '../../infrastructure/validate-database-disk-size';
+import { validateDatabaseHa } from '../../infrastructure/validate-database-ha';
+import { validateRedisMemoryGb } from '../../infrastructure/validate-redis-memory-gb';
 import {
   getDatabaseConfig,
   getRedisConfig,
@@ -63,7 +66,15 @@ export function generateTerraformFiles(
   const frameworkConfig = loadFrameworkConfig();
   const infraConfig = loadInfrastructureConfig();
   const databaseConfig = getDatabaseConfig(infraConfig, ctx.targetEnv, 'gcp');
+  validateDatabaseDiskSize(ctx.targetEnv, databaseConfig.diskSize, 'gcp');
+  validateDatabaseHa(ctx.targetEnv, databaseConfig, 'gcp');
   const redisConfig = getRedisConfig(infraConfig, ctx.targetEnv, 'gcp');
+  validateRedisMemoryGb(
+    ctx.targetEnv,
+    (infraConfig?.[ctx.targetEnv] as EnvironmentOverrides | undefined)?.redis
+      ?.memoryGb,
+    'gcp',
+  );
 
   const outputDir = path.join(
     ctx.projectRoot,
@@ -212,8 +223,7 @@ export function generateTerraformFiles(
   // IAM bindings are handled at deploy time (setServiceInvokerPolicy), not in Terraform,
   // so this is safe to generate even on a fresh project where services don't exist yet.
   const envOverrides = infraConfig?.[ctx.targetEnv] as
-    | EnvironmentOverrides
-    | undefined;
+    EnvironmentOverrides | undefined;
   const frontendServices = getFrontendServicesWithDomains(
     envOverrides,
     frameworkConfig.services,
@@ -221,14 +231,11 @@ export function generateTerraformFiles(
 
   if (frontendServices.length > 0) {
     const loadBalancerConfig = envOverrides?.loadBalancer as
-      | LoadBalancerOverride
-      | undefined;
+      LoadBalancerOverride | undefined;
     const securityConfig = envOverrides?.security as
-      | SecurityOverride
-      | undefined;
+      SecurityOverride | undefined;
     const accessControl = envOverrides?.accessControl as
-      | AccessControlOverride
-      | undefined;
+      AccessControlOverride | undefined;
 
     const baseDomain = frontendServices[0].domain;
     const apiDomain = loadBalancerConfig?.apiDomain ?? `api.${baseDomain}`;

@@ -2,7 +2,7 @@
  * Add Redis TLS settings to the Kong plugins that talk to Redis
  *
  * AWS ElastiCache and Azure Managed Redis require TLS connections. This adds
- * `ssl: true` and `ssl_verify: false` to the `redis` block of every
+ * verified TLS (see addTlsToPlugin) to the `redis` block of every
  * rate-limiting and tsdevstack-api-key plugin: global plugins (the user's
  * rate limiter), service-level plugins (the per-IP ceiling and the API key
  * plugin on partner services) and consumer-level plugins.

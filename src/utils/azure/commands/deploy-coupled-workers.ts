@@ -22,6 +22,7 @@ import { getGitSha } from '../../docker';
 import { buildRuntime } from '../../build-runtime';
 import { getAcrIdentityOutputs } from '../terraform';
 import type { AzureCommandContext } from './types';
+import { warnIfSmallDatabasePool } from '../../deploy/warn-if-small-database-pool';
 
 export async function deployCoupledWorkers(
   ctx: AzureCommandContext,
@@ -63,8 +64,7 @@ export async function deployCoupledWorkers(
 
   const infraConfig = loadInfrastructureConfig();
   const envConfig = infraConfig?.[ctx.targetEnv] as
-    | EnvironmentOverrides
-    | undefined;
+    EnvironmentOverrides | undefined;
   const dbTier = envConfig?.database?.tier ?? DEFAULT_AZURE_DATABASE_TIER;
   const totalServiceMax = getTotalServiceMaxInstances(
     config.services,
@@ -78,12 +78,14 @@ export async function deployCoupledWorkers(
   });
   const imageTag = tag ?? getGitSha();
 
-  const { poolMax: workerPoolMax } = calculatePoolSize({
+  const workerPool = calculatePoolSize({
     dbTier,
     provider: 'azure',
     totalServiceMaxInstances: totalServiceMax,
     totalWorkerMaxInstances: totalWorkerMax,
   });
+  const workerPoolMax = workerPool.poolMax;
+  warnIfSmallDatabasePool(workerPool, dbTier);
 
   const workerFailures: Array<{ worker: string; error?: string }> = [];
 

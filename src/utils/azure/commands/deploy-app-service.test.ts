@@ -105,6 +105,47 @@ describe('deployAppService', () => {
       );
     });
 
+    it('should merge extra app settings, keeping the existing ones', async () => {
+      await deployAppService({
+        ...baseParams,
+        appSettings: { KONG_TRUSTED_IPS: '169.254.0.0/16' },
+      });
+
+      expect(mockUpdateApplicationSettings).toHaveBeenCalledWith(
+        'my-app-dev-rg',
+        'my-app-frontend',
+        {
+          properties: {
+            EXISTING_SETTING: 'value',
+            KONG_TRUSTED_IPS: '169.254.0.0/16',
+            DOCKER_REGISTRY_SERVER_URL: 'https://myacr.azurecr.io',
+          },
+        },
+      );
+    });
+
+    it('should let extra app settings replace an existing value', async () => {
+      mockListApplicationSettings.mockResolvedValue({
+        properties: { KONG_TRUSTED_IPS: '10.0.0.0/8' },
+      });
+
+      await deployAppService({
+        ...baseParams,
+        appSettings: { KONG_TRUSTED_IPS: '169.254.0.0/16' },
+      });
+
+      expect(mockUpdateApplicationSettings).toHaveBeenCalledWith(
+        'my-app-dev-rg',
+        'my-app-frontend',
+        {
+          properties: {
+            KONG_TRUSTED_IPS: '169.254.0.0/16',
+            DOCKER_REGISTRY_SERVER_URL: 'https://myacr.azurecr.io',
+          },
+        },
+      );
+    });
+
     it('should restart the app service', async () => {
       await deployAppService(baseParams);
 

@@ -22,6 +22,8 @@ import {
   VALID_MEMORY_VALUES_AWS,
   VALID_MEMORY_VALUES_AZURE,
   VALIDATION_CONSTRAINTS,
+  DATABASE_CONSTRAINTS,
+  APP_SERVICE_TIERS,
 } from '../../constants';
 
 export type SchemaProvider = 'gcp' | 'aws' | 'azure';
@@ -36,7 +38,17 @@ export interface ProviderSchemaConfig {
   kongUsesAppService: boolean;
   /** Whether database.serverName is supported (Azure: server names are global DNS names) */
   supportsDatabaseServerName: boolean;
+  /** Database disk size in GB: a range, and the only sizes offered when the provider has fixed sizes */
+  databaseDiskSize: {
+    min: number;
+    max: number;
+    allowed?: readonly number[];
+  };
   databaseDescription: string;
+  /** What database.ha does on this provider */
+  databaseHaDescription: string;
+  /** Whether redis.memoryGb applies (GCP only; AWS and Azure size Redis by tier) */
+  supportsRedisMemoryGb: boolean;
   redisDescription: string;
   redisTierDescription: string;
   serviceDescription: string;
@@ -55,6 +67,8 @@ export interface ProviderSchemaConfig {
   serviceMinInstancesDescription: string;
   /** Description of minInstances for Kong */
   kongMinInstancesDescription: string;
+  /** Description of maxInstances for Kong */
+  kongMaxInstancesDescription: string;
   /** Valid CPU values for migration jobs */
   migrationJobCpuValues: readonly string[];
   /** Valid memory values for migration jobs */
@@ -75,7 +89,11 @@ export function getProviderSchemaConfig(
       appServiceSkus: [],
       kongUsesAppService: false,
       supportsDatabaseServerName: false,
+      databaseDiskSize: { ...DATABASE_CONSTRAINTS.diskSizeAws },
       databaseDescription: 'RDS PostgreSQL database configuration',
+      databaseHaDescription:
+        'Multi-AZ deployment: a standby in another Availability Zone takes over on failure',
+      supportsRedisMemoryGb: false,
       redisDescription: 'ElastiCache Redis configuration',
       redisTierDescription: 'ElastiCache node type',
       serviceDescription: 'ECS Fargate service configuration',
@@ -90,6 +108,7 @@ export function getProviderSchemaConfig(
       minInstancesMinimum: VALIDATION_CONSTRAINTS.minInstancesAws.min,
       serviceMinInstancesDescription: `Minimum number of instances (at least ${VALIDATION_CONSTRAINTS.minInstancesAws.min}: AWS has no scale-to-zero)`,
       kongMinInstancesDescription: `Minimum number of instances (at least ${VALIDATION_CONSTRAINTS.minInstancesAws.min}: AWS has no scale-to-zero)`,
+      kongMaxInstancesDescription: 'Maximum number of instances',
       migrationJobCpuValues: ['256', '512', '1024', '2048', '4096'],
       migrationJobMemoryValues: [
         '512',
@@ -115,24 +134,36 @@ export function getProviderSchemaConfig(
       appServiceSkus: VALID_APP_SERVICE_SKUS,
       kongUsesAppService: true,
       supportsDatabaseServerName: true,
+      databaseDiskSize: {
+        min: Math.min(...DATABASE_CONSTRAINTS.diskSizesAzure),
+        max: Math.max(...DATABASE_CONSTRAINTS.diskSizesAzure),
+        allowed: DATABASE_CONSTRAINTS.diskSizesAzure,
+      },
       databaseDescription: 'PostgreSQL Flexible Server database configuration',
+      databaseHaDescription:
+        'Zone-redundant standby. Not available on Burstable (B_) tiers; the region must have availability zones',
+      supportsRedisMemoryGb: false,
       redisDescription: 'Azure Managed Redis configuration',
       redisTierDescription: 'Azure Managed Redis SKU',
       serviceDescription: 'Container Apps service configuration',
       kongDescription:
-        'Kong Gateway configuration (App Service — SKU controlled via appService.kongSku)',
+        'Kong Gateway configuration (App Service plan, SKU set by appService.kongSku)',
       scheduledJobDescription:
         'Scheduled job configuration for Container Apps Jobs',
       serviceTypeDescription:
         "Service type: 'nestjs' (Container Apps), 'nextjs' (App Service), 'spa' (Blob Storage), or 'worker' (Container Apps background)",
       cpuValues: VALID_CPU_VALUES_AZURE,
       memoryValues: VALID_MEMORY_VALUES_AZURE,
-      cpuDescription: 'CPU allocation per instance in vCPU',
-      memoryDescription: "Memory allocation in Gi units (e.g., '1Gi', '2Gi')",
+      cpuDescription:
+        'CPU allocation per instance in vCPU (Container Apps only: Next.js apps get theirs from appService.nextjsSku)',
+      memoryDescription:
+        "Memory allocation in Gi units, e.g. '1Gi', '2Gi' (Container Apps only: Next.js apps get theirs from appService.nextjsSku)",
       minInstancesMinimum: VALIDATION_CONSTRAINTS.minInstances.min,
       serviceMinInstancesDescription:
-        'Minimum number of instances (0 = scale to zero)',
-      kongMinInstancesDescription: 'Minimum number of instances',
+        'Minimum number of instances (0 = scale to zero). Next.js apps run on an App Service plan: at least 1, a fixed count on Basic SKUs (see appService.nextjsSku)',
+      kongMinInstancesDescription: `Instances of the Kong App Service plan (at least 1: App Service cannot scale to zero). Basic SKUs run this fixed count (up to ${APP_SERVICE_TIERS.B.maxInstances}); Standard (up to ${APP_SERVICE_TIERS.S.maxInstances}) and Premium (up to ${APP_SERVICE_TIERS.P.maxInstances}) autoscale from it`,
+      kongMaxInstancesDescription:
+        'Standard and Premium SKUs (appService.kongSku): CPU autoscale up to this count. Basic SKUs cannot autoscale: leave it out or set it to minInstances',
       migrationJobCpuValues: [...VALID_CPU_VALUES_AZURE],
       migrationJobMemoryValues: [...VALID_MEMORY_VALUES_AZURE],
       migrationJobDescription:
@@ -152,7 +183,11 @@ export function getProviderSchemaConfig(
     appServiceSkus: [],
     kongUsesAppService: false,
     supportsDatabaseServerName: false,
+    databaseDiskSize: { ...DATABASE_CONSTRAINTS.diskSize },
     databaseDescription: 'Cloud SQL database configuration',
+    databaseHaDescription:
+      'Regional instance with failover to another zone. Requires backup: true',
+    supportsRedisMemoryGb: true,
     redisDescription: 'Memorystore Redis configuration',
     redisTierDescription:
       "Redis tier: 'BASIC' or 'STANDARD_HA' (high availability)",
@@ -169,6 +204,7 @@ export function getProviderSchemaConfig(
     serviceMinInstancesDescription:
       'Minimum number of instances (0 = scale to zero)',
     kongMinInstancesDescription: 'Minimum number of instances',
+    kongMaxInstancesDescription: 'Maximum number of instances',
     migrationJobCpuValues: [...VALID_CPU_VALUES_GCP],
     migrationJobMemoryValues: [...VALID_MEMORY_VALUES_GCP],
     migrationJobDescription:

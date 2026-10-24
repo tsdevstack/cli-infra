@@ -55,6 +55,7 @@ rs.mock('@tsdevstack/infra-core', () => ({
   checkTerraformInstalled: rs.fn(),
   extractLockId: rs.fn(),
   buildAwsTerraformEnv: rs.fn(),
+  AWS_KONG_CLOUD_MAP_NAME: 'kong',
 }));
 
 rs.mock('../../build-runtime', () => ({
@@ -108,6 +109,15 @@ import { buildAndPushDbInit } from './build-and-push-db-init';
 import { buildAndPushDbDelete } from './build-and-push-db-delete';
 import { runDbInit } from './run-db-init';
 import { setSecretViaCli } from '../../credentials/set-secret-via-cli';
+
+// Pass-through: the retry itself is covered by apply-with-capacity-retry.test.ts
+const mockApplyWithCapacityRetry = rs.fn();
+rs.mock('../../deploy/apply-with-capacity-retry', () => ({
+  applyWithCapacityRetry: (apply: () => Promise<unknown>, provider: string) => {
+    mockApplyWithCapacityRetry(provider);
+    return apply();
+  },
+}));
 
 describe('awsDeploy', () => {
   const mockCtx = {
@@ -237,6 +247,12 @@ describe('awsDeploy', () => {
     );
   });
 
+  it('should apply through the capacity retry', async () => {
+    await awsDeploy(mockCtx, { autoApprove: true });
+
+    expect(mockApplyWithCapacityRetry).toHaveBeenCalledWith('aws');
+  });
+
   it('should throw when terraform init fails', async () => {
     rs.mocked(executeTerraform).mockResolvedValueOnce({
       success: false,
@@ -333,6 +349,18 @@ describe('awsDeploy', () => {
       'http://offers-service.my-app.local:8080',
       'dev',
     );
+  });
+
+  it('should point KONG_INTERNAL_URL at Kong over Cloud Map, not CloudFront', async () => {
+    await awsDeploy(mockCtx, { autoApprove: true });
+
+    expect(setSecretViaCli).toHaveBeenCalledWith(
+      'KONG_INTERNAL_URL',
+      'http://kong.my-app.local:8080',
+      'dev',
+    );
+    const outputs = rs.mocked(getTerraformOutput).mock.calls.map((c) => c[1]);
+    expect(outputs).not.toContain('api_url');
   });
 
   it('should not sync an internal ALB DNS name', async () => {
