@@ -59,6 +59,7 @@ export function generateTerraformFiles(
     writeTextFile,
     executeCommand,
     cleanupFolder,
+    buildKeyVaultName,
   } = getContext();
   const { verbose } = options;
 
@@ -267,6 +268,14 @@ export function generateTerraformFiles(
     nextjsAppServiceSku: appServiceConfig.nextjsSku,
     kongScaling,
     nextjsScaling,
+    // Each backend service reads its own scope from its own vault
+    keyVaultName: buildKeyVaultName(projectName, ctx.targetEnv),
+    serviceKeyVaults: Object.fromEntries(
+      Object.keys(services).map((name) => [
+        name,
+        buildKeyVaultName(projectName, ctx.targetEnv, name),
+      ]),
+    ),
   };
 
   // Generate core files

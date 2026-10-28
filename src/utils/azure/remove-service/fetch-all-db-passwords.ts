@@ -26,11 +26,12 @@ export interface FetchAllDbPasswordsOptions {
 export async function fetchAllDbPasswords(
   options: FetchAllDbPasswordsOptions,
 ): Promise<Record<string, string>> {
-  const { logger } = getContext();
+  const { logger, buildKeyVaultName } = getContext();
   const { projectName, targetEnv, credentials } = options;
   const runtime = buildRuntime();
 
-  const vaultName = `${projectName}-${targetEnv}-kv`;
+  // Database passwords are shared secrets: the shared vault
+  const vaultName = buildKeyVaultName(projectName, targetEnv);
 
   const credential = createAzureCredential(runtime, credentials);
 

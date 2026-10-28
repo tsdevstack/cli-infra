@@ -30,6 +30,14 @@ rs.mock('../../context', () => ({
     logger: mockLogger,
     CliError: MockCliError,
     buildGCPClientOptions: () => ({}),
+    buildSecretName: (project: string, scope: string, key: string) =>
+      `${project}-${scope}-${key}`,
+    KONG_RUNTIME_SECRETS: [
+      'REDIS_PASSWORD',
+      'KONG_TRUST_TOKEN',
+      'KONG_FRONTEND_TOKEN',
+    ],
+    SHARED_SECRET_SCOPE: 'shared',
   }),
 }));
 
@@ -132,18 +140,25 @@ describe('deployKongCloudRun', () => {
       expect(scaling.maxInstanceCount).toBe(5);
     });
 
-    it('should set only the client address settings, no secrets', async () => {
+    it("should set the client address settings and Kong's runtime secrets from Secret Manager", async () => {
       await deployKongCloudRun(baseOptions);
 
       const callArgs = mockUpdateService.mock.calls[0][0];
       const container = callArgs.service.template.containers[0];
 
-      // Secrets are baked into the image; the environment only tells Kong to
-      // read the client's address from the load balancer's header
+      const fromSecret = (name: string) => ({
+        name,
+        valueSource: {
+          secretKeyRef: { secret: `myapp-shared-${name}`, version: 'latest' },
+        },
+      });
       expect(container.env).toEqual([
         { name: 'KONG_TRUSTED_IPS', value: '0.0.0.0/0,::/0' },
         { name: 'KONG_REAL_IP_HEADER', value: 'X-Tsdevstack-Edge-IP' },
         { name: 'KONG_REAL_IP_RECURSIVE', value: 'off' },
+        fromSecret('REDIS_PASSWORD'),
+        fromSecret('KONG_TRUST_TOKEN'),
+        fromSecret('KONG_FRONTEND_TOKEN'),
       ]);
     });
   });

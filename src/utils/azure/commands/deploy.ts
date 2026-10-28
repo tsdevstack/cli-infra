@@ -45,7 +45,8 @@ export async function azureDeploy(
   ctx: AzureCommandContext,
   options: DeployOptions,
 ): Promise<void> {
-  const { logger, CliError, loadFrameworkConfig } = getContext();
+  const { logger, CliError, loadFrameworkConfig, ensureKeyVaultExists } =
+    getContext();
   const runtime = buildRuntime();
 
   checkTerraformInstalled(runtime);
@@ -101,6 +102,32 @@ export async function azureDeploy(
 
   logger.complete('Configuration generated');
   logger.newline();
+
+  // Each backend service's own Key Vault must exist before Terraform grants
+  // its identity access: the CLI creates the vaults, Terraform does not
+  const serviceVaults = Object.keys(generateConfig.serviceKeyVaults);
+  if (serviceVaults.length > 0) {
+    logger.info('Ensuring service Key Vaults exist...');
+    for (const service of serviceVaults) {
+      const vault = await ensureKeyVaultExists(
+        ctx.projectName,
+        ctx.targetEnv,
+        ctx.credentials,
+        service,
+      );
+      if (!vault.exists) {
+        throw new CliError(
+          `Failed to create the Key Vault for ${service}: ${vault.error}`,
+          'infra:deploy',
+          'Check that the deploy credentials can create Key Vaults in the resource group',
+        );
+      }
+      if (vault.created) {
+        logger.success(`  Created the Key Vault for ${service}`);
+      }
+    }
+    logger.newline();
+  }
 
   // Build Terraform environment
   const tfEnv = buildAzureTerraformEnv(runtime, ctx.credentials);
@@ -417,7 +444,7 @@ export async function azureDeploy(
       `  npx tsdevstack cloud-secrets:set REDIS_PORT --value <port> --env ${ctx.targetEnv} --overwrite`,
     );
     logger.info(
-      `  npx tsdevstack cloud-secrets:set REDIS_PASSWORD --value <key> --env ${ctx.targetEnv} --overwrite`,
+      `  npx tsdevstack cloud-secrets:set REDIS_PASSWORD --env ${ctx.targetEnv} --overwrite`,
     );
   }
   logger.newline();
@@ -498,7 +525,7 @@ export async function azureDeploy(
       );
       logger.info('Run manually:');
       logger.info(
-        `  npx tsdevstack cloud-secrets:set DATABASE_URL --value <url> --env ${ctx.targetEnv} --service <service> --overwrite`,
+        `  npx tsdevstack cloud-secrets:set DATABASE_URL --env ${ctx.targetEnv} --service <service> --overwrite`,
       );
     }
     logger.newline();

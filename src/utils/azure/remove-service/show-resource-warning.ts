@@ -43,8 +43,10 @@ export function showResourceWarning(options: ShowResourceWarningOptions): void {
   if (discovered.spaBucket) {
     logger.info(`   Storage Account: ${discovered.spaBucketName}`);
   }
-  if (discovered.secrets.length > 0) {
-    logger.info(`   Secrets:         ${discovered.secrets.length} found`);
+  const secretCount =
+    discovered.secrets.length + discovered.serviceVaultSecrets.length;
+  if (secretCount > 0) {
+    logger.info(`   Secrets:         ${secretCount} found`);
   }
   if (discovered.hasDatabase) {
     logger.info(`   Database:        ${serviceName} (PostgreSQL)`);

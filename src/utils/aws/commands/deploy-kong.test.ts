@@ -126,11 +126,22 @@ describe('awsKongDeploy', () => {
     expect(mockSend).toHaveBeenCalledTimes(3);
   });
 
-  it('should register new task definition with secrets', async () => {
+  it('should give Kong its runtime secrets from Secrets Manager, not from the image', async () => {
     await awsKongDeploy(mockParams);
 
-    // Second send call is RegisterTaskDefinition
-    expect(mockSend).toHaveBeenCalledTimes(3);
+    const registered = rs.mocked(RegisterTaskDefinitionCommand).mock
+      .calls[0][0] as {
+      containerDefinitions: Array<{
+        secrets: Array<{ name: string; valueFrom: string }>;
+      }>;
+    };
+    const arn = (key: string) =>
+      `arn:aws:secretsmanager:us-east-1:123456789012:secret:my-app-shared-${key}`;
+    expect(registered.containerDefinitions[0].secrets).toEqual([
+      { name: 'REDIS_PASSWORD', valueFrom: arn('REDIS_PASSWORD') },
+      { name: 'KONG_TRUST_TOKEN', valueFrom: arn('KONG_TRUST_TOKEN') },
+      { name: 'KONG_FRONTEND_TOKEN', valueFrom: arn('KONG_FRONTEND_TOKEN') },
+    ]);
   });
 
   it('should keep the environment and set the client address settings on top', async () => {

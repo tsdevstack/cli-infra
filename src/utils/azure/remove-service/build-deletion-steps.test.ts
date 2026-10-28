@@ -5,6 +5,11 @@ import type { DiscoveredResources } from '../discovery';
 import type { AzureCommandContext } from '../commands/types';
 
 // Mock all delete functions (they import Azure SDKs)
+rs.mock('../../../context', () => ({
+  getContext: () =>
+    (globalThis as unknown as { contextMocks: unknown }).contextMocks,
+}));
+
 rs.mock('../delete', () => ({
   deleteContainerApp: rs
     .fn()
@@ -49,6 +54,7 @@ describe('buildDeletionSteps (Azure)', () => {
     spaBucket: false,
     spaBucketName: '',
     secrets: [],
+    serviceVaultSecrets: [],
     inferredType: 'unknown',
     hasDatabase: false,
     postgresServerName: 'myproject-dev-postgres',
@@ -124,6 +130,36 @@ describe('buildDeletionSteps (Azure)', () => {
       expect(names.indexOf('PostgreSQL database')).toBeLessThan(
         names.indexOf('Terraform state sync'),
       );
+    });
+  });
+  describe('Service vault secrets step', () => {
+    it("should empty the service's own vault, and keep the vault", () => {
+      const steps = build(
+        createDiscovery({
+          serviceVaultSecrets: ['myproject-auth-service-ADMIN-EMAILS'],
+        }),
+      );
+
+      const step = steps.find((s) => s.name === 'Service vault secrets');
+      expect(step?.resource).toBe('1 secrets');
+    });
+
+    it('should also remove what an older environment left in the shared vault', () => {
+      const steps = build(
+        createDiscovery({
+          secrets: ['myproject-auth-service-DATABASE-URL'],
+          serviceVaultSecrets: ['myproject-auth-service-ADMIN-EMAILS'],
+        }),
+      );
+
+      const names = steps.map((s) => s.name);
+      expect(names).toContain('Service vault secrets');
+      expect(names).toContain('Service-scoped secrets');
+    });
+
+    it('should add no vault step when the service has no secrets there', () => {
+      const steps = build(createDiscovery());
+      expect(steps.map((s) => s.name)).not.toContain('Service vault secrets');
     });
   });
 });

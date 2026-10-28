@@ -13,25 +13,39 @@ describe('setSecretViaCli', () => {
   });
 
   describe('successful secret setting', () => {
-    it('should call spawnSync with correct arguments', () => {
+    it('should pass the value on standard input, not as an argument', () => {
       mockSpawnSync.mockReturnValue({ status: 0, stderr: '' });
 
-      setSecretViaCli('REDIS_HOST', '10.0.0.5', 'prod');
+      setSecretViaCli('REDIS_PASSWORD', 'p@ss', 'prod');
 
       expect(mockSpawnSync).toHaveBeenCalledWith(
         'npx',
         [
           'tsdevstack',
           'cloud-secrets:set',
-          'REDIS_HOST',
-          '--value',
-          '10.0.0.5',
+          'REDIS_PASSWORD',
+          '--stdin',
           '--env',
           'prod',
           '--overwrite',
         ],
-        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
+        {
+          encoding: 'utf-8',
+          input: 'p@ss',
+          stdio: ['pipe', 'pipe', 'pipe'],
+        },
       );
+      const [, args] = mockSpawnSync.mock.calls[0] as [string, string[]];
+      expect(args).not.toContain('p@ss');
+    });
+
+    it('should pass the service scope', () => {
+      mockSpawnSync.mockReturnValue({ status: 0, stderr: '' });
+
+      setSecretViaCli('DATABASE_URL', 'postgresql://x', 'dev', 'auth-service');
+
+      const [, args] = mockSpawnSync.mock.calls[0] as [string, string[]];
+      expect(args.slice(-2)).toEqual(['--service', 'auth-service']);
     });
 
     it('should not throw on success', () => {
@@ -40,47 +54,18 @@ describe('setSecretViaCli', () => {
       expect(() => setSecretViaCli('KEY', 'value', 'dev')).not.toThrow();
     });
 
-    it('should handle values with special characters', () => {
-      mockSpawnSync.mockReturnValue({ status: 0, stderr: '' });
-
-      setSecretViaCli('KEY', 'pass=word!@#$%', 'dev');
-
-      expect(mockSpawnSync).toHaveBeenCalledWith(
-        'npx',
-        [
-          'tsdevstack',
-          'cloud-secrets:set',
-          'KEY',
-          '--value',
-          'pass=word!@#$%',
-          '--env',
-          'dev',
-          '--overwrite',
-        ],
-        expect.any(Object),
-      );
-    });
-
-    it('should handle multiline values', () => {
+    it('should pass multiline values unchanged', () => {
       mockSpawnSync.mockReturnValue({ status: 0, stderr: '' });
 
       const multilineValue = 'line1\nline2\nline3';
       setSecretViaCli('KEY', multilineValue, 'dev');
 
-      expect(mockSpawnSync).toHaveBeenCalledWith(
-        'npx',
-        [
-          'tsdevstack',
-          'cloud-secrets:set',
-          'KEY',
-          '--value',
-          multilineValue,
-          '--env',
-          'dev',
-          '--overwrite',
-        ],
-        expect.any(Object),
-      );
+      const [, , options] = mockSpawnSync.mock.calls[0] as [
+        string,
+        string[],
+        { input: string },
+      ];
+      expect(options.input).toBe(multilineValue);
     });
   });
 
@@ -114,15 +99,18 @@ describe('setSecretViaCli', () => {
   });
 
   describe('shell injection prevention', () => {
-    it('should use args array instead of string interpolation', () => {
+    it('should pass a value with shell metacharacters as input, untouched', () => {
       mockSpawnSync.mockReturnValue({ status: 0, stderr: '' });
 
-      // Attempt shell injection via value
       setSecretViaCli('KEY', '"; rm -rf /', 'dev');
 
-      // Verify the value is passed as a separate argument, not interpolated
-      const [, args] = mockSpawnSync.mock.calls[0] as [string, string[]];
-      expect(args[4]).toBe('"; rm -rf /'); // Value should be passed literally
+      const [, args, options] = mockSpawnSync.mock.calls[0] as [
+        string,
+        string[],
+        { input: string },
+      ];
+      expect(options.input).toBe('"; rm -rf /');
+      expect(args).not.toContain('"; rm -rf /');
     });
 
     it('should safely handle keys with shell metacharacters', () => {

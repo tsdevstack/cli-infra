@@ -10,7 +10,11 @@ import {
   buildGcpTerraformEnv,
   checkTerraformInstalled,
 } from '@tsdevstack/infra-core';
-import { executeTerraform, isCloudRunSubnetReleasePending } from '../terraform';
+import {
+  executeTerraform,
+  isCloudRunSubnetReleasePending,
+  isServiceNetworkingReleasePending,
+} from '../terraform';
 import { buildRuntime } from '../../build-runtime';
 import { getTerraformErrors } from '../../terraform';
 import { disableDeletionProtection } from '../disable-deletion-protection';
@@ -193,21 +197,27 @@ export async function gcpDestroy(
   });
 
   if (!destroyResult.success) {
+    // Google frees the network of deleted services and databases late:
+    // these errors clear by themselves
     const errors = getTerraformErrors(destroyResult.output);
-    const subnetErrors = errors.filter(isCloudRunSubnetReleasePending);
-    const subnetWait = `Cloud Run releases a subnet's addresses 1-2 hours after its services and jobs are deleted (Google). Run npx tsdevstack infra:destroy --env ${ctx.targetEnv} again after that`;
-    if (subnetErrors.length > 0 && subnetErrors.length === errors.length) {
+    const releasePending = errors.filter(
+      (error) =>
+        isCloudRunSubnetReleasePending(error) ||
+        isServiceNetworkingReleasePending(error),
+    );
+    const wait = `Google frees the network that the deleted services and database used only after a while (Cloud Run's subnet addresses: 1-2 hours). Run npx tsdevstack infra:destroy --env ${ctx.targetEnv} again later`;
+    if (releasePending.length > 0 && releasePending.length === errors.length) {
       throw new CliError(
-        'The subnet is still held by Cloud Run',
+        'Google has not released the network yet',
         'infra:destroy',
-        `${subnetWait}; it removes what is left (the subnet and the network).`,
+        `${wait}; it removes what is left. Nothing left behind is billed.`,
       );
     }
-    if (subnetErrors.length > 0) {
+    if (releasePending.length > 0) {
       throw new CliError(
         'Destroy failed',
         'infra:destroy',
-        `Check the errors above. The subnet error clears by itself: ${subnetWait}.`,
+        `Check the errors above. The network errors clear by themselves: ${wait}.`,
       );
     }
     throw new CliError(

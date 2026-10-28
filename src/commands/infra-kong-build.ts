@@ -54,6 +54,8 @@ export async function infraKongBuild(
     readYamlFile,
     processCorsOrigins,
     writeKongBuildContext,
+    validateKongTrustTokenUse,
+    buildKongRuntimeSecretReferences,
   } = getContext();
 
   logger.newline();
@@ -142,6 +144,9 @@ export async function infraKongBuild(
   // Step 1: Read Kong config with placeholders
   logger.generating('Reading Kong configuration...');
   const kongConfig = readYamlFile<KongTemplate>(kongConfigPath);
+  // A config generated from an older kong.user.yml (infra:generate-kong now
+  // stops on those)
+  validateKongTrustTokenUse(kongConfig, 'kong.user.yml');
   logger.success('Kong config loaded');
 
   // Step 2: Extract placeholders
@@ -149,12 +154,20 @@ export async function infraKongBuild(
   const placeholders = extractPlaceholders(kongConfig);
   logger.info(`  Found ${placeholders.length} placeholders`);
 
-  // Step 3: Fetch secrets from Secret Manager
+  // Step 3: Fetch secrets from Secret Manager. Kong's runtime secrets are not
+  // fetched: they become env vault references, and the platform gives Kong
+  // the values when it starts, so the image never holds them.
   logger.generating('Fetching secrets from Secret Manager...');
+  const runtimeSecretReferences = buildKongRuntimeSecretReferences();
   const secrets: Record<string, string> = {};
   const missing: string[] = [];
 
   for (const placeholder of placeholders) {
+    if (placeholder in runtimeSecretReferences) {
+      secrets[placeholder] = runtimeSecretReferences[placeholder];
+      logger.info(`  ${placeholder} (read by Kong at startup)`);
+      continue;
+    }
     const value = fetchSecret(placeholder, targetEnv);
     if (value) {
       secrets[placeholder] = value;

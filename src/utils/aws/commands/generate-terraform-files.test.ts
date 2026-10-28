@@ -209,6 +209,23 @@ describe('generateTerraformFiles', () => {
     ]);
   });
 
+  it('should pass every service as a secret scope to the IAM generator, not kong', async () => {
+    const { aws } = await import('@tsdevstack/infra-core');
+
+    generateTerraformFiles(mockCtx, 'infra:generate');
+
+    const scopes = rs.mocked(aws.generateIamTf).mock.calls[0][0] as string[];
+    expect(new Set(scopes)).toEqual(
+      new Set([
+        'auth-service',
+        'offers-service',
+        'frontend',
+        'landing',
+        'auth-worker',
+      ]),
+    );
+  });
+
   it('should throw when worker references non-existent base service', () => {
     mocks.loadFrameworkConfig.mockReturnValue({
       services: [

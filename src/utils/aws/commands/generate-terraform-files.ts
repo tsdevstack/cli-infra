@@ -457,7 +457,13 @@ export function generateTerraformFiles(
   );
   logFile('cloudtrail.tf');
 
-  writeTextFile(path.join(outputDir, 'iam.tf'), aws.generateIamTf());
+  // Every secret scope a role's prefix could cover: the services (Kong's
+  // task role reads no secrets)
+  const secretScopes = frameworkConfig.services.map((s) => s.name);
+  writeTextFile(
+    path.join(outputDir, 'iam.tf'),
+    aws.generateIamTf(secretScopes),
+  );
   logFile('iam.tf');
 
   writeTextFile(path.join(outputDir, 'ecr.tf'), aws.generateEcrTf());

@@ -424,4 +424,49 @@ describe('discoverServiceResources', () => {
       expect(databaseExists).not.toHaveBeenCalled();
     });
   });
+  describe('Key Vault secrets', () => {
+    it("should list the service's secrets in its own vault and in the shared vault", async () => {
+      rs.mocked(listKeyVaultSecretsByPrefix).mockImplementation(
+        async ({ vaultName }) => ({
+          success: true,
+          secrets:
+            vaultName === 'myproject-dev-kv'
+              ? ['myproject-api-DATABASE-URL']
+              : ['myproject-api-ADMIN-EMAILS'],
+        }),
+      );
+
+      const result = await discoverServiceResources({
+        ...baseOptions,
+        serviceName: 'api',
+      });
+
+      expect(listKeyVaultSecretsByPrefix).toHaveBeenCalledWith(
+        expect.objectContaining({
+          vaultName: 'myproject-dev-api',
+          prefix: 'myproject-api-',
+        }),
+      );
+      expect(result.secrets).toEqual(['myproject-api-DATABASE-URL']);
+      expect(result.serviceVaultSecrets).toEqual([
+        'myproject-api-ADMIN-EMAILS',
+      ]);
+    });
+
+    it('should report no service vault secrets when the vault does not exist', async () => {
+      rs.mocked(listKeyVaultSecretsByPrefix).mockImplementation(
+        async ({ vaultName }) =>
+          vaultName === 'myproject-dev-kv'
+            ? { success: true, secrets: [] }
+            : { success: false, secrets: [], error: 'getaddrinfo ENOTFOUND' },
+      );
+
+      const result = await discoverServiceResources({
+        ...baseOptions,
+        serviceName: 'api',
+      });
+
+      expect(result.serviceVaultSecrets).toEqual([]);
+    });
+  });
 });

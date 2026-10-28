@@ -8,6 +8,7 @@
 
 export { toDnsAuthName } from './to-dns-auth-name';
 export { isCloudRunSubnetReleasePending } from './is-cloud-run-subnet-release-pending';
+export { isServiceNetworkingReleasePending } from './is-service-networking-release-pending';
 export { isServiceNetworkingAgentRace } from './is-service-networking-agent-race';
 export { applyWithServiceAgentRetry } from './apply-with-service-agent-retry';
 

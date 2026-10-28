@@ -49,6 +49,7 @@ export async function infraKongGenerate(
     buildFrameworkKongConfig,
     validateRequestTransformerHeaders,
     validateStripIdentityPlugin,
+    validateKongTrustTokenUse,
     resolveApiKeyIpLimit,
     buildApiKeyDefaultLimits,
     warnStaticPartnerConsumers,
@@ -80,6 +81,7 @@ export async function infraKongGenerate(
     const customConfig = readYamlFile<KongTemplate>(customConfigPath);
     validateStripIdentityPlugin(customConfig, 'kong.custom.yml');
     validateRequestTransformerHeaders(customConfig, 'kong.custom.yml');
+    validateKongTrustTokenUse(customConfig, 'kong.custom.yml');
     const outputPath = path.join(outputDir, 'kong.yml');
     writeTextFile(outputPath, yaml.dump(customConfig, { lineWidth: -1 }));
 
@@ -208,6 +210,7 @@ export async function infraKongGenerate(
     : undefined;
   if (userConfig) {
     validateRequestTransformerHeaders(userConfig, 'kong.user.yml');
+    validateKongTrustTokenUse(userConfig, 'kong.user.yml');
     warnStaticPartnerConsumers(userConfig, 'kong.user.yml');
   }
 

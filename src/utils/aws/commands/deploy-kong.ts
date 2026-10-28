@@ -1,8 +1,11 @@
 /**
  * AWS Kong Deployment
  *
- * Deploys Kong Gateway to ECS. All config values are baked into kong.yml
- * at Docker image build time — no runtime secrets needed.
+ * Deploys Kong Gateway to ECS. Config values are baked into kong.yml at
+ * Docker image build time, except Kong's runtime secrets
+ * (KONG_RUNTIME_SECRETS): ECS injects them from Secrets Manager when a task
+ * starts (the shared execution role reads `{project}-*`; Kong's task role
+ * reads nothing), and kong.yml references them ({vault://env/...}).
  */
 
 import path from 'node:path';
@@ -35,7 +38,14 @@ interface AwsKongDeployParams {
 export async function awsKongDeploy(
   params: AwsKongDeployParams,
 ): Promise<void> {
-  const { logger, CliError, isCIEnv } = getContext();
+  const {
+    logger,
+    CliError,
+    isCIEnv,
+    buildSecretName,
+    KONG_RUNTIME_SECRETS,
+    SHARED_SECRET_SCOPE,
+  } = getContext();
   const { projectRoot, targetEnv, credentials, imageTag } = params;
 
   const runtime = buildRuntime();
@@ -145,6 +155,10 @@ export async function awsKongDeploy(
           image: imageUri,
           portMappings: existingContainer.portMappings,
           environment: existingEnv,
+          secrets: KONG_RUNTIME_SECRETS.map((key) => ({
+            name: key,
+            valueFrom: `arn:aws:secretsmanager:${region}:${credentials.accountId}:secret:${buildSecretName(projectName, SHARED_SECRET_SCOPE, key)}`,
+          })),
           logConfiguration: existingContainer.logConfiguration,
           healthCheck: existingContainer.healthCheck,
           essential: existingContainer.essential,

@@ -10,6 +10,7 @@ export function hasAnyResources(discovered: DiscoveredResources): boolean {
   return (
     discovered.containerApp ||
     discovered.spaBucket ||
-    discovered.secrets.length > 0
+    discovered.secrets.length > 0 ||
+    discovered.serviceVaultSecrets.length > 0
   );
 }

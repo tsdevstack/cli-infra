@@ -44,6 +44,8 @@ describe('azureGenerate', () => {
         subscriptionId: 'sub-123',
         location: 'eastus',
         storageAccountName: 'myappdevtfstate',
+        keyVaultName: 'myproject-dev-kv',
+        serviceKeyVaults: {},
         database: {
           tier: 'B_Standard_B1ms',
           storageSizeGb: 32,

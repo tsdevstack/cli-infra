@@ -7,7 +7,9 @@ import fs from 'node:fs';
 import inquirer from 'inquirer';
 import { getContext } from '../../../context';
 import { buildRuntime } from '../../build-runtime';
-import { executeTerraform } from '../terraform';
+import { executeTerraform, getTerraformOutput } from '../terraform';
+import { revokeKeyVaultSecretRead } from '../key-vault/revoke-key-vault-secret-read';
+import { buildKongVaultSecretNames } from '../key-vault/build-kong-vault-secret-names';
 import {
   buildAzureTerraformEnv,
   checkTerraformInstalled,
@@ -35,7 +37,7 @@ export async function azureDestroy(
   ctx: AzureCommandContext,
   options: DestroyOptions,
 ): Promise<void> {
-  const { logger, CliError } = getContext();
+  const { logger, CliError, buildKeyVaultName } = getContext();
   const runtime = buildRuntime();
 
   checkTerraformInstalled(runtime);
@@ -137,6 +139,35 @@ export async function azureDestroy(
       'infra:destroy',
       initResult.error || 'Check the output above for details',
     );
+  }
+
+  // Kong's per-secret grants come from deploys, not Terraform. Remove them
+  // while Kong's identity exists: Azure keeps an assignment whose identity
+  // is deleted, as an unknown identity.
+  let kongPrincipalId: string | null = null;
+  try {
+    kongPrincipalId = getTerraformOutput(outputDir, 'kong_principal_id', tfEnv);
+  } catch {
+    // No Kong in this state, or a state from before the output existed
+  }
+  if (kongPrincipalId) {
+    logger.newline();
+    logger.info("Removing Kong's access to its secrets...");
+    try {
+      await revokeKeyVaultSecretRead({
+        credentials: ctx.credentials,
+        resourceGroupName: `${ctx.projectName}-${ctx.targetEnv}-rg`,
+        keyVaultName: buildKeyVaultName(ctx.projectName, ctx.targetEnv),
+        secretNames: buildKongVaultSecretNames(ctx.projectName).map(
+          ({ secretName }) => secretName,
+        ),
+        principalId: kongPrincipalId,
+      });
+      logger.success("  Removed Kong's access to its secrets");
+    } catch (error) {
+      // A grant left behind must not block the teardown
+      logger.warn(error instanceof Error ? error.message : String(error));
+    }
   }
 
   logger.newline();

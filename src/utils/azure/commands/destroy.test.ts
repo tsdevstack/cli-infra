@@ -14,6 +14,11 @@ rs.mock('../../build-runtime', () => ({ buildRuntime: () => ({}) }));
 
 rs.mock('../terraform', () => ({
   executeTerraform: rs.fn(),
+  getTerraformOutput: rs.fn(),
+}));
+
+rs.mock('../key-vault/revoke-key-vault-secret-read', () => ({
+  revokeKeyVaultSecretRead: rs.fn(),
 }));
 
 rs.mock('@tsdevstack/infra-core', () => ({
@@ -40,7 +45,8 @@ rs.mock('node:fs', () => ({
 import fs from 'node:fs';
 import inquirer from 'inquirer';
 import { azureDestroy } from './destroy';
-import { executeTerraform } from '../terraform';
+import { executeTerraform, getTerraformOutput } from '../terraform';
+import { revokeKeyVaultSecretRead } from '../key-vault/revoke-key-vault-secret-read';
 import { buildAzureTerraformEnv } from '@tsdevstack/infra-core';
 import { deleteEnvironmentContainerResources } from '../delete/delete-environment-container-resources';
 
@@ -115,6 +121,71 @@ describe('azureDestroy', () => {
         azureDestroy(mockCtx, { autoApprove: true }),
       ).rejects.toThrow('Could not delete my-app-bff-service');
       expect(executeTerraform).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("Kong's grants on its secrets", () => {
+    it('should remove them before Terraform destroys Kong', async () => {
+      rs.mocked(getTerraformOutput).mockReturnValue('kong-principal');
+      rs.mocked(revokeKeyVaultSecretRead).mockResolvedValue(undefined);
+
+      await azureDestroy(mockCtx, { autoApprove: true });
+
+      expect(getTerraformOutput).toHaveBeenCalledWith(
+        expect.stringContaining('dev'),
+        'kong_principal_id',
+        expect.anything(),
+      );
+      expect(revokeKeyVaultSecretRead).toHaveBeenCalledWith({
+        credentials: mockCtx.credentials,
+        resourceGroupName: 'my-app-dev-rg',
+        keyVaultName: 'my-app-dev-kv',
+        secretNames: [
+          'my-app-shared-REDIS-PASSWORD',
+          'my-app-shared-KONG-TRUST-TOKEN',
+          'my-app-shared-KONG-FRONTEND-TOKEN',
+        ],
+        principalId: 'kong-principal',
+      });
+      const destroyCall = rs
+        .mocked(executeTerraform)
+        .mock.calls.findIndex(([command]) => command === 'destroy');
+      expect(
+        rs.mocked(revokeKeyVaultSecretRead).mock.invocationCallOrder[0],
+      ).toBeLessThan(
+        rs.mocked(executeTerraform).mock.invocationCallOrder[destroyCall],
+      );
+    });
+
+    it('should skip them when the state has no Kong', async () => {
+      rs.mocked(getTerraformOutput).mockImplementation(() => {
+        throw new Error('Output "kong_principal_id" not found');
+      });
+
+      await azureDestroy(mockCtx, { autoApprove: true });
+
+      expect(revokeKeyVaultSecretRead).not.toHaveBeenCalled();
+      expect(executeTerraform).toHaveBeenCalledWith(
+        'destroy',
+        expect.anything(),
+      );
+    });
+
+    it('should warn and still destroy when removing them fails', async () => {
+      rs.mocked(getTerraformOutput).mockReturnValue('kong-principal');
+      rs.mocked(revokeKeyVaultSecretRead).mockRejectedValue(
+        new Error('Failed to remove read access'),
+      );
+
+      await azureDestroy(mockCtx, { autoApprove: true });
+
+      expect(mocks.logger.warn).toHaveBeenCalledWith(
+        'Failed to remove read access',
+      );
+      expect(executeTerraform).toHaveBeenCalledWith(
+        'destroy',
+        expect.anything(),
+      );
     });
   });
 

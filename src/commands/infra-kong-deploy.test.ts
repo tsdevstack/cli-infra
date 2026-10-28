@@ -167,7 +167,7 @@ describe('infraKongDeploy', () => {
       await expect(infraKongDeploy({})).rejects.toThrow(mocks.CliError);
     });
 
-    it('should fall back to runtime SA map when kong-specific SA not found', async () => {
+    it("should stop, not borrow another service's account, when Kong's is missing", async () => {
       mockGetTerraformOutput.mockImplementation(
         (_dir: string, name: string) => {
           if (name === 'artifact_registry_url') return 'registry-url';
@@ -179,32 +179,12 @@ describe('infraKongDeploy', () => {
         },
       );
       mockGetTerraformOutputJson.mockReturnValue({
-        kong: 'kong-fallback@gcp.iam.gserviceaccount.com',
+        'auth-service': 'auth-service-rt@gcp.iam.gserviceaccount.com',
       });
 
-      await infraKongDeploy({});
-
-      expect(mockDeployKongCloudRun).toHaveBeenCalledWith(
-        expect.objectContaining({
-          serviceAccount: 'kong-fallback@gcp.iam.gserviceaccount.com',
-        }),
-      );
-    });
-
-    it('should throw when no service account available for Kong', async () => {
-      mockGetTerraformOutput.mockImplementation(
-        (_dir: string, name: string) => {
-          if (name === 'artifact_registry_url') return 'registry-url';
-          if (name === 'vpc_id') return 'vpc-id';
-          if (name === 'subnet_id') return 'subnet-id';
-          if (name === 'kong_service_account_email')
-            throw new Error('Not found');
-          return '';
-        },
-      );
-      mockGetTerraformOutputJson.mockReturnValue({});
-
       await expect(infraKongDeploy({})).rejects.toThrow(mocks.CliError);
+      expect(mockGetTerraformOutputJson).not.toHaveBeenCalled();
+      expect(mockDeployKongCloudRun).not.toHaveBeenCalled();
     });
   });
 

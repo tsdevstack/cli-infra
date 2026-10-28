@@ -12,6 +12,8 @@ function makeConfig(
     subscriptionId: 'sub-123',
     location: 'eastus2',
     storageAccountName: 'testprojectdevtfstate',
+    keyVaultName: 'myproject-dev-kv',
+    serviceKeyVaults: {},
     database: {
       tier: 'B_Standard_B1ms',
       storageSizeGb: 32,

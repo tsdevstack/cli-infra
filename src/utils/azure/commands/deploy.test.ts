@@ -133,6 +133,8 @@ describe('azureDeploy', () => {
         subscriptionId: 'sub-123',
         location: 'eastus',
         storageAccountName: 'myappdevtfstate',
+        keyVaultName: 'myproject-dev-kv',
+        serviceKeyVaults: {},
         database: {
           tier: 'B_Standard_B1ms',
           storageSizeGb: 32,
@@ -242,6 +244,66 @@ describe('azureDeploy', () => {
       mockCtx,
       'infra:deploy',
     );
+  });
+
+  describe('service Key Vaults', () => {
+    const withServiceVaults = (): void => {
+      const current = rs.mocked(generateTerraformFiles).getMockImplementation();
+      const base = current
+        ? current(mockCtx, 'infra:deploy')
+        : rs.mocked(generateTerraformFiles)(mockCtx, 'infra:deploy');
+      rs.mocked(generateTerraformFiles).mockReturnValue({
+        ...base,
+        generateConfig: {
+          ...base.generateConfig,
+          serviceKeyVaults: {
+            'auth-service': 'my-app-dev-auth-service',
+            'bff-service': 'my-app-dev-bff-service',
+          },
+        },
+      });
+    };
+
+    it("should create every service's vault before Terraform runs", async () => {
+      withServiceVaults();
+      mocks.ensureKeyVaultExists.mockResolvedValue({
+        exists: true,
+        created: true,
+      });
+
+      await azureDeploy(mockCtx, { autoApprove: true });
+
+      expect(mocks.ensureKeyVaultExists).toHaveBeenCalledWith(
+        'my-app',
+        'dev',
+        mockCtx.credentials,
+        'auth-service',
+      );
+      expect(mocks.ensureKeyVaultExists).toHaveBeenCalledWith(
+        'my-app',
+        'dev',
+        mockCtx.credentials,
+        'bff-service',
+      );
+      const ensureOrder =
+        mocks.ensureKeyVaultExists.mock.invocationCallOrder[1];
+      const initOrder = rs.mocked(executeTerraform).mock.invocationCallOrder[0];
+      expect(ensureOrder).toBeLessThan(initOrder);
+    });
+
+    it('should stop when a vault cannot be created', async () => {
+      withServiceVaults();
+      mocks.ensureKeyVaultExists.mockResolvedValue({
+        exists: false,
+        created: false,
+        error: 'Forbidden',
+      });
+
+      await expect(azureDeploy(mockCtx, { autoApprove: true })).rejects.toThrow(
+        'Failed to create the Key Vault for auth-service',
+      );
+      expect(executeTerraform).not.toHaveBeenCalled();
+    });
   });
 
   it('should run terraform init and apply', async () => {
@@ -376,6 +438,8 @@ describe('azureDeploy', () => {
         subscriptionId: 'sub-123',
         location: 'eastus',
         storageAccountName: 'myappdevtfstate',
+        keyVaultName: 'myproject-dev-kv',
+        serviceKeyVaults: {},
         database: {
           tier: 'B_Standard_B1ms',
           storageSizeGb: 32,
@@ -474,6 +538,8 @@ describe('azureDeploy', () => {
           subscriptionId: 'sub-123',
           location: 'eastus',
           storageAccountName: 'myappdevtfstate',
+          keyVaultName: 'myproject-dev-kv',
+          serviceKeyVaults: {},
           database: {
             tier: 'B_Standard_B1ms',
             storageSizeGb: 32,

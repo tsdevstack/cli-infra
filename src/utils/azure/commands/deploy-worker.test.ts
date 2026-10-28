@@ -59,6 +59,7 @@ const baseParams = {
   maxReplicas: 3,
   cpu: 0.5,
   memory: '1Gi',
+  secretsIdentityId: '/identities/auth-service-secrets',
 };
 
 describe('azureDeployWorker', () => {

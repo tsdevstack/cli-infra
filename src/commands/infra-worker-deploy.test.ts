@@ -39,11 +39,24 @@ rs.mock('../utils/gcp/terraform', () => ({
 
 const mockAzureGetTerraformOutput = rs.fn();
 const mockGetAcrIdentityOutputs = rs.fn();
+const mockGetServiceSecretsIdentities = rs.fn(
+  (): Record<string, { id: string; client_id: string }> => ({
+    'auth-service': {
+      id: '/identities/auth',
+      client_id: 'auth-secrets-client',
+    },
+    'offers-service': {
+      id: '/identities/offers',
+      client_id: 'offers-secrets-client',
+    },
+  }),
+);
 rs.mock('../utils/azure/terraform', () => ({
   getTerraformOutput: (...args: unknown[]) =>
     mockAzureGetTerraformOutput(...args),
   getAcrIdentityOutputs: (...args: unknown[]) =>
     mockGetAcrIdentityOutputs(...args),
+  getServiceSecretsIdentities: () => mockGetServiceSecretsIdentities(),
 }));
 
 rs.mock('../utils/build-runtime', () => ({
@@ -362,6 +375,29 @@ describe('infraWorkerDeploy', () => {
         }),
       );
       expect(mockDeployCloudRunService).not.toHaveBeenCalled();
+    });
+
+    it("should deploy with the base service's Key Vault identity", async () => {
+      await infraWorkerDeploy({
+        worker: 'auth-worker',
+        baseService: 'auth-service',
+      });
+
+      expect(mockAzureDeployWorker).toHaveBeenCalledWith(
+        expect.objectContaining({ secretsIdentityId: '/identities/auth' }),
+      );
+    });
+
+    it('should fail when the base service has no Key Vault identity', async () => {
+      mockGetServiceSecretsIdentities.mockReturnValueOnce({});
+
+      await expect(
+        infraWorkerDeploy({
+          worker: 'auth-worker',
+          baseService: 'auth-service',
+        }),
+      ).rejects.toThrow('No Key Vault identity for auth-service');
+      expect(mockAzureDeployWorker).not.toHaveBeenCalled();
     });
 
     it('should pass worker and baseService objects from config', async () => {

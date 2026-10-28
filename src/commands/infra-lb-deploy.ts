@@ -22,16 +22,12 @@ import inquirer from 'inquirer';
 import { getContext } from '../context';
 import { setupGCPInfraCommand } from '../utils/gcp/setup/setup-gcp-infra-command';
 import { buildGcpTerraformEnv, gcp } from '@tsdevstack/infra-core';
-import {
-  executeTerraform,
-  getTerraformOutput,
-  getTerraformOutputJson,
-  toDnsAuthName,
-} from '../utils/gcp/terraform';
+import { executeTerraform } from '../utils/gcp/terraform';
 import { buildRuntime } from '../utils/build-runtime';
-import { toTfVarSuffix, toTerraformId } from '../utils/terraform';
-import { padRight } from '../utils/display/pad-right';
-import { logAaaaRecords } from '../utils/gcp/display/log-aaaa-records';
+import { toTfVarSuffix } from '../utils/terraform';
+import { collectLoadBalancerDnsRecords } from '../utils/gcp/display/collect-load-balancer-dns-records';
+import { findMissingDnsRecords } from '../utils/gcp/display/find-missing-dns-records';
+import { logDnsRecords } from '../utils/gcp/display/log-dns-records';
 import { fetchDbPasswordsFromSecretManager } from '../utils/credentials/fetch-db-passwords-from-secret-manager';
 import { loadInfrastructureConfig } from '../utils/infrastructure/load-infrastructure-config';
 import { validateInfrastructureConfig } from '../utils/infrastructure/validate-infrastructure-config';
@@ -287,139 +283,30 @@ export async function infraLbDeploy(
   logger.success('Load balancer deployed successfully!');
   logger.newline();
 
-  // Display DNS configuration
+  // DNS records at the registrar: show only the ones not in place yet
   try {
-    const lbIp = getTerraformOutput(terraformDir, 'load_balancer_ip', tfEnv);
+    const { lbIp, records } = collectLoadBalancerDnsRecords({
+      terraformDir,
+      tfEnv,
+      apiDomain,
+      frontendServices,
+      redirectDomains,
+    });
     logger.info(`Load Balancer IP: ${lbIp}`);
     logger.newline();
-    logger.info('DNS Configuration Required:');
-    logger.newline();
-
-    // A Records table
-    const aRecords: Array<{ host: string; value: string }> = [
-      { host: apiDomain, value: lbIp },
-    ];
-    for (const service of frontendServices) {
-      aRecords.push({ host: service.domain, value: lbIp });
-    }
-
-    logger.info('  A Records (point to load balancer IP):');
-    logger.newline();
-    const aHostWidth = Math.max(...aRecords.map((r) => r.host.length));
-    logger.info(`    ${padRight('Host', aHostWidth)}  Value`);
-    logger.info(`    ${'─'.repeat(aHostWidth + 2 + lbIp.length)}`);
-    for (const record of aRecords) {
-      logger.info(`    ${padRight(record.host, aHostWidth)}  ${record.value}`);
-    }
-
-    // AAAA records for IPv6 visitors (state from before the IPv6 address
-    // has no such output: skip)
-    try {
-      logAaaaRecords(
-        [
-          ...aRecords.map((record) => record.host),
-          ...(redirectDomains ?? []).flatMap((d) => [d, `*.${d}`]),
-        ],
-        getTerraformOutput(terraformDir, 'load_balancer_ipv6', tfEnv),
+    const missing = await findMissingDnsRecords(records);
+    if (missing.length === 0) {
+      logger.success(
+        'DNS records are in place (A, AAAA and certificate CNAMEs)',
       );
-    } catch {
-      // No IPv6 address yet
-    }
-
-    // SSL Certificate Validation CNAME records
-    interface DnsAuthRecord {
-      name: string;
-      type: string;
-      data: string;
-    }
-
-    const cnameRecords: Array<{ host: string; value: string }> = [];
-
-    try {
-      const apiAuth = getTerraformOutputJson<DnsAuthRecord>(
-        terraformDir,
-        'dns_auth_api_record',
-        tfEnv,
-      );
-      cnameRecords.push({ host: apiAuth.name, value: apiAuth.data });
-
-      for (const service of frontendServices) {
-        const tfId = toTerraformId(service.name);
-        const serviceAuth = getTerraformOutputJson<DnsAuthRecord>(
-          terraformDir,
-          `dns_auth_${tfId}_record`,
-          tfEnv,
-        );
-        cnameRecords.push({
-          host: serviceAuth.name,
-          value: serviceAuth.data,
-        });
-      }
-
-      if (redirectDomains && redirectDomains.length > 0) {
-        for (const domain of redirectDomains) {
-          const redirectTfId = toTerraformId(toDnsAuthName(domain));
-          const redirectAuth = getTerraformOutputJson<DnsAuthRecord>(
-            terraformDir,
-            `dns_auth_redirect_${redirectTfId}_record`,
-            tfEnv,
-          );
-          cnameRecords.push({
-            host: redirectAuth.name,
-            value: redirectAuth.data,
-          });
-        }
-      }
-    } catch {
-      // SSL validation records may not exist on first deploy
-    }
-
-    if (cnameRecords.length > 0) {
+    } else {
+      logDnsRecords(missing);
       logger.newline();
-      logger.info('  SSL Certificate Validation (CNAME records):');
-      logger.newline();
-      const cnameHostWidth = Math.max(
-        ...cnameRecords.map((r) => r.host.length),
-      );
-      const cnameValueWidth = Math.max(
-        ...cnameRecords.map((r) => r.value.length),
-      );
-      logger.info(`    ${padRight('Host', cnameHostWidth)}  Value`);
-      logger.info(`    ${'─'.repeat(cnameHostWidth + 2 + cnameValueWidth)}`);
-      for (const record of cnameRecords) {
-        logger.info(
-          `    ${padRight(record.host, cnameHostWidth)}  ${record.value}`,
-        );
-      }
+      logger.info('Next steps:');
+      logger.info('  1. Add these records at your domain registrar');
+      logger.info(`  2. Verify: dig A ${baseDomain} +short`);
+      logger.info(`  3. Test: curl https://${apiDomain}/auth/v1/health`);
     }
-
-    // Redirect domains
-    if (redirectDomains && redirectDomains.length > 0) {
-      logger.newline();
-      logger.info('  Redirect Domains (A records):');
-      logger.newline();
-      const redirectHostWidth = Math.max(
-        ...redirectDomains.map((d) => d.length),
-        ...redirectDomains.map((d) => `*.${d}`.length),
-      );
-      logger.info(`    ${padRight('Host', redirectHostWidth)}  Value`);
-      logger.info(`    ${'─'.repeat(redirectHostWidth + 2 + lbIp.length)}`);
-      for (const domain of redirectDomains) {
-        logger.info(`    ${padRight(domain, redirectHostWidth)}  ${lbIp}`);
-        logger.info(
-          `    ${padRight(`*.${domain}`, redirectHostWidth)}  ${lbIp}`,
-        );
-      }
-    }
-
-    logger.newline();
-    logger.info('Next steps:');
-    logger.info('  1. Add A + CNAME records at your domain registrar');
-    logger.info(
-      '  2. Wait for SSL certificate provisioning (up to 60 minutes)',
-    );
-    logger.info(`  3. Verify: dig A ${baseDomain} +short`);
-    logger.info(`  4. Test: curl https://${apiDomain}/auth/v1/health`);
   } catch {
     logger.warn('Could not retrieve load balancer IP from terraform output');
   }

@@ -124,8 +124,7 @@ describe.each(['gcp', 'aws', 'azure'] as const)(
             {
               name: 'request-transformer',
               config: {
-                remove: { headers: ['X-Kong-Request-Id', 'X-Kong-Trust'] },
-                add: { headers: ['X-Kong-Trust:${KONG_TRUST_TOKEN}'] },
+                remove: { headers: ['X-Kong-Request-Id'] },
               },
             },
             {

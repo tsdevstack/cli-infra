@@ -15,6 +15,7 @@ rs.mock('../../build-runtime', () => ({ buildRuntime: () => ({}) }));
 rs.mock('../terraform', () => ({
   getTerraformOutput: rs.fn(),
   getAcrIdentityOutputs: rs.fn(),
+  getServiceSecretsIdentities: rs.fn(),
 }));
 
 rs.mock('../../docker', () => ({
@@ -76,7 +77,11 @@ rs.mock('../../infrastructure/merge-with-defaults', () => ({
 }));
 
 import { deployContainerAppServices } from './deploy-container-app-services';
-import { getTerraformOutput, getAcrIdentityOutputs } from '../terraform';
+import {
+  getTerraformOutput,
+  getAcrIdentityOutputs,
+  getServiceSecretsIdentities,
+} from '../terraform';
 import { fetchSecret } from '../../credentials/fetch-secret';
 import { azureDbMigrateRun } from './db-migrate-run';
 import { infraDockerBuild } from '../../../commands/infra-docker-build';
@@ -188,7 +193,18 @@ describe('deployContainerAppServices', () => {
 
     rs.mocked(getAcrIdentityOutputs).mockReturnValue({
       acrManagedIdentityId: undefined,
-      managedIdentityClientId: undefined,
+      managedIdentityClientId: 'shared-client',
+    });
+    rs.mocked(getServiceSecretsIdentities).mockReturnValue({
+      'auth-service': {
+        id: '/identities/auth',
+        client_id: 'auth-secrets-client',
+      },
+      'offers-service': {
+        id: '/identities/offers',
+        client_id: 'offers-secrets-client',
+      },
+      'bff-service': { id: '/identities/bff', client_id: 'bff-secrets-client' },
     });
 
     rs.mocked(deployWithActivationCheck).mockResolvedValue({
@@ -294,7 +310,7 @@ describe('deployContainerAppServices', () => {
   it('should pass acrManagedIdentityId when available from Terraform output', async () => {
     rs.mocked(getAcrIdentityOutputs).mockReturnValue({
       acrManagedIdentityId: '/subscriptions/sub/identity/ca-id',
-      managedIdentityClientId: undefined,
+      managedIdentityClientId: 'shared-client',
     });
 
     await deployContainerAppServices(mockCtx, { service: 'auth-service' });
@@ -374,7 +390,7 @@ describe('deployContainerAppServices', () => {
     });
   });
 
-  it('should pass envVars with Azure credentials and PORT for nestjs services', async () => {
+  it('should pass envVars with the managed identities, vault names and PORT', async () => {
     await deployContainerAppServices(mockCtx, { service: 'auth-service' });
 
     expect(deployWithActivationCheck).toHaveBeenCalledWith(
@@ -382,14 +398,38 @@ describe('deployContainerAppServices', () => {
         createOptions: expect.objectContaining({
           envVars: [
             ...expectedBackendEnvVarsArray,
-            { name: 'AZURE_CLIENT_ID', value: 'client-789' },
-            { name: 'AZURE_TENANT_ID', value: 'tenant-456' },
+            { name: 'AZURE_CLIENT_ID', value: 'shared-client' },
+            { name: 'AZURE_SECRETS_CLIENT_ID', value: 'auth-secrets-client' },
             { name: 'AZURE_KEYVAULT_NAME', value: 'my-app-dev-kv' },
+            {
+              name: 'AZURE_SERVICE_KEYVAULT_NAME',
+              value: 'my-app-dev-auth-service',
+            },
             { name: 'PORT', value: '3000' },
           ],
         }),
       }),
     );
+  });
+
+  it("should attach the service's Key Vault identity", async () => {
+    await deployContainerAppServices(mockCtx, { service: 'auth-service' });
+
+    expect(deployWithActivationCheck).toHaveBeenCalledWith(
+      expect.objectContaining({
+        createOptions: expect.objectContaining({
+          secretsIdentityId: '/identities/auth',
+        }),
+      }),
+    );
+  });
+
+  it('should fail when a service has no Key Vault identity', async () => {
+    rs.mocked(getServiceSecretsIdentities).mockReturnValue({});
+
+    await expect(
+      deployContainerAppServices(mockCtx, { service: 'auth-service' }),
+    ).rejects.toThrow('No Key Vault identity for auth-service');
   });
 
   it('should inject DATABASE_URL and Azure credentials for nestjs with database', async () => {
@@ -404,22 +444,18 @@ describe('deployContainerAppServices', () => {
       expect.objectContaining({
         createOptions: expect.objectContaining({
           secrets: [
-            { name: 'azure-client-secret', value: 'secret-abc' },
             {
               name: 'database-url',
               value: 'postgresql://user:pass@db.example.com:5432/mydb',
             },
           ],
-          secretEnvVars: [
-            { name: 'AZURE_CLIENT_SECRET', secretRef: 'azure-client-secret' },
-            { name: 'DATABASE_URL', secretRef: 'database-url' },
-          ],
+          secretEnvVars: [{ name: 'DATABASE_URL', secretRef: 'database-url' }],
         }),
       }),
     );
   });
 
-  it('should inject Azure credentials even when DATABASE_URL not found', async () => {
+  it('should inject no secrets when DATABASE_URL is not found', async () => {
     rs.mocked(fetchSecret).mockImplementation((key: string) => {
       if (key === 'DATABASE_URL') return null;
       return 'some-value';
@@ -432,16 +468,9 @@ describe('deployContainerAppServices', () => {
       'dev',
       'auth-service',
     );
-    expect(deployWithActivationCheck).toHaveBeenCalledWith(
-      expect.objectContaining({
-        createOptions: expect.objectContaining({
-          secrets: [{ name: 'azure-client-secret', value: 'secret-abc' }],
-          secretEnvVars: [
-            { name: 'AZURE_CLIENT_SECRET', secretRef: 'azure-client-secret' },
-          ],
-        }),
-      }),
-    );
+    const callArgs = rs.mocked(deployWithActivationCheck).mock.calls[0][0];
+    expect(callArgs.createOptions.secrets).toBeUndefined();
+    expect(callArgs.createOptions.secretEnvVars).toBeUndefined();
   });
 
   it('should log secret injection when DATABASE_URL is injected', async () => {
@@ -452,17 +481,12 @@ describe('deployContainerAppServices', () => {
     );
   });
 
-  it('should log credentials injection for nestjs services', async () => {
+  it('should log the managed identities injection for nestjs services', async () => {
     await deployContainerAppServices(mockCtx, { service: 'auth-service' });
 
-    // Either managed identity or SP credentials injection is logged
-    const infoCalls = rs.mocked(mocks.logger.info).mock.calls.flat();
-    const hasCredentialLog = infoCalls.some(
-      (msg: string) =>
-        msg.includes('managed identity credentials for SecretsProvider') ||
-        msg.includes('SP credentials for SecretsProvider'),
+    expect(mocks.logger.info).toHaveBeenCalledWith(
+      '  Injecting managed identities and Key Vault names',
     );
-    expect(hasCredentialLog).toBe(true);
   });
 
   it('should run migrations for services with databases before deploying', async () => {

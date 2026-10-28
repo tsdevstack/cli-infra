@@ -25,7 +25,10 @@ import {
 import { getTotalServiceMaxInstances } from '../utils/deploy/get-total-service-max-instances';
 import { loadInfrastructureConfig } from '../utils/infrastructure/load-infrastructure-config';
 import { getServiceConfig } from '../utils/infrastructure/get-service-config';
-import { getAcrIdentityOutputs } from '../utils/azure/terraform';
+import {
+  getAcrIdentityOutputs,
+  getServiceSecretsIdentities,
+} from '../utils/azure/terraform';
 import { buildRuntime } from '../utils/build-runtime';
 import type { EnvironmentOverrides } from '../utils/infrastructure/types';
 import type {
@@ -160,6 +163,17 @@ export async function infraWorkerDeploy(
       terraformDir,
       tfEnv,
     );
+    // The worker reads secrets as its base service
+    const secretsIdentity = getServiceSecretsIdentities(terraformDir, tfEnv)[
+      baseService.name
+    ];
+    if (!secretsIdentity) {
+      throw new CliError(
+        `No Key Vault identity for ${baseService.name} in the Terraform outputs`,
+        'infra:worker-deploy',
+        `Run npx tsdevstack infra:deploy --env ${targetEnv} to create it`,
+      );
+    }
 
     const backendEnv = buildAzureBackendEnv({
       projectName,
@@ -170,6 +184,7 @@ export async function infraWorkerDeploy(
       hasStorage: (config.storage?.buckets?.length ?? 0) > 0,
       poolMax: workerPoolMax,
       managedIdentityClientId,
+      secretsIdentityClientId: secretsIdentity.client_id,
     });
 
     const workerConfig = getServiceConfig(
@@ -195,6 +210,7 @@ export async function infraWorkerDeploy(
       maxReplicas: workerConfig.maxInstances,
       cpu: parseFloat(workerConfig.cpu),
       memory: workerConfig.memory,
+      secretsIdentityId: secretsIdentity.id,
     });
   } else {
     throw new CliError(

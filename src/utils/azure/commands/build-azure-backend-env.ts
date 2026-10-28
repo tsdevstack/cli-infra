@@ -19,8 +19,10 @@ interface BuildAzureBackendEnvConfig {
   hasDatabase: boolean;
   hasStorage: boolean;
   poolMax: number;
-  /** Managed identity client ID (from Terraform). When set, container uses MI for Key Vault. */
+  /** Shared Container Apps identity's client ID (AZURE_CLIENT_ID: registry, storage) */
   managedIdentityClientId?: string;
+  /** The service's own Key Vault identity's client ID (AZURE_SECRETS_CLIENT_ID) */
+  secretsIdentityClientId: string;
 }
 
 interface AzureBackendEnv {
@@ -32,7 +34,13 @@ interface AzureBackendEnv {
 export function buildAzureBackendEnv(
   config: BuildAzureBackendEnvConfig,
 ): AzureBackendEnv {
-  const { logger } = getContext();
+  const {
+    logger,
+    CliError,
+    buildKeyVaultName,
+    AZURE_KEYVAULT_NAME_ENV,
+    AZURE_SERVICE_KEYVAULT_NAME_ENV,
+  } = getContext();
   const {
     projectName,
     targetEnv,
@@ -58,37 +66,30 @@ export function buildAzureBackendEnv(
   const secrets: Array<{ name: string; value: string }> = [];
   const secretEnvVars: Array<{ name: string; secretRef: string }> = [];
 
-  // Inject Azure credentials for SecretsProvider
-  const keyVaultName = `${projectName}-${targetEnv}-kv`;
-
-  if (config.managedIdentityClientId) {
-    // Managed identity: AZURE_CLIENT_ID = MI's client ID (selects user-assigned identity)
-    // DefaultAzureCredential in the NestJS app picks up the MI automatically.
-    // No AZURE_CLIENT_SECRET or AZURE_TENANT_ID needed.
-    envVars.push(
-      { name: 'AZURE_CLIENT_ID', value: config.managedIdentityClientId },
-      { name: 'AZURE_KEYVAULT_NAME', value: keyVaultName },
+  // Key Vault access, with managed identities only. The service reads its
+  // secrets with its own identity (the shared vault and its own vault); the
+  // shared identity stays AZURE_CLIENT_ID for everything else. The deploy
+  // credentials are never injected: they could read every secret.
+  if (!config.managedIdentityClientId) {
+    throw new CliError(
+      'The Container Apps managed identity is missing from the Terraform outputs',
+      'infra:deploy',
+      `Run npx tsdevstack infra:deploy --env ${targetEnv} to create it`,
     );
-    logger.info('  Injecting managed identity credentials for SecretsProvider');
-  } else {
-    // Fallback: SP credentials (old Terraform without MI)
-    envVars.push(
-      { name: 'AZURE_CLIENT_ID', value: credentials.clientId },
-      { name: 'AZURE_TENANT_ID', value: credentials.tenantId },
-      { name: 'AZURE_KEYVAULT_NAME', value: keyVaultName },
-    );
-    if (credentials.clientSecret) {
-      secrets.push({
-        name: 'azure-client-secret',
-        value: credentials.clientSecret,
-      });
-      secretEnvVars.push({
-        name: 'AZURE_CLIENT_SECRET',
-        secretRef: 'azure-client-secret',
-      });
-    }
-    logger.info('  Injecting SP credentials for SecretsProvider');
   }
+  envVars.push(
+    { name: 'AZURE_CLIENT_ID', value: config.managedIdentityClientId },
+    { name: 'AZURE_SECRETS_CLIENT_ID', value: config.secretsIdentityClientId },
+    {
+      name: AZURE_KEYVAULT_NAME_ENV,
+      value: buildKeyVaultName(projectName, targetEnv),
+    },
+    {
+      name: AZURE_SERVICE_KEYVAULT_NAME_ENV,
+      value: buildKeyVaultName(projectName, targetEnv, serviceName),
+    },
+  );
+  logger.info('  Injecting managed identities and Key Vault names');
 
   // Azure Storage Account name for StorageModule
   if (config.hasStorage) {

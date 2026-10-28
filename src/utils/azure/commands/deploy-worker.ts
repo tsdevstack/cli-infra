@@ -34,6 +34,8 @@ interface AzureDeployWorkerParams {
   maxReplicas: number;
   cpu: number;
   memory: string;
+  /** The base service's Key Vault identity (resource ID) */
+  secretsIdentityId: string;
 }
 
 export async function azureDeployWorker(
@@ -131,6 +133,7 @@ export async function azureDeployWorker(
       memory: params.memory,
       acrLoginServer,
       acrManagedIdentityId,
+      secretsIdentityId: params.secretsIdentityId,
     },
     needsActivationCheck,
     targetMinReplicas: params.minReplicas,

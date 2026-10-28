@@ -11,7 +11,7 @@ import {
   waitForImage,
   setServiceInvokerPolicy,
 } from '@tsdevstack/infra-core';
-import { getTerraformOutput, getTerraformOutputJson } from '../terraform';
+import { getTerraformOutput } from '../terraform';
 import { buildRuntime } from '../../build-runtime';
 import { deployKongCloudRun } from '../deploy-kong-cloud-run';
 import { setSecretViaCli } from '../../credentials/set-secret-via-cli';
@@ -61,36 +61,14 @@ export async function gcpKongDeploy(
     vpcNetwork = getTerraformOutput(terraformDir, 'vpc_id', tfEnv);
     vpcSubnet = getTerraformOutput(terraformDir, 'subnet_id', tfEnv);
 
-    // Try to get Kong-specific service account, fall back to runtime SA map
-    try {
-      kongServiceAccount = getTerraformOutput(
-        terraformDir,
-        'kong_service_account_email',
-        tfEnv,
-      );
-    } catch {
-      // Fall back to getting from runtime SA map if Kong-specific doesn't exist
-      const serviceAccountEmails = getTerraformOutputJson<
-        Record<string, string>
-      >(terraformDir, 'runtime_service_account_emails', tfEnv);
-      // Use a default runtime SA or the first one available
-      kongServiceAccount =
-        serviceAccountEmails['kong'] || Object.values(serviceAccountEmails)[0];
-      if (!kongServiceAccount) {
-        throw new CliError(
-          'No service account found for Kong',
-          'infra:deploy-kong',
-          'Ensure Terraform outputs include Kong service account',
-        );
-      }
-    }
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message.includes('No service account')
-    ) {
-      throw error;
-    }
+    // Kong's own account, which can read only Kong's secrets. Never another
+    // service's account: that one reads that service's secrets too.
+    kongServiceAccount = getTerraformOutput(
+      terraformDir,
+      'kong_service_account_email',
+      tfEnv,
+    );
+  } catch {
     throw new CliError(
       'Failed to get required Terraform outputs',
       'infra:deploy-kong',

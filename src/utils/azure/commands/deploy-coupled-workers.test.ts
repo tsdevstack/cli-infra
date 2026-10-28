@@ -29,7 +29,17 @@ rs.mock('../terraform', () => ({
   getTerraformOutput: rs.fn(() => ''),
   getAcrIdentityOutputs: rs.fn(() => ({
     acrManagedIdentityId: undefined,
-    managedIdentityClientId: undefined,
+    managedIdentityClientId: 'shared-client',
+  })),
+  getServiceSecretsIdentities: rs.fn(() => ({
+    'auth-service': {
+      id: '/identities/auth',
+      client_id: 'auth-secrets-client',
+    },
+    'offers-service': {
+      id: '/identities/offers',
+      client_id: 'offers-secrets-client',
+    },
   })),
 }));
 
@@ -52,6 +62,7 @@ rs.mock('../../docker', () => ({
 import { deployCoupledWorkers } from './deploy-coupled-workers';
 import { azureDeployWorker } from './deploy-worker';
 import { buildAzureBackendEnv } from './build-azure-backend-env';
+import { getServiceSecretsIdentities } from '../terraform';
 import {
   calculatePoolSize,
   getTotalWorkerMaxInstances,
@@ -114,6 +125,29 @@ describe('deployCoupledWorkers', () => {
       concurrency: 80,
     });
     rs.mocked(getGitSha).mockReturnValue('abc1234');
+  });
+
+  it("should deploy a worker with its base service's Key Vault identity", async () => {
+    await deployCoupledWorkers(mockCtx, configWithWorker, ['auth-service']);
+
+    expect(buildAzureBackendEnv).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serviceName: 'auth-service',
+        secretsIdentityClientId: 'auth-secrets-client',
+      }),
+    );
+    expect(azureDeployWorker).toHaveBeenCalledWith(
+      expect.objectContaining({ secretsIdentityId: '/identities/auth' }),
+    );
+  });
+
+  it('should fail the worker whose base service has no Key Vault identity', async () => {
+    rs.mocked(getServiceSecretsIdentities).mockReturnValue({});
+
+    await expect(
+      deployCoupledWorkers(mockCtx, configWithWorker, ['auth-service']),
+    ).rejects.toThrow('Failed to deploy 1 worker(s)');
+    expect(azureDeployWorker).not.toHaveBeenCalled();
   });
 
   it('should do nothing when no workers are coupled to deployed services', async () => {

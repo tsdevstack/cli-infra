@@ -4,7 +4,10 @@
  * Kong requires special configuration:
  * - Ingress: INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER
  * - Status probe on port 8100 (Kong status API)
- * All config values are baked into kong.yml at Docker image build time.
+ * Config values are baked into kong.yml at Docker image build time, except
+ * Kong's runtime secrets (KONG_RUNTIME_SECRETS): Cloud Run sets them as
+ * environment variables from Secret Manager when an instance starts, and
+ * kong.yml references them ({vault://env/...}).
  */
 
 import { ServicesClient } from '@google-cloud/run';
@@ -40,7 +43,14 @@ export interface KongDeployResult {
 export async function deployKongCloudRun(
   options: KongDeployOptions,
 ): Promise<KongDeployResult> {
-  const { logger, CliError, buildGCPClientOptions } = getContext();
+  const {
+    logger,
+    CliError,
+    buildGCPClientOptions,
+    buildSecretName,
+    KONG_RUNTIME_SECRETS,
+    SHARED_SECRET_SCOPE,
+  } = getContext();
 
   const servicesClient = new ServicesClient(
     buildGCPClientOptions(options.credentials),
@@ -60,11 +70,28 @@ export async function deployKongCloudRun(
       {
         image: options.imageUri,
         ports: [{ containerPort: 8080 }],
-        // The client's address from the load balancer's header (overrides
-        // the image defaults, which trust private ranges and X-Forwarded-For)
-        env: Object.entries(GCP_KONG_CLIENT_IP_SETTINGS).map(
-          ([name, value]) => ({ name, value }),
-        ),
+        env: [
+          // The client's address from the load balancer's header (overrides
+          // the image defaults, which trust private ranges and X-Forwarded-For)
+          ...Object.entries(GCP_KONG_CLIENT_IP_SETTINGS).map(
+            ([name, value]) => ({ name, value }),
+          ),
+          // Kong's runtime secrets, read by Kong's service account (which can
+          // read only these)
+          ...KONG_RUNTIME_SECRETS.map((key) => ({
+            name: key,
+            valueSource: {
+              secretKeyRef: {
+                secret: buildSecretName(
+                  options.projectName,
+                  SHARED_SECRET_SCOPE,
+                  key,
+                ),
+                version: 'latest',
+              },
+            },
+          })),
+        ],
         resources: {
           limits: {
             cpu: options.cpu,

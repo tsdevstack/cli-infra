@@ -24,7 +24,10 @@ import {
   getTotalWorkerMaxInstances,
   parseServiceFilter,
 } from '@tsdevstack/infra-core';
-import { getAcrIdentityOutputs } from '../terraform';
+import {
+  getAcrIdentityOutputs,
+  getServiceSecretsIdentities,
+} from '../terraform';
 import { getTotalServiceMaxInstances } from '../../deploy/get-total-service-max-instances';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
 import { getServiceConfig } from '../../infrastructure/merge-with-defaults';
@@ -105,6 +108,8 @@ export async function deployContainerAppServices(
   // Falls back to password-based auth if not yet provisioned
   const { acrManagedIdentityId, managedIdentityClientId } =
     getAcrIdentityOutputs(terraformDir, tfEnv);
+  // Each service reads Key Vault with its own identity
+  const secretsIdentities = getServiceSecretsIdentities(terraformDir, tfEnv);
 
   // Get NestJS backend services (Next.js uses App Service, see deploy-nextjs-app-services.ts)
   let services = config.services.filter((s) => s.type === 'nestjs');
@@ -256,6 +261,15 @@ export async function deployContainerAppServices(
       logger.info(`Deploying ${service.name} (${service.type})...`);
       logger.info(`  Image: ${imageUri}`);
 
+      const secretsIdentity = secretsIdentities[service.name];
+      if (!secretsIdentity) {
+        throw new CliError(
+          `No Key Vault identity for ${service.name} in the Terraform outputs`,
+          'infra:deploy-services',
+          `Run npx tsdevstack infra:deploy --env ${targetEnv} to create it`,
+        );
+      }
+
       // Use shared helper for NestJS backend env vars + secrets
       const backendEnv = buildAzureBackendEnv({
         projectName,
@@ -266,6 +280,7 @@ export async function deployContainerAppServices(
         hasStorage: (config.storage?.buckets?.length ?? 0) > 0,
         poolMax,
         managedIdentityClientId,
+        secretsIdentityClientId: secretsIdentity.client_id,
       });
       const envVars = backendEnv.envVars;
       const secrets = backendEnv.secrets;
@@ -305,6 +320,7 @@ export async function deployContainerAppServices(
           memory: serviceConfig.memory,
           acrLoginServer,
           acrManagedIdentityId,
+          secretsIdentityId: secretsIdentity.id,
         },
         needsActivationCheck,
         targetMinReplicas: serviceConfig.minInstances,

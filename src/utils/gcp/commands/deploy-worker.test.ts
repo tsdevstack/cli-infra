@@ -241,7 +241,7 @@ describe('gcpDeployWorker', () => {
       'my-app',
       'auth-service',
       true,
-      undefined, // buildSecretName from context (not in mock)
+      expect.any(Function), // buildSecretName from the context
     );
   });
 

@@ -20,7 +20,10 @@ import { getServiceConfig } from '../../infrastructure/get-service-config';
 import type { EnvironmentOverrides } from '../../infrastructure/types';
 import { getGitSha } from '../../docker';
 import { buildRuntime } from '../../build-runtime';
-import { getAcrIdentityOutputs } from '../terraform';
+import {
+  getAcrIdentityOutputs,
+  getServiceSecretsIdentities,
+} from '../terraform';
 import type { AzureCommandContext } from './types';
 import { warnIfSmallDatabasePool } from '../../deploy/warn-if-small-database-pool';
 
@@ -54,6 +57,8 @@ export async function deployCoupledWorkers(
     terraformDir,
     tfEnv,
   );
+  // Workers read secrets as their base service
+  const secretsIdentities = getServiceSecretsIdentities(terraformDir, tfEnv);
 
   logger.newline();
   logger.info('════════════════════════════════════════════');
@@ -95,6 +100,18 @@ export async function deployCoupledWorkers(
     );
     if (!baseService) continue;
 
+    const secretsIdentity = secretsIdentities[baseService.name];
+    if (!secretsIdentity) {
+      workerFailures.push({
+        worker: worker.name,
+        error: `No Key Vault identity for ${baseService.name}: run infra:deploy`,
+      });
+      logger.error(
+        `  ${worker.name}: no Key Vault identity for ${baseService.name} (run infra:deploy)`,
+      );
+      continue;
+    }
+
     const backendEnv = buildAzureBackendEnv({
       projectName: ctx.projectName,
       targetEnv: ctx.targetEnv,
@@ -104,6 +121,7 @@ export async function deployCoupledWorkers(
       hasStorage: (config.storage?.buckets?.length ?? 0) > 0,
       poolMax: workerPoolMax,
       managedIdentityClientId,
+      secretsIdentityClientId: secretsIdentity.client_id,
     });
 
     const workerConfig = getServiceConfig(
@@ -129,6 +147,7 @@ export async function deployCoupledWorkers(
         maxReplicas: workerConfig.maxInstances,
         cpu: parseFloat(workerConfig.cpu),
         memory: workerConfig.memory,
+        secretsIdentityId: secretsIdentity.id,
       });
       logger.success(`  ${worker.name} deployed`);
     } catch (error) {

@@ -73,7 +73,7 @@ export {
   CI_NODE_VERSION,
 } from './ci';
 
-export { DOCKER_NODE_BASE_IMAGE } from './docker';
+export { DOCKER_NODE_BASE_IMAGE, IMAGE_TAG_IGNORED_PATHS } from './docker';
 
 export {
   VALID_OVERRIDE_FIELDS,
@@ -120,3 +120,11 @@ export {
   API_KEY_USAGE_SYNC_JOB_PATH,
   API_KEY_USAGE_SYNC_JOB_SCHEDULE,
 } from './scheduled-jobs';
+
+export {
+  AZURE_KEY_VAULT_SECRETS_USER_ROLE_ID,
+  AZURE_ROLE_ASSIGNMENTS_API_VERSION,
+  AZURE_KEY_VAULT_REFERENCE_WAIT,
+  AZURE_KEY_VAULT_REFERENCE_FATAL_STATUSES,
+} from './azure-key-vault-access';
+export { DNS_CHECK } from './dns-check';

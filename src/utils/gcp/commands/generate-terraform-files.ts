@@ -22,6 +22,7 @@ import {
   getScheduledJobs,
 } from '../../infrastructure/merge-with-defaults';
 import { getFrontendServicesWithDomains } from '../../infrastructure/get-frontend-services-with-domains';
+import { listRuntimeAccountServices } from '../infrastructure/list-runtime-account-services';
 import type {
   EnvironmentOverrides,
   SecurityOverride,
@@ -61,6 +62,7 @@ export function generateTerraformFiles(
     ensureDirectory,
     writeTextFile,
     cleanupFolder,
+    KONG_RUNTIME_SECRETS,
   } = getContext();
 
   const frameworkConfig = loadFrameworkConfig();
@@ -186,9 +188,14 @@ export function generateTerraformFiles(
   writeTextFile(path.join(outputDir, 'redis.tf'), gcp.generateRedisTf());
   logFile('redis.tf');
 
-  // Generate IAM with all services for per-service runtime SAs
-  const allServices = frameworkConfig.services.map((s) => ({ name: s.name }));
-  writeTextFile(path.join(outputDir, 'iam.tf'), gcp.generateIamTf(allServices));
+  // A runtime service account for each service that runs as itself
+  // (backend services, Next.js apps), and Kong's access to the secrets it
+  // reads at startup. Workers run as their base service; SPAs have no runtime.
+  const runtimeServices = listRuntimeAccountServices(frameworkConfig.services);
+  writeTextFile(
+    path.join(outputDir, 'iam.tf'),
+    gcp.generateIamTf(runtimeServices, KONG_RUNTIME_SECRETS),
+  );
   logFile('iam.tf');
 
   writeTextFile(

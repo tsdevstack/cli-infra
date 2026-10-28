@@ -41,6 +41,8 @@ describe('buildAzureBackendEnv', () => {
     hasDatabase: true,
     hasStorage: false,
     poolMax: 15,
+    managedIdentityClientId: 'mi-client-id-123',
+    secretsIdentityClientId: 'secrets-client-id-456',
   };
 
   beforeEach(() => {
@@ -80,61 +82,9 @@ describe('buildAzureBackendEnv', () => {
     });
   });
 
-  describe('SP credential injection (no managedIdentityClientId)', () => {
-    it('should inject SP AZURE_CLIENT_ID', () => {
+  describe('Key Vault access', () => {
+    it('should inject the shared identity as AZURE_CLIENT_ID', () => {
       const result = buildAzureBackendEnv(baseConfig);
-
-      expect(result.envVars).toEqual(
-        expect.arrayContaining([
-          { name: 'AZURE_CLIENT_ID', value: 'client-789' },
-        ]),
-      );
-    });
-
-    it('should inject AZURE_TENANT_ID', () => {
-      const result = buildAzureBackendEnv(baseConfig);
-
-      expect(result.envVars).toEqual(
-        expect.arrayContaining([
-          { name: 'AZURE_TENANT_ID', value: 'tenant-456' },
-        ]),
-      );
-    });
-
-    it('should inject AZURE_KEYVAULT_NAME', () => {
-      const result = buildAzureBackendEnv(baseConfig);
-
-      expect(result.envVars).toEqual(
-        expect.arrayContaining([
-          { name: 'AZURE_KEYVAULT_NAME', value: 'my-app-dev-kv' },
-        ]),
-      );
-    });
-
-    it('should add AZURE_CLIENT_SECRET as a secret ref', () => {
-      const result = buildAzureBackendEnv(baseConfig);
-
-      expect(result.secrets).toEqual(
-        expect.arrayContaining([
-          { name: 'azure-client-secret', value: 'secret-abc' },
-        ]),
-      );
-      expect(result.secretEnvVars).toEqual(
-        expect.arrayContaining([
-          { name: 'AZURE_CLIENT_SECRET', secretRef: 'azure-client-secret' },
-        ]),
-      );
-    });
-  });
-
-  describe('Managed identity credential injection', () => {
-    const miConfig = {
-      ...baseConfig,
-      managedIdentityClientId: 'mi-client-id-123',
-    };
-
-    it('should inject MI client ID as AZURE_CLIENT_ID', () => {
-      const result = buildAzureBackendEnv(miConfig);
 
       expect(result.envVars).toEqual(
         expect.arrayContaining([
@@ -143,29 +93,35 @@ describe('buildAzureBackendEnv', () => {
       );
     });
 
-    it('should inject AZURE_KEYVAULT_NAME', () => {
-      const result = buildAzureBackendEnv(miConfig);
+    it("should inject the service's own identity as AZURE_SECRETS_CLIENT_ID", () => {
+      const result = buildAzureBackendEnv(baseConfig);
+
+      expect(result.envVars).toEqual(
+        expect.arrayContaining([
+          { name: 'AZURE_SECRETS_CLIENT_ID', value: 'secrets-client-id-456' },
+        ]),
+      );
+    });
+
+    it('should inject the shared vault and the service vault names', () => {
+      const result = buildAzureBackendEnv(baseConfig);
 
       expect(result.envVars).toEqual(
         expect.arrayContaining([
           { name: 'AZURE_KEYVAULT_NAME', value: 'my-app-dev-kv' },
+          {
+            name: 'AZURE_SERVICE_KEYVAULT_NAME',
+            value: 'my-app-dev-auth-service',
+          },
         ]),
       );
     });
 
-    it('should NOT inject AZURE_TENANT_ID', () => {
-      const result = buildAzureBackendEnv(miConfig);
+    it('should never inject the deploy credentials', () => {
+      const result = buildAzureBackendEnv(baseConfig);
 
-      expect(result.envVars).not.toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ name: 'AZURE_TENANT_ID' }),
-        ]),
-      );
-    });
-
-    it('should NOT inject AZURE_CLIENT_SECRET', () => {
-      const result = buildAzureBackendEnv(miConfig);
-
+      const names = result.envVars.map((v) => v.name);
+      expect(names).not.toContain('AZURE_TENANT_ID');
       expect(result.secrets).not.toEqual(
         expect.arrayContaining([
           expect.objectContaining({ name: 'azure-client-secret' }),
@@ -175,6 +131,18 @@ describe('buildAzureBackendEnv', () => {
         expect.arrayContaining([
           expect.objectContaining({ name: 'AZURE_CLIENT_SECRET' }),
         ]),
+      );
+      expect(JSON.stringify(result)).not.toContain('secret-abc');
+    });
+
+    it('should fail without the managed identity instead of falling back', () => {
+      expect(() =>
+        buildAzureBackendEnv({
+          ...baseConfig,
+          managedIdentityClientId: undefined,
+        }),
+      ).toThrow(
+        'The Container Apps managed identity is missing from the Terraform outputs',
       );
     });
   });
@@ -270,22 +238,11 @@ describe('buildAzureBackendEnv', () => {
   });
 
   describe('Logging', () => {
-    it('should log SP credentials injection when no managedIdentityClientId', () => {
+    it('should log the managed identities injection', () => {
       buildAzureBackendEnv(baseConfig);
 
       expect(mocks.logger.info).toHaveBeenCalledWith(
-        '  Injecting SP credentials for SecretsProvider',
-      );
-    });
-
-    it('should log managed identity injection when managedIdentityClientId is set', () => {
-      buildAzureBackendEnv({
-        ...baseConfig,
-        managedIdentityClientId: 'mi-client-id',
-      });
-
-      expect(mocks.logger.info).toHaveBeenCalledWith(
-        '  Injecting managed identity credentials for SecretsProvider',
+        '  Injecting managed identities and Key Vault names',
       );
     });
 

@@ -45,10 +45,13 @@ rs.mock('@tsdevstack/infra-core', () => ({
 
 const mockExecuteTerraform = rs.fn();
 const mockIsCloudRunSubnetReleasePending = rs.fn();
+const mockIsServiceNetworkingReleasePending = rs.fn();
 rs.mock('../terraform', () => ({
   executeTerraform: (...args: unknown[]) => mockExecuteTerraform(...args),
   isCloudRunSubnetReleasePending: (...args: unknown[]) =>
     mockIsCloudRunSubnetReleasePending(...args),
+  isServiceNetworkingReleasePending: (...args: unknown[]) =>
+    mockIsServiceNetworkingReleasePending(...args),
 }));
 
 const mockDeleteEnvironmentCloudRunResources = rs.fn();
@@ -92,6 +95,7 @@ describe('gcpDestroy', () => {
     mockExecuteTerraform.mockResolvedValue({ success: true });
     mockInquirer.prompt.mockResolvedValue({ confirm: true });
     mockIsCloudRunSubnetReleasePending.mockReturnValue(false);
+    mockIsServiceNetworkingReleasePending.mockReturnValue(false);
     mocks.loadFrameworkConfig.mockReset();
     mockGetEnvironmentCloudRunNames.mockReturnValue({
       services: ['auth-service', 'my-app-kong'],
@@ -202,7 +206,7 @@ describe('gcpDestroy', () => {
     });
   });
 
-  describe('subnet still held by Cloud Run', () => {
+  describe('network not released by Google yet', () => {
     const SUBNET_ERROR =
       '│ Error: subnetwork is already being used by serverless-ipv4-cloudrun-1, resourceInUseByAnotherResource\n';
     const USER_ERROR =
@@ -218,7 +222,35 @@ describe('gcpDestroy', () => {
 
       await expect(
         gcpDestroy(mockContext, { autoApprove: true }),
-      ).rejects.toThrow('The subnet is still held by Cloud Run');
+      ).rejects.toThrow('Google has not released the network yet');
+    });
+
+    it('should explain the wait when the connection and the subnet are the only errors', async () => {
+      const CONNECTION_ERROR =
+        '│ Error: Unable to remove Service Networking Connection: Producer services are still using this connection.\n';
+      mockExecuteTerraform
+        .mockResolvedValueOnce({ success: true })
+        .mockResolvedValueOnce({
+          success: false,
+          output: CONNECTION_ERROR + SUBNET_ERROR,
+        });
+      mockIsCloudRunSubnetReleasePending.mockImplementation((error: string) =>
+        error.includes('serverless-ipv4'),
+      );
+      mockIsServiceNetworkingReleasePending.mockImplementation(
+        (error: string) => error.includes('still using this connection'),
+      );
+
+      const thrown = await gcpDestroy(mockContext, { autoApprove: true }).catch(
+        (error: unknown) => error,
+      );
+
+      expect((thrown as Error).message).toBe(
+        'Google has not released the network yet',
+      );
+      expect((thrown as { hint?: string }).hint).toContain(
+        'infra:destroy --env',
+      );
     });
 
     it('should report a failure, with the subnet note, when other errors failed too', async () => {
@@ -239,7 +271,7 @@ describe('gcpDestroy', () => {
       expect(thrown).toBeInstanceOf(mocks.CliError);
       expect((thrown as Error).message).toBe('Destroy failed');
       expect((thrown as { hint?: string }).hint).toContain(
-        'The subnet error clears by itself',
+        'The network errors clear by themselves',
       );
     });
 

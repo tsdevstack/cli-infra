@@ -65,8 +65,10 @@ export async function azureServiceStatus(
   }
 
   // Secrets
-  if (discovered.secrets.length > 0) {
-    logger.success(`  Secrets:          ✓ ${discovered.secrets.length} found`);
+  const secretCount =
+    discovered.secrets.length + discovered.serviceVaultSecrets.length;
+  if (secretCount > 0) {
+    logger.success(`  Secrets:          ✓ ${secretCount} found`);
   } else {
     logger.info(`  Secrets:          ✗ none found`);
   }

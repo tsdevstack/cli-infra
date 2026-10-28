@@ -13,6 +13,7 @@
  * 7. Shared secrets cleanup
  */
 
+import { getContext } from '../../../context';
 import type { DeletionStep } from './types';
 import type { AzureCommandContext } from '../commands/types';
 import type { DiscoveredResources, CoupledWorkerInfo } from '../discovery';
@@ -52,7 +53,8 @@ export function buildDeletionSteps(
   } = options;
   const { credentials } = ctx;
   const resourceGroupName = `${projectName}-${targetEnv}-rg`;
-  const vaultName = `${projectName}-${targetEnv}-kv`;
+  const { buildKeyVaultName } = getContext();
+  const vaultName = buildKeyVaultName(projectName, targetEnv);
   const steps: DeletionStep[] = [];
 
   // 0. Delete coupled workers first
@@ -131,7 +133,25 @@ export function buildDeletionSteps(
     },
   });
 
-  // 5. Delete service-scoped secrets ({project}-{service}-*)
+  // 5. Delete service-scoped secrets ({project}-{service}-*): in the
+  // service's own vault (kept, empty: no cost, and deleting it would
+  // reserve its name for 90 days), and any left in the shared vault
+  if (discovered.serviceVaultSecrets.length > 0) {
+    steps.push({
+      name: 'Service vault secrets',
+      resource: `${discovered.serviceVaultSecrets.length} secrets`,
+      execute: () =>
+        deleteKeyVaultSecretsByPrefix({
+          credentials,
+          vaultName: buildKeyVaultName(projectName, targetEnv, serviceName),
+          prefix: `${projectName}-${serviceName}-`,
+        }).then((result) => ({
+          success: result.success,
+          deleted: result.totalDeleted > 0,
+          error: result.error,
+        })),
+    });
+  }
   if (discovered.secrets.length > 0) {
     steps.push({
       name: 'Service-scoped secrets',

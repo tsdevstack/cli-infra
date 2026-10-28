@@ -240,6 +240,21 @@ describe('generateTerraformFiles', () => {
     );
   });
 
+  it("should name the shared vault and each backend service's vault", () => {
+    generateTerraformFiles(mockCtx, 'infra:generate');
+
+    expect(azure.generateTfvars).toHaveBeenCalledWith(
+      expect.objectContaining({
+        keyVaultName: 'my-app-dev-kv',
+        // Backend services only: the frontends read nothing from Key Vault
+        serviceKeyVaults: {
+          'auth-service': 'my-app-dev-auth-service',
+          'bff-service': 'my-app-dev-bff-service',
+        },
+      }),
+    );
+  });
+
   it('should log file names when verbose', () => {
     generateTerraformFiles(mockCtx, 'infra:generate', { verbose: true });
 

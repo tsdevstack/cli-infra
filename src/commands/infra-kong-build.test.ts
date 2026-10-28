@@ -226,6 +226,35 @@ describe('infraKongBuild', () => {
       );
     });
 
+    it("should not fetch Kong's runtime secrets: they become env vault references", async () => {
+      mockExtractPlaceholders.mockReturnValue([
+        'AUTH_SERVICE_URL',
+        'REDIS_PASSWORD',
+        'KONG_TRUST_TOKEN',
+        'KONG_FRONTEND_TOKEN',
+      ]);
+
+      await infraKongBuild({});
+
+      expect(mockFetchSecret).toHaveBeenCalledTimes(1);
+      expect(mockFetchSecret).toHaveBeenCalledWith('AUTH_SERVICE_URL', 'prod');
+      expect(mockResolveEnvVarsStrict).toHaveBeenCalledWith(expect.anything(), {
+        AUTH_SERVICE_URL: 'https://auth-service.run.app',
+        REDIS_PASSWORD: '{vault://env/redis-password}',
+        KONG_TRUST_TOKEN: '{vault://env/kong-trust-token}',
+        KONG_FRONTEND_TOKEN: '{vault://env/kong-frontend-token}',
+      });
+    });
+
+    it('should check the config for a trust token outside tsdevstack-trust', async () => {
+      await infraKongBuild({});
+
+      expect(mocks.validateKongTrustTokenUse).toHaveBeenCalledWith(
+        expect.objectContaining({ _format_version: '3.0' }),
+        'kong.user.yml',
+      );
+    });
+
     it('should throw when secrets missing', async () => {
       mockFetchSecret.mockReturnValue(null);
 

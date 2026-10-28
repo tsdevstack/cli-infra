@@ -9,6 +9,7 @@
  */
 
 import type { AzureCredentials } from '@tsdevstack/cli/plugin';
+import { getContext } from '../../../context';
 import { getContainerApp } from './get-container-app';
 import { storageAccountExists } from './storage-account-exists';
 import { listKeyVaultSecretsByPrefix } from './list-keyvault-secrets-by-prefix';
@@ -35,8 +36,10 @@ export interface DiscoveredResources {
   spaBucket: boolean;
   spaBucketName: string;
 
-  // Key Vault Secrets
+  // Key Vault Secrets: the service's scope in the shared vault (environments
+  // from before each service had its own vault), and in its own vault
   secrets: string[];
+  serviceVaultSecrets: string[];
 
   /**
    * Inferred type based on discovered resources:
@@ -63,10 +66,16 @@ export async function discoverServiceResources(
   options: DiscoverServiceResourcesOptions,
 ): Promise<DiscoveredResources> {
   const { serviceName, projectName, targetEnv, credentials } = options;
+  const { buildKeyVaultName } = getContext();
 
   const resourceGroupName = `${projectName}-${targetEnv}-rg`;
   const containerAppName = `${projectName}-${serviceName}`;
-  const vaultName = `${projectName}-${targetEnv}-kv`;
+  const vaultName = buildKeyVaultName(projectName, targetEnv);
+  const serviceVaultName = buildKeyVaultName(
+    projectName,
+    targetEnv,
+    serviceName,
+  );
   const serverName = resolvePostgresServerName(
     projectName,
     targetEnv,
@@ -78,30 +87,41 @@ export async function discoverServiceResources(
   const secretPrefix = `${projectName}-${serviceName}-`;
 
   // Run all discovery calls in parallel for performance
-  const [containerAppResult, bucketResult, secretsResult, databaseResult] =
-    await Promise.all([
-      getContainerApp({
-        credentials,
-        resourceGroupName,
-        containerAppName,
-      }),
-      storageAccountExists({
-        credentials,
-        resourceGroupName,
-        storageAccountName: spaBucketName,
-      }),
-      listKeyVaultSecretsByPrefix({
-        credentials,
-        vaultName,
-        prefix: secretPrefix,
-      }),
-      databaseExists({
-        databaseName: serviceName,
-        serverName,
-        resourceGroupName,
-        credentials,
-      }),
-    ]);
+  const [
+    containerAppResult,
+    bucketResult,
+    secretsResult,
+    databaseResult,
+    serviceVaultResult,
+  ] = await Promise.all([
+    getContainerApp({
+      credentials,
+      resourceGroupName,
+      containerAppName,
+    }),
+    storageAccountExists({
+      credentials,
+      resourceGroupName,
+      storageAccountName: spaBucketName,
+    }),
+    listKeyVaultSecretsByPrefix({
+      credentials,
+      vaultName,
+      prefix: secretPrefix,
+    }),
+    databaseExists({
+      databaseName: serviceName,
+      serverName,
+      resourceGroupName,
+      credentials,
+    }),
+    // A service without its own vault yet lists nothing (the call fails)
+    listKeyVaultSecretsByPrefix({
+      credentials,
+      vaultName: serviceVaultName,
+      prefix: secretPrefix,
+    }),
+  ]);
 
   const hasApp = containerAppResult.success && containerAppResult.app.exists;
   const hasBucket = bucketResult.exists;
@@ -124,6 +144,9 @@ export async function discoverServiceResources(
   }
 
   const secrets = secretsResult.success ? secretsResult.secrets : [];
+  const serviceVaultSecrets = serviceVaultResult.success
+    ? serviceVaultResult.secrets
+    : [];
 
   return {
     containerApp: hasApp,
@@ -136,6 +159,7 @@ export async function discoverServiceResources(
     spaBucketName,
 
     secrets,
+    serviceVaultSecrets,
 
     inferredType,
     hasDatabase,
