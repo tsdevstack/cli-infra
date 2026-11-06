@@ -16,12 +16,14 @@ import {
 } from '@tsdevstack/infra-core';
 import { getTotalServiceMaxInstances } from '../../deploy/get-total-service-max-instances';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
+import { getTraceSampleRate } from '../../infrastructure/get-trace-sample-rate';
 import { getServiceConfig } from '../../infrastructure/get-service-config';
 import type { EnvironmentOverrides } from '../../infrastructure/types';
 import { getGitSha } from '../../docker';
 import { buildRuntime } from '../../build-runtime';
 import {
   getAcrIdentityOutputs,
+  getOtlpTracesUrl,
   getServiceSecretsIdentities,
 } from '../terraform';
 import type { AzureCommandContext } from './types';
@@ -59,6 +61,7 @@ export async function deployCoupledWorkers(
   );
   // Workers read secrets as their base service
   const secretsIdentities = getServiceSecretsIdentities(terraformDir, tfEnv);
+  const otlpTracesUrl = getOtlpTracesUrl(terraformDir, tfEnv, ctx.targetEnv);
 
   logger.newline();
   logger.info('════════════════════════════════════════════');
@@ -112,6 +115,13 @@ export async function deployCoupledWorkers(
       continue;
     }
 
+    const workerConfig = getServiceConfig(
+      infraConfig,
+      worker.name,
+      ctx.targetEnv,
+      'azure',
+    );
+
     const backendEnv = buildAzureBackendEnv({
       projectName: ctx.projectName,
       targetEnv: ctx.targetEnv,
@@ -122,14 +132,11 @@ export async function deployCoupledWorkers(
       poolMax: workerPoolMax,
       managedIdentityClientId,
       secretsIdentityClientId: secretsIdentity.client_id,
+      logLevel: workerConfig.logLevel,
+      workerName: worker.name,
+      traceSampleRate: getTraceSampleRate(infraConfig, ctx.targetEnv),
+      otlpTracesUrl,
     });
-
-    const workerConfig = getServiceConfig(
-      infraConfig,
-      worker.name,
-      ctx.targetEnv,
-      'azure',
-    );
 
     try {
       await azureDeployWorker({

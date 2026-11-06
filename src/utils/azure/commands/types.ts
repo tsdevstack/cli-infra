@@ -15,6 +15,8 @@ export interface AzureCommandContext {
 export interface PlanOptions {
   /** Force unlock a stuck state lock before planning */
   forceUnlock?: boolean;
+  /** Upgrade Terraform providers past the lock file (infra:plan --upgrade) */
+  upgrade?: boolean;
 }
 
 export interface DeployOptions {

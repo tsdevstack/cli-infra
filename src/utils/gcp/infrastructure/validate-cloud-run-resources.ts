@@ -4,8 +4,9 @@
  * Cloud Run rejects some cpu/memory/concurrency combinations at deploy time
  * (docs: configuring/services/cpu, configuring/services/memory-limits):
  * - Below 1 vCPU: concurrency must be 1 and billing request-based (CPU only
- *   during requests). Workers keep CPU always allocated, so they need 1 vCPU
- *   or more; Kong runs with Cloud Run's default concurrency (80).
+ *   during requests). Workers, and NestJS services with min instances 1 or
+ *   more, keep CPU always allocated, so they need 1 vCPU or more; Kong runs
+ *   with Cloud Run's default concurrency (80).
  * - Memory per CPU: up to 512 MiB below 0.5 vCPU, 1 GiB below 1 vCPU, 4 GiB
  *   at 1 vCPU, 8 GiB at 2; at least 2 GiB at 4 vCPU and 4 GiB at 6 or 8.
  */
@@ -17,7 +18,7 @@ import { parseMemoryToNumber } from '../../infrastructure/parse-memory-to-number
 export function validateCloudRunResources(
   context: string,
   resources: { cpu: string; memory: string; concurrency?: number },
-  kind: 'service' | 'worker' | 'kong',
+  kind: 'service' | 'always-on-service' | 'worker' | 'kong',
 ): void {
   const { CliError } = getContext();
   const cpu = Number(resources.cpu);
@@ -29,6 +30,13 @@ export function validateCloudRunResources(
         `cpu "${resources.cpu}" is not possible for a worker on Cloud Run (${context})`,
         'Infrastructure Config',
         `Workers keep their CPU allocated between requests, which Cloud Run allows from 1 vCPU. Set "cpu" to "1" or more for ${context} in .tsdevstack/infrastructure.json.`,
+      );
+    }
+    if (kind === 'always-on-service') {
+      throw new CliError(
+        `cpu "${resources.cpu}" is not possible for a NestJS service with minInstances 1 or more on Cloud Run (${context})`,
+        'Infrastructure Config',
+        `A NestJS service that stays running keeps its CPU between requests, so its message handlers run while no request comes in. Cloud Run allows that from 1 vCPU. Set "cpu" to "1" or more for ${context} in .tsdevstack/infrastructure.json, or "minInstances" to 0 (the service then scales to zero and only works during requests).`,
       );
     }
     if (kind === 'kong') {

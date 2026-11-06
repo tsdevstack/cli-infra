@@ -9,19 +9,35 @@ import path from 'node:path';
 import fs from 'node:fs';
 
 interface PackageJson {
+  name?: string;
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
+}
+
+interface WorkspacePackage {
+  path: string;
+  deps: string[];
 }
 
 /**
  * Get workspace packages that a service actually depends on
  *
- * Returns paths like: ["packages/nest-common"]
- * Only includes packages that are actual dependencies of the service.
+ * Returns paths like: ["packages/telemetry", "packages/nest-common"]
+ * Includes the workspace packages those packages need (nest-common needs
+ * telemetry), each listed after the packages it needs, so the Dockerfile
+ * installs and builds them in that order.
  */
-export function getServiceWorkspaceDeps(projectRoot: string, serviceName: string): string[] {
+export function getServiceWorkspaceDeps(
+  projectRoot: string,
+  serviceName: string,
+): string[] {
   const packagesDir = path.join(projectRoot, 'packages');
-  const servicePackageJsonPath = path.join(projectRoot, 'apps', serviceName, 'package.json');
+  const servicePackageJsonPath = path.join(
+    projectRoot,
+    'apps',
+    serviceName,
+    'package.json',
+  );
 
   if (!fs.existsSync(servicePackageJsonPath)) {
     return [];
@@ -29,17 +45,15 @@ export function getServiceWorkspaceDeps(projectRoot: string, serviceName: string
 
   // Read service package.json
   const servicePackageJson: PackageJson = JSON.parse(
-    fs.readFileSync(servicePackageJsonPath, 'utf-8')
+    fs.readFileSync(servicePackageJsonPath, 'utf-8'),
   );
 
-  // Collect all dependencies (both regular and dev for build)
-  const allDeps = {
-    ...servicePackageJson.dependencies,
-    ...servicePackageJson.devDependencies,
-  };
+  // Dependencies needed to build: regular and dev
+  const buildDeps = (pkg: PackageJson): string[] =>
+    Object.keys({ ...pkg.dependencies, ...pkg.devDependencies }).sort();
 
-  // Build a map of workspace package names to their paths
-  const workspacePackageMap = new Map<string, string>();
+  // Workspace package names with their paths and dependencies
+  const workspacePackages = new Map<string, WorkspacePackage>();
 
   if (fs.existsSync(packagesDir)) {
     const entries = fs.readdirSync(packagesDir, { withFileTypes: true });
@@ -49,27 +63,40 @@ export function getServiceWorkspaceDeps(projectRoot: string, serviceName: string
         continue;
       }
 
-      const packageJsonPath = path.join(packagesDir, entry.name, 'package.json');
+      const packageJsonPath = path.join(
+        packagesDir,
+        entry.name,
+        'package.json',
+      );
       if (fs.existsSync(packageJsonPath)) {
-        const pkgJson: PackageJson & { name?: string } = JSON.parse(
-          fs.readFileSync(packageJsonPath, 'utf-8')
+        const pkgJson: PackageJson = JSON.parse(
+          fs.readFileSync(packageJsonPath, 'utf-8'),
         );
         if (pkgJson.name) {
-          workspacePackageMap.set(pkgJson.name, `packages/${entry.name}`);
+          workspacePackages.set(pkgJson.name, {
+            path: `packages/${entry.name}`,
+            deps: buildDeps(pkgJson),
+          });
         }
       }
     }
   }
 
-  // Find which workspace packages the service depends on
+  // Each package after the workspace packages it needs
   const neededPackages: string[] = [];
+  const visited = new Set<string>();
 
-  for (const depName of Object.keys(allDeps)) {
-    const packagePath = workspacePackageMap.get(depName);
-    if (packagePath) {
-      neededPackages.push(packagePath);
+  const visit = (name: string): void => {
+    const pkg = workspacePackages.get(name);
+    if (!pkg || visited.has(name)) {
+      return;
     }
-  }
+    visited.add(name);
+    pkg.deps.forEach(visit);
+    neededPackages.push(pkg.path);
+  };
 
-  return neededPackages.sort();
+  buildDeps(servicePackageJson).forEach(visit);
+
+  return neededPackages;
 }

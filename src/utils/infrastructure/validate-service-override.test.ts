@@ -366,6 +366,34 @@ describe('validateServiceOverride', () => {
     });
   });
 
+  describe('logLevel validation', () => {
+    it('should accept pino levels', () => {
+      for (const logLevel of [
+        'trace',
+        'debug',
+        'info',
+        'warn',
+        'error',
+        'fatal',
+      ]) {
+        expect(() =>
+          validateServiceOverride('auth-service', 'dev', { logLevel }, 'aws'),
+        ).not.toThrow();
+      }
+    });
+
+    it('should throw for another level name', () => {
+      expect(() =>
+        validateServiceOverride(
+          'auth-service',
+          'dev',
+          { logLevel: 'verbose' },
+          'gcp',
+        ),
+      ).toThrow(mocks.CliError);
+    });
+  });
+
   describe('error context', () => {
     it('should include service name and environment in error', () => {
       try {

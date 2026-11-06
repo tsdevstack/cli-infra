@@ -93,6 +93,32 @@ describe('buildAzureBackendEnv', () => {
       );
     });
 
+    it('should tell the service where to send spans', () => {
+      const result = buildAzureBackendEnv({
+        ...baseConfig,
+        otlpTracesUrl: 'https://dce/datacollectionRules/dcr/otlp/v1/traces',
+      });
+
+      expect(result.envVars).toEqual(
+        expect.arrayContaining([
+          {
+            name: 'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT',
+            value: 'https://dce/datacollectionRules/dcr/otlp/v1/traces',
+          },
+        ]),
+      );
+    });
+
+    it('should send no spans without a traces URL', () => {
+      const result = buildAzureBackendEnv(baseConfig);
+
+      expect(
+        result.envVars.find(
+          (v) => v.name === 'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT',
+        ),
+      ).toBeUndefined();
+    });
+
     it("should inject the service's own identity as AZURE_SECRETS_CLIENT_ID", () => {
       const result = buildAzureBackendEnv(baseConfig);
 

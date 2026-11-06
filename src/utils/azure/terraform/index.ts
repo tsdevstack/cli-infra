@@ -22,3 +22,4 @@ export { getAcrIdentityOutputs } from './get-acr-identity-outputs';
 export type { AcrIdentityOutputs } from './get-acr-identity-outputs';
 export { getServiceSecretsIdentities } from './get-service-secrets-identities';
 export type { ServiceSecretsIdentity } from './get-service-secrets-identities';
+export { getOtlpTracesUrl } from './get-otlp-traces-url';

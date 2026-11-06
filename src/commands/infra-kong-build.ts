@@ -17,6 +17,11 @@ import { extractPlaceholders } from '../utils/kong/extract-placeholders';
 import { resolveEnvVarsStrict } from '../utils/kong/resolve-env-vars-strict';
 import { loadInfrastructureConfig } from '../utils/infrastructure/load-infrastructure-config';
 import { getKongConfig } from '../utils/infrastructure/get-kong-config';
+import { buildKongCollectorImage } from '../utils/kong/build-kong-collector-image';
+import { buildKongCollectorConfig } from '../utils/kong/build-kong-collector-config';
+import { buildGcpCollectorDestination } from '../utils/kong/gcp/build-gcp-collector-destination';
+import { buildAwsCollectorDestination } from '../utils/kong/aws/build-aws-collector-destination';
+import { buildAzureCollectorDestination } from '../utils/kong/azure/build-azure-collector-destination';
 import {
   getGcpKongRegistryInfo,
   pushGcpKongImage,
@@ -40,6 +45,11 @@ import type {
 interface InfraKongBuildOptions {
   env?: string;
   tag?: string;
+  /**
+   * Print the commands to run next (default true). infra:deploy passes
+   * false: it runs them itself.
+   */
+  nextSteps?: boolean;
 }
 
 /**
@@ -253,8 +263,36 @@ export async function infraKongBuild(
     });
     logger.success(`Tagged as latest`);
 
-    // Step 8: Push to registry (provider-specific)
+    // Step 8: Build the collector sidecar image (Kong's spans to the cloud's
+    // trace service), with this environment's config
     logger.newline();
+    const destination =
+      provider === 'gcp'
+        ? buildGcpCollectorDestination(
+            (ctx.credentials as GCPCredentials).project_id,
+          )
+        : provider === 'aws'
+          ? buildAwsCollectorDestination({
+              region: (ctx.credentials as AWSCredentials).region,
+              logGroup: `/ecs/${ctx.projectName}/kong`,
+            })
+          : buildAzureCollectorDestination();
+    logger.generating('Building the collector sidecar image...');
+    const collector = buildKongCollectorImage({
+      registryUrl,
+      imageTag,
+      config: buildKongCollectorConfig(destination),
+    });
+    logger.success(`Image built: ${collector.fullImageTag}`);
+
+    // Step 9: Push to registry (provider-specific)
+    logger.newline();
+    const imagesToPush = [
+      fullImageTag,
+      latestTag,
+      collector.fullImageTag,
+      collector.latestTag,
+    ];
 
     if (provider === 'gcp') {
       const info = getGcpKongRegistryInfo(
@@ -262,48 +300,42 @@ export async function infraKongBuild(
         targetEnv,
         ctx.credentials as GCPCredentials,
       );
-      await pushGcpKongImage(
-        fullImageTag,
-        info.registryHost,
-        ctx.credentials as GCPCredentials,
-      );
-      await pushGcpKongImage(
-        latestTag,
-        info.registryHost,
-        ctx.credentials as GCPCredentials,
-      );
+      for (const image of imagesToPush) {
+        await pushGcpKongImage(
+          image,
+          info.registryHost,
+          ctx.credentials as GCPCredentials,
+        );
+      }
     } else if (provider === 'aws') {
-      await pushAwsKongImage(
-        fullImageTag,
-        registryUrl,
-        ctx.credentials as AWSCredentials,
-      );
-      await pushAwsKongImage(
-        latestTag,
-        registryUrl,
-        ctx.credentials as AWSCredentials,
-      );
+      for (const image of imagesToPush) {
+        await pushAwsKongImage(
+          image,
+          registryUrl,
+          ctx.credentials as AWSCredentials,
+        );
+      }
     } else if (provider === 'azure') {
-      await pushAzureKongImage(
-        fullImageTag,
-        registryUrl,
-        ctx.credentials as AzureCredentials,
-      );
-      await pushAzureKongImage(
-        latestTag,
-        registryUrl,
-        ctx.credentials as AzureCredentials,
-      );
+      for (const image of imagesToPush) {
+        await pushAzureKongImage(
+          image,
+          registryUrl,
+          ctx.credentials as AzureCredentials,
+        );
+      }
     }
 
     logger.newline();
-    logger.complete('Kong image built and pushed!');
+    logger.complete('Kong and collector images built and pushed!');
     logger.newline();
     logger.info(`Image: ${fullImageTag}`);
+    logger.info(`Collector: ${collector.fullImageTag}`);
     logger.newline();
-    logger.info('Next steps:');
-    logger.info(`  npx tsdevstack infra:deploy-kong --env ${targetEnv}`);
-    logger.newline();
+    if (options.nextSteps !== false) {
+      logger.info('Next steps:');
+      logger.info(`  npx tsdevstack infra:deploy-kong --env ${targetEnv}`);
+      logger.newline();
+    }
   } finally {
     // Cleanup temp directory
     fs.rmSync(tempDir, { recursive: true, force: true });

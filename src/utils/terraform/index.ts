@@ -6,6 +6,7 @@ export { escapeHcl } from './escape-hcl';
 export { toTfVarSuffix } from './to-tf-var-suffix';
 export { toTerraformId } from './to-terraform-id';
 export { getTerraformErrors } from './get-terraform-errors';
+export { logProviderUpgradeNextSteps } from './log-provider-upgrade-next-steps';
 export {
   executeTerraform,
   getTerraformOutput,

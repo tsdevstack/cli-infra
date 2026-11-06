@@ -35,6 +35,7 @@ rs.mock('@tsdevstack/infra-core', () => ({
     generateNetworkTf: rs.fn(() => '# network.tf'),
     generateDatabaseTf: rs.fn(() => '# database.tf'),
     generateRedisTf: rs.fn(() => '# redis.tf'),
+    generateDashboardTf: rs.fn(() => '# dashboard.tf'),
     generateIamTf: rs.fn(() => '# iam.tf'),
     generateArtifactRegistryTf: rs.fn(() => '# artifact-registry.tf'),
     generateSpaBucketsTf: rs.fn(() => '# spa-buckets.tf'),
@@ -140,8 +141,17 @@ describe('gcpGenerate', () => {
     it('should generate all terraform files', async () => {
       await gcpGenerate(mockContext);
 
-      // 10 files: main, variables, network, database, redis, iam, artifact-registry, spa-buckets, outputs, tfvars
-      expect(mockWriteTextFile).toHaveBeenCalledTimes(10);
+      // 11 files: main, variables, network, database, redis, iam, artifact-registry, spa-buckets, outputs, tfvars, dashboard
+      expect(mockWriteTextFile).toHaveBeenCalledTimes(11);
+    });
+
+    it('should write the dashboard for the environment', async () => {
+      await gcpGenerate(mockContext);
+
+      expect(mockWriteTextFile).toHaveBeenCalledWith(
+        '/test/project/infrastructure/terraform/dev/dashboard.tf',
+        '# dashboard.tf',
+      );
     });
 
     it('should write main.tf', async () => {
@@ -256,7 +266,7 @@ describe('gcpGenerate', () => {
       await gcpGenerate(mockContext);
 
       // 10 base files + 1 loadbalancer.tf = 11
-      expect(mockWriteTextFile).toHaveBeenCalledTimes(11);
+      expect(mockWriteTextFile).toHaveBeenCalledTimes(12);
       expect(mockWriteTextFile).toHaveBeenCalledWith(
         '/test/project/infrastructure/terraform/dev/loadbalancer.tf',
         '# loadbalancer.tf',
@@ -269,7 +279,7 @@ describe('gcpGenerate', () => {
 
       await gcpGenerate(mockContext);
 
-      expect(mockWriteTextFile).toHaveBeenCalledTimes(10);
+      expect(mockWriteTextFile).toHaveBeenCalledTimes(11);
       expect(mockWriteTextFile).not.toHaveBeenCalledWith(
         expect.stringContaining('loadbalancer.tf'),
         expect.any(String),
@@ -300,7 +310,7 @@ describe('gcpGenerate', () => {
       await gcpGenerate(mockContext);
 
       // 10 base files + 1 cloud-scheduler.tf = 11
-      expect(mockWriteTextFile).toHaveBeenCalledTimes(11);
+      expect(mockWriteTextFile).toHaveBeenCalledTimes(12);
       expect(mockWriteTextFile).toHaveBeenCalledWith(
         '/test/project/infrastructure/terraform/dev/cloud-scheduler.tf',
         '# cloud-scheduler.tf',

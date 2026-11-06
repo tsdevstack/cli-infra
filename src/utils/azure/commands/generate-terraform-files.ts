@@ -317,6 +317,20 @@ export function generateTerraformFiles(
       name: 'diagnostics.tf',
       content: azure.generateDiagnosticsTf(generateConfig),
     },
+    { name: 'tracing.tf', content: azure.generateTracingTf(generateConfig) },
+    // The environment's workbook (infra:deploy prints its link)
+    {
+      name: 'dashboard.tf',
+      content: azure.generateDashboardTf({
+        serviceNames: Object.keys(services),
+        workerNames: config.services
+          .filter((s) => s.type === 'worker')
+          .map((s) => s.name),
+        nextjsNames: Object.keys(frontends),
+        // Microsoft advises against Query Store on Burstable tiers (B_*)
+        queryStore: !databaseConfig.tier.startsWith('B_'),
+      }),
+    },
   ];
 
   // Add scheduled-jobs.tf only when jobs are configured

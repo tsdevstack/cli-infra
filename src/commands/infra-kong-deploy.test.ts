@@ -320,4 +320,25 @@ describe('infraKongDeploy', () => {
       );
     });
   });
+
+  describe('next steps', () => {
+    beforeEach(() => {
+      mockDeployKongCloudRun.mockResolvedValue({
+        success: true,
+        serviceUrl: 'https://kong-xyz.run.app',
+      });
+    });
+
+    it('should print the load balancer command to run next', async () => {
+      await infraKongDeploy({});
+
+      expect(mocks.logger.info).toHaveBeenCalledWith('Next steps:');
+    });
+
+    it('should not print next steps inside infra:deploy (nextSteps false)', async () => {
+      await infraKongDeploy({ nextSteps: false });
+
+      expect(mocks.logger.info).not.toHaveBeenCalledWith('Next steps:');
+    });
+  });
 });

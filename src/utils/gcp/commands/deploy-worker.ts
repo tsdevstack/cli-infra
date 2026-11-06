@@ -21,6 +21,7 @@ import {
 } from '@tsdevstack/infra-core';
 import { getTotalServiceMaxInstances } from '../../deploy/get-total-service-max-instances';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
+import { getTraceSampleRate } from '../../infrastructure/get-trace-sample-rate';
 import { getServiceConfig } from '../../infrastructure/get-service-config';
 import type { EnvironmentOverrides } from '../../infrastructure/types';
 import type { GCPCredentials, FrameworkService } from '@tsdevstack/cli/plugin';
@@ -159,12 +160,23 @@ export async function gcpDeployWorker(
   });
   warnIfSmallDatabasePool(poolResult, dbTier);
 
+  // Read worker scaling config from infrastructure.json (with defaults)
+  const workerConfig = getServiceConfig(
+    infraConfig,
+    worker.name,
+    targetEnv,
+    'gcp',
+  );
+
   // Workers use backend env vars and secrets (they need DB/Redis access)
   const envVars = buildBackendEnvVars({
     provider: 'gcp',
     projectName,
     projectId: credentials.project_id,
     poolMax: poolResult.poolMax,
+    logLevel: workerConfig.logLevel,
+    workerName: worker.name,
+    traceSampleRate: getTraceSampleRate(infraConfig, targetEnv),
   });
 
   const secrets = buildBackendSecrets(
@@ -172,14 +184,6 @@ export async function gcpDeployWorker(
     baseService.name, // Use base service for DATABASE_URL secret scope
     baseService.hasDatabase ?? false,
     buildSecretName,
-  );
-
-  // Read worker scaling config from infrastructure.json (with defaults)
-  const workerConfig = getServiceConfig(
-    infraConfig,
-    worker.name,
-    targetEnv,
-    'gcp',
   );
 
   // Deploy worker to Cloud Run

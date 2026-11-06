@@ -14,6 +14,7 @@ import {
   VALID_MEMORY_VALUES_AWS,
   VALID_MEMORY_VALUES_AZURE,
   VALIDATION_CONSTRAINTS,
+  VALID_LOG_LEVEL_VALUES,
 } from '../../constants';
 import { VALID_OVERRIDE_FIELDS } from './types';
 import type { ServiceOverride } from './types';
@@ -148,6 +149,15 @@ export function validateServiceOverride(
       context,
       VALIDATION_CONSTRAINTS.concurrency.min,
       VALIDATION_CONSTRAINTS.concurrency.max,
+    );
+  }
+
+  if (override.logLevel !== undefined) {
+    validateEnum(
+      override.logLevel,
+      'logLevel',
+      context,
+      VALID_LOG_LEVEL_VALUES,
     );
   }
 }

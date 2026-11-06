@@ -12,6 +12,11 @@ export interface GCPCommandContext {
   runningInCI: boolean;
 }
 
+export interface PlanOptions {
+  /** Upgrade Terraform providers past the lock file (infra:plan --upgrade) */
+  upgrade?: boolean;
+}
+
 export interface DeployOptions {
   autoApprove?: boolean;
   /** Skip service deployment phases (Docker, Kong, LB) - only run infrastructure provisioning */

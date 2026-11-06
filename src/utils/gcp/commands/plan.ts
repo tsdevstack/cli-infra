@@ -9,17 +9,20 @@ import {
 } from '@tsdevstack/infra-core';
 import { executeTerraform } from '../terraform';
 import { buildRuntime } from '../../build-runtime';
-import { toTfVarSuffix } from '../../terraform';
+import { logProviderUpgradeNextSteps, toTfVarSuffix } from '../../terraform';
 import { createBucket } from '../create-bucket';
 import { getGcsLocationFromRegion } from '../get-gcs-location-from-region';
 import { fetchDbPasswordsFromSecretManager } from '../../credentials/fetch-db-passwords-from-secret-manager';
 import { generateTerraformFiles } from './generate-terraform-files';
-import type { GCPCommandContext } from './types';
+import type { GCPCommandContext, PlanOptions } from './types';
 
 /**
  * Plan GCP infrastructure changes
  */
-export async function gcpPlan(ctx: GCPCommandContext): Promise<void> {
+export async function gcpPlan(
+  ctx: GCPCommandContext,
+  options: PlanOptions = {},
+): Promise<void> {
   const { logger, CliError } = getContext();
   const runtime = buildRuntime();
 
@@ -95,13 +98,18 @@ export async function gcpPlan(ctx: GCPCommandContext): Promise<void> {
     tfEnv[`TF_VAR_db_${suffix}_password`] = password;
   }
 
-  logger.info('Initializing...');
+  logger.info(
+    options.upgrade
+      ? 'Initializing and upgrading Terraform providers...'
+      : 'Initializing...',
+  );
   logger.newline();
 
   const initResult = await executeTerraform('init', {
     workDir: outputDir,
     env: tfEnv,
     reconfigure: true,
+    upgrade: options.upgrade,
   });
 
   if (!initResult.success) {
@@ -127,6 +135,11 @@ export async function gcpPlan(ctx: GCPCommandContext): Promise<void> {
       'infra:plan',
       planResult.error || 'Check the output above for details',
     );
+  }
+
+  if (options.upgrade) {
+    logProviderUpgradeNextSteps(outputDir, ctx.targetEnv);
+    return;
   }
 
   logger.newline();

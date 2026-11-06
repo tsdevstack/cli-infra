@@ -185,6 +185,21 @@ describe('validateInfrastructureConfig', () => {
       ).not.toThrow();
     });
 
+    it('should accept tracing and reject a rate outside 0 to 1', () => {
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { tracing: { sampleRate: 0.5 } },
+        }),
+      ).not.toThrow();
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { tracing: { sampleRate: 2 } },
+        }),
+      ).toThrow('"tracing.sampleRate" must be a number from 0 to 1');
+    });
+
     it('should accept accessControl with noIndex', () => {
       expect(() =>
         validateInfrastructureConfig({
@@ -414,20 +429,44 @@ describe('validateInfrastructureConfig', () => {
       expect(() =>
         validateInfrastructureConfig({
           version: '1.0.0',
-          dev: { api: { cpu: '0.5' } },
+          dev: { api: { cpu: '0.5', minInstances: 0 } },
         }),
       ).toThrow(
         'cpu "0.5" needs "concurrency": 1 on Cloud Run (dev.api has 80)',
       );
     });
 
-    it('should accept cpu below 1 with concurrency 1', () => {
+    it('should accept cpu below 1 with concurrency 1 when the service scales to zero', () => {
+      gcpWith([{ name: 'api', type: 'nestjs' }]);
+
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { api: { cpu: '0.5', concurrency: 1, minInstances: 0 } },
+        }),
+      ).not.toThrow();
+    });
+
+    it('should reject cpu below 1 for a NestJS service with the default min instances (1)', () => {
       gcpWith([{ name: 'api', type: 'nestjs' }]);
 
       expect(() =>
         validateInfrastructureConfig({
           version: '1.0.0',
           dev: { api: { cpu: '0.5', concurrency: 1 } },
+        }),
+      ).toThrow(
+        'cpu "0.5" is not possible for a NestJS service with minInstances 1 or more on Cloud Run (dev.api)',
+      );
+    });
+
+    it('should accept cpu below 1 for Next.js with min instances 1', () => {
+      gcpWith([{ name: 'web', type: 'nextjs' }]);
+
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { web: { cpu: '0.5', concurrency: 1, minInstances: 1 } },
         }),
       ).not.toThrow();
     });

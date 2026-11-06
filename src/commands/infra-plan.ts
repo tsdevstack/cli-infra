@@ -16,6 +16,7 @@ import type { AzureCommandContext } from '../utils/azure/commands';
 interface InfraPlanOptions {
   env?: string;
   forceUnlock?: boolean;
+  upgrade?: boolean;
 }
 
 /**
@@ -31,14 +32,16 @@ export async function infraPlan(options: InfraPlanOptions): Promise<void> {
   const ctx = await setupInfraCommand(options, 'infra:plan');
 
   if (ctx.provider === 'gcp') {
-    await gcpPlan(ctx as GCPCommandContext);
+    await gcpPlan(ctx as GCPCommandContext, { upgrade: options.upgrade });
   } else if (ctx.provider === 'aws') {
     await awsPlan(ctx as AWSCommandContext, {
       forceUnlock: options.forceUnlock,
+      upgrade: options.upgrade,
     });
   } else if (ctx.provider === 'azure') {
     await azurePlan(ctx as AzureCommandContext, {
       forceUnlock: options.forceUnlock,
+      upgrade: options.upgrade,
     });
   }
 }

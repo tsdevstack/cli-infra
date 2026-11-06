@@ -28,6 +28,7 @@ describe('getServiceConfig', () => {
           timeout: INFRASTRUCTURE_DEFAULTS_GCP.timeout,
           port: INFRASTRUCTURE_DEFAULTS_GCP.port,
           concurrency: INFRASTRUCTURE_DEFAULTS_GCP.concurrency,
+          logLevel: 'info',
         });
       });
 
@@ -129,6 +130,7 @@ describe('getServiceConfig', () => {
               timeout: '600s',
               port: 8080,
               concurrency: 200,
+              logLevel: 'warn',
             },
           },
         };
@@ -141,6 +143,7 @@ describe('getServiceConfig', () => {
           timeout: '600s',
           port: 8080,
           concurrency: 200,
+          logLevel: 'warn',
         });
       });
     });
@@ -176,6 +179,7 @@ describe('getServiceConfig', () => {
           timeout: INFRASTRUCTURE_DEFAULTS_AWS.timeout,
           port: INFRASTRUCTURE_DEFAULTS_AWS.port,
           concurrency: INFRASTRUCTURE_DEFAULTS_AWS.concurrency,
+          logLevel: 'info',
         });
       });
     });

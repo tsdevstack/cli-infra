@@ -6,6 +6,7 @@
  */
 
 import type { Command } from 'commander';
+import type { InfraLogsOptions } from './utils/logs/types';
 import { getContext, wrapCommand } from './context';
 import { loadInfrastructureConfig } from './utils/infrastructure/load-infrastructure-config';
 import { validateInfrastructureConfig } from './utils/infrastructure/validate-infrastructure-config';
@@ -30,6 +31,7 @@ import { infraLbDeploy } from './commands/infra-lb-deploy';
 import { infraRemoveService } from './commands/infra-remove-service';
 import { infraRemoveDetachedWorker } from './commands/infra-remove-detached-worker';
 import { infraServiceStatus } from './commands/infra-service-status';
+import { infraLogs } from './commands/infra-logs';
 import { infraListDeployed } from './commands/infra-list-deployed';
 import { infraDeployScheduler } from './commands/infra-deploy-scheduler';
 import { infraDeploySchedulers } from './commands/infra-deploy-schedulers';
@@ -121,10 +123,20 @@ export function registerInfraPlugin(program: Command): void {
     .description('Show planned infrastructure changes (terraform plan)')
     .option('--env <environment>', 'Target environment')
     .option('--force-unlock', 'Force unlock a stuck state lock before planning')
+    .option(
+      '--upgrade',
+      'Upgrade Terraform providers to the versions this CLI pins (updates .terraform.lock.hcl)',
+    )
     .action(
-      wrapCommand(async (options: { env?: string; forceUnlock?: boolean }) => {
-        await infraPlan(options);
-      }),
+      wrapCommand(
+        async (options: {
+          env?: string;
+          forceUnlock?: boolean;
+          upgrade?: boolean;
+        }) => {
+          await infraPlan(options);
+        },
+      ),
     );
 
   // infra:deploy - Full infrastructure deployment
@@ -414,6 +426,38 @@ export function registerInfraPlugin(program: Command): void {
       wrapCommand(
         async (serviceName: string | undefined, options: { env?: string }) => {
           await infraServiceStatus(serviceName, options);
+        },
+      ),
+    );
+
+  // infra:logs - Read the logs of a deployed environment
+  const logsCommand = program
+    .command('infra:logs [source]')
+    .description(
+      'Read the logs of a deployed environment (no source: list the sources)',
+    )
+    .option('--env <environment>', 'Target environment')
+    .option('--all', 'Read every source in one timeline')
+    .option(
+      '--since <time>',
+      'Start of the window: 30m, 1h, 2d or a UTC time (default: 1h)',
+    )
+    .option('--until <time>', 'End of the window (default: now)')
+    .option(
+      '--level <level>',
+      'This level and above: debug, info, warn, error, fatal',
+    )
+    .option('--kind <kind>', 'Only app, platform or edge lines')
+    .option('--grep <text>', 'Lines that contain this text (any case)')
+    .option('--json', 'One JSON object per line');
+  // For the MCP get_logs tool
+  logsCommand
+    .addOption(logsCommand.createOption('--newest <n>').hideHelp())
+    .addOption(logsCommand.createOption('--no-raw').hideHelp())
+    .action(
+      wrapCommand(
+        async (source: string | undefined, options: InfraLogsOptions) => {
+          await infraLogs(source, options);
         },
       ),
     );

@@ -12,6 +12,7 @@
  */
 
 import type { KongTemplate } from '@tsdevstack/cli/plugin';
+import { buildUntracedPlugins } from '../build-untraced-plugins';
 
 export function addAwsHealthToKongConfig(config: KongTemplate): KongTemplate {
   return {
@@ -37,6 +38,8 @@ export function addAwsHealthToKongConfig(config: KongTemplate): KongTemplate {
               body: '{"status":"ok"}',
             },
           },
+          // Probes every few seconds: not traced
+          ...buildUntracedPlugins(config),
         ],
       },
     ],

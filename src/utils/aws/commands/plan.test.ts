@@ -192,4 +192,35 @@ describe('awsPlan', () => {
       expect.stringContaining('infra:deploy'),
     );
   });
+
+  describe('--upgrade', () => {
+    it('should upgrade providers past the lock file only when asked', async () => {
+      await awsPlan(mockCtx, { upgrade: true });
+
+      expect(executeTerraform).toHaveBeenCalledWith(
+        'init',
+        expect.objectContaining({ upgrade: true }),
+      );
+    });
+
+    it('should not upgrade by default', async () => {
+      await awsPlan(mockCtx);
+
+      expect(executeTerraform).toHaveBeenCalledWith(
+        'init',
+        expect.objectContaining({ upgrade: undefined }),
+      );
+    });
+
+    it('should name the lock file to commit after an upgrade', async () => {
+      await awsPlan(mockCtx, { upgrade: true });
+
+      expect(mocks.logger.info).toHaveBeenCalledWith(
+        expect.stringContaining('.terraform.lock.hcl'),
+      );
+      expect(mocks.logger.info).not.toHaveBeenCalledWith(
+        'To apply these changes, run:',
+      );
+    });
+  });
 });

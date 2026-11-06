@@ -15,6 +15,11 @@ import {
   type AWSInfraConfig,
 } from '@tsdevstack/infra-core';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
+import { getTraceSampleRate } from '../../infrastructure/get-trace-sample-rate';
+import {
+  KONG_COLLECTOR_IMAGE_NAME,
+  KONG_FARGATE_DEFAULT,
+} from '../../../constants';
 import { validateAwsMinInstances } from '../infrastructure/validate-aws-min-instances';
 import { validateDatabaseDiskSize } from '../../infrastructure/validate-database-disk-size';
 import { validateDatabaseHa } from '../../infrastructure/validate-database-ha';
@@ -37,6 +42,7 @@ import { parseCpuToNumber } from './parse-cpu-to-number';
 import { parseMemoryToNumber } from '../../infrastructure/parse-memory-to-number';
 import { FARGATE_DEFAULT } from './normalize-fargate-config';
 import { convertCronToEventBridge } from './convert-cron-to-eventbridge';
+import { buildAwsJobKey } from '../build-aws-job-key';
 import type { ServiceOverride, KongOverride } from '../../infrastructure/types';
 import { getTotalServiceMaxInstances } from '../../deploy/get-total-service-max-instances';
 import { warnIfSmallDatabasePool } from '../../deploy/warn-if-small-database-pool';
@@ -167,7 +173,7 @@ export function generateTerraformFiles(
   warnIfSmallDatabasePool(computedPool, dbTier);
 
   // Build services map (nestjs services only + kong)
-  // Use FARGATE_DEFAULT (smallest/cheapest) unless user overrides in infrastructure.json
+  // Use FARGATE_DEFAULT (smallest/cheapest; Kong: KONG_FARGATE_DEFAULT) unless user overrides in infrastructure.json
   // Default minInstances is 1 (from INFRASTRUCTURE_DEFAULTS_AWS); 0 is rejected (no scale-to-zero on AWS)
   // Note: nextjs services are handled separately (nextjs_services map below)
   const services: AWSInfraConfig['services'] = {};
@@ -200,6 +206,7 @@ export function generateTerraformFiles(
           minInstances: resolved.minInstances,
           maxInstances: resolved.maxInstances,
           dbPoolMax: computedPoolMax,
+          logLevel: resolved.logLevel,
         };
       } else {
         // No override - use smallest valid Fargate config
@@ -209,6 +216,7 @@ export function generateTerraformFiles(
           minInstances: resolved.minInstances,
           maxInstances: resolved.maxInstances,
           dbPoolMax: computedPoolMax,
+          logLevel: resolved.logLevel,
         };
       }
     });
@@ -231,8 +239,8 @@ export function generateTerraformFiles(
     };
   } else {
     services['kong'] = {
-      cpu: FARGATE_DEFAULT.cpu,
-      memory: String(FARGATE_DEFAULT.memory),
+      cpu: KONG_FARGATE_DEFAULT.cpu,
+      memory: String(KONG_FARGATE_DEFAULT.memory),
       minInstances: kongMinInstances,
       maxInstances: kongResolved.maxInstances,
       dbPoolMax: 0,
@@ -270,6 +278,7 @@ export function generateTerraformFiles(
           maxInstances: resolved.maxInstances,
           service: s.baseService ?? s.name.replace(/-worker$/, ''),
           dbPoolMax: computedPoolMax,
+          logLevel: resolved.logLevel,
         };
       } else {
         workers[s.name] = {
@@ -279,13 +288,16 @@ export function generateTerraformFiles(
           maxInstances: resolved.maxInstances,
           service: s.baseService ?? s.name.replace(/-worker$/, ''),
           dbPoolMax: computedPoolMax,
+          logLevel: resolved.logLevel,
         };
       }
     });
 
-  // Build allDeployables map (services + workers + kong + nextjs)
-  // This creates ECR repos for all deployable services
-  const allDeployables: AWSInfraConfig['allDeployables'] = {};
+  // Build allDeployables map (services + workers + kong + nextjs, and Kong's
+  // collector sidecar). This creates ECR repos for all deployable images.
+  const allDeployables: AWSInfraConfig['allDeployables'] = {
+    [KONG_COLLECTOR_IMAGE_NAME]: KONG_COLLECTOR_IMAGE_NAME,
+  };
   Object.keys(services).forEach((name) => {
     allDeployables[name] = name;
   });
@@ -361,7 +373,7 @@ export function generateTerraformFiles(
   const infraScheduledJobs = getScheduledJobs(infraConfig, ctx.targetEnv);
   const scheduledJobs: AWSInfraConfig['scheduledJobs'] = {};
   infraScheduledJobs.forEach((job) => {
-    const jobKey = `${job.targetService}-${job.name}`;
+    const jobKey = buildAwsJobKey(job.targetService, job.name);
     scheduledJobs[jobKey] = {
       name: job.name,
       schedule: convertCronToEventBridge(job.schedule),
@@ -395,6 +407,7 @@ export function generateTerraformFiles(
     frontends,
     storageBuckets: frameworkConfig.storage?.buckets ?? [],
     scheduledJobs,
+    traceSampleRate: getTraceSampleRate(infraConfig, ctx.targetEnv),
   };
 
   logger.generating('Generating configuration files...');
@@ -486,6 +499,24 @@ export function generateTerraformFiles(
 
   writeTextFile(path.join(outputDir, 'logging.tf'), aws.generateLoggingTf());
   logFile('logging.tf');
+
+  // X-Ray Transaction Search: the OTLP endpoint needs it for traces
+  writeTextFile(path.join(outputDir, 'xray.tf'), aws.generateXrayTf());
+  logFile('xray.tf');
+
+  // The environment's CloudWatch dashboard (infra:deploy prints its link);
+  // per-service traffic from the NestJS services' and workers' log lines
+  writeTextFile(
+    path.join(outputDir, 'dashboard.tf'),
+    aws.generateDashboardTf({
+      projectName: ctx.projectName,
+      backendNames: [
+        ...Object.keys(services).filter((name) => name !== 'kong'),
+        ...Object.keys(workers),
+      ],
+    }),
+  );
+  logFile('dashboard.tf');
 
   writeTextFile(path.join(outputDir, 'alb.tf'), aws.generateAlbTf());
   logFile('alb.tf');

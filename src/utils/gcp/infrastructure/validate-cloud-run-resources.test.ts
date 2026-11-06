@@ -81,6 +81,28 @@ describe('validateCloudRunResources', () => {
       ).toThrow('cpu "0.5" is not possible for a worker on Cloud Run');
     });
 
+    it('should reject it for a NestJS service that keeps its CPU on', () => {
+      expect(() =>
+        validateCloudRunResources(
+          'dev.api',
+          { cpu: '0.5', memory: '512Mi', concurrency: 1 },
+          'always-on-service',
+        ),
+      ).toThrow(
+        'cpu "0.5" is not possible for a NestJS service with minInstances 1 or more on Cloud Run (dev.api)',
+      );
+    });
+
+    it('should accept 1 vCPU for a NestJS service that keeps its CPU on', () => {
+      expect(() =>
+        validateCloudRunResources(
+          'dev.api',
+          { cpu: '1', memory: '512Mi', concurrency: 80 },
+          'always-on-service',
+        ),
+      ).not.toThrow();
+    });
+
     it('should reject it for Kong', () => {
       expect(() =>
         validateCloudRunResources(

@@ -51,6 +51,8 @@ export const AWS_REQUIRED_ACTIONS = [
   'ecs:RegisterTaskDefinition',
   'ecs:DescribeClusters',
   'ecs:DescribeServices',
+  'ecs:ListTasks', // infra:logs: stopped tasks
+  'ecs:DescribeTasks',
   'ecs:DescribeTaskDefinition',
 
   // RDS - PostgreSQL
@@ -117,6 +119,17 @@ export const AWS_REQUIRED_ACTIONS = [
   'logs:CreateLogStream',
   'logs:PutLogEvents',
   'logs:GetLogEvents',
+  'logs:FilterLogEvents', // infra:logs
+  'logs:PutResourcePolicy', // X-Ray Transaction Search writes spans to logs
+  'logs:DescribeResourcePolicies',
+
+  // CloudWatch - the environment's dashboard
+  'cloudwatch:PutDashboard',
+  'cloudwatch:GetDashboard',
+
+  // X-Ray - Transaction Search, which the OTLP traces endpoint needs
+  'xray:UpdateTraceSegmentDestination',
+  'xray:GetTraceSegmentDestination',
 
   // IAM - for service roles
   'iam:CreateRole',

@@ -14,6 +14,7 @@ import {
 import { getTerraformOutput } from '../terraform';
 import { buildRuntime } from '../../build-runtime';
 import { deployKongCloudRun } from '../deploy-kong-cloud-run';
+import { KONG_COLLECTOR_IMAGE_NAME } from '../../../constants';
 import { setSecretViaCli } from '../../credentials/set-secret-via-cli';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
 import { getKongConfig } from '../../infrastructure/merge-with-defaults';
@@ -25,6 +26,8 @@ interface GcpKongDeployParams {
   projectName: string;
   credentials: GCPCredentials;
   imageTag: string;
+  /** Print the command to run next (default true); infra:deploy passes false */
+  nextSteps?: boolean;
 }
 
 /**
@@ -77,6 +80,7 @@ export async function gcpKongDeploy(
   }
 
   const imageUri = `${registryUrl}/kong:${imageTag}`;
+  const collectorImageUri = `${registryUrl}/${KONG_COLLECTOR_IMAGE_NAME}:${imageTag}`;
 
   // Load infrastructure config for Kong settings
   const infraConfig = loadInfrastructureConfig();
@@ -84,6 +88,7 @@ export async function gcpKongDeploy(
 
   logger.info(`Environment: ${targetEnv}`);
   logger.info(`Image: ${imageUri}`);
+  logger.info(`Collector: ${collectorImageUri}`);
   logger.info(`Service Account: ${kongServiceAccount}`);
   logger.info(`VPC Network: ${vpcNetwork}`);
   logger.info(`VPC Subnet: ${vpcSubnet}`);
@@ -92,9 +97,13 @@ export async function gcpKongDeploy(
   logger.info(`CPU: ${kongConfig.cpu}, Memory: ${kongConfig.memory}`);
   logger.newline();
 
-  // Verify image exists before deploying
+  // Verify both images exist before deploying
   await waitForImage(runtime, {
     imageUri,
+    credentials,
+  });
+  await waitForImage(runtime, {
+    imageUri: collectorImageUri,
     credentials,
   });
   logger.newline();
@@ -105,6 +114,7 @@ export async function gcpKongDeploy(
     projectName,
     region: credentials.region,
     imageUri,
+    collectorImageUri,
     vpcNetwork,
     vpcSubnet,
     serviceAccount: kongServiceAccount,
@@ -150,9 +160,11 @@ export async function gcpKongDeploy(
   }
   logger.newline();
 
-  logger.info('Next steps:');
-  logger.info(
-    `  Deploy load balancer: npx tsdevstack infra:deploy-lb --env ${targetEnv}`,
-  );
-  logger.newline();
+  if (params.nextSteps !== false) {
+    logger.info('Next steps:');
+    logger.info(
+      `  Deploy load balancer: npx tsdevstack infra:deploy-lb --env ${targetEnv}`,
+    );
+    logger.newline();
+  }
 }

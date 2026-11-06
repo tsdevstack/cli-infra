@@ -56,6 +56,7 @@ rs.mock('@tsdevstack/infra-core', () => ({
     generateNetworkTf: rs.fn(() => '# network.tf'),
     generateDatabaseTf: rs.fn(() => '# database.tf'),
     generateRedisTf: rs.fn(() => '# redis.tf'),
+    generateDashboardTf: rs.fn(() => '# dashboard.tf'),
     generateIamTf: rs.fn(() => '# iam.tf'),
     generateArtifactRegistryTf: rs.fn(() => '# artifact-registry.tf'),
     generateSpaBucketsTf: rs.fn(() => '# spa-buckets.tf'),
@@ -98,6 +99,7 @@ rs.mock('../terraform-generate', () => ({
   generateNetworkTf: rs.fn(() => '# network.tf'),
   generateDatabaseTf: rs.fn(() => '# database.tf'),
   generateRedisTf: rs.fn(() => '# redis.tf'),
+  generateDashboardTf: rs.fn(() => '# dashboard.tf'),
   generateIamTf: rs.fn(() => '# iam.tf'),
   generateArtifactRegistryTf: rs.fn(() => '# artifact-registry.tf'),
   generateSpaBucketsTf: rs.fn(() => '# spa-buckets.tf'),
@@ -359,6 +361,20 @@ describe('gcpDeploy', () => {
     });
   });
 
+  describe('dashboard', () => {
+    it("should print the environment's dashboard link at the end", async () => {
+      mockGetTerraformOutput.mockImplementation((_dir: string, name: string) =>
+        name === 'dashboard_id' ? 'd1' : '',
+      );
+
+      await gcpDeploy(mockContext, { autoApprove: true });
+
+      expect(mocks.logger.info).toHaveBeenCalledWith(
+        `Dashboard: https://console.cloud.google.com/monitoring/dashboards/builder/d1?project=${mockContext.credentials.project_id}`,
+      );
+    });
+  });
+
   describe('infraOnly flag', () => {
     it('should skip service deployment when infraOnly is true', async () => {
       await gcpDeploy(mockContext, { autoApprove: true, infraOnly: true });
@@ -393,14 +409,19 @@ describe('gcpDeploy', () => {
         env: 'prod',
         tag: undefined,
       });
-      expect(mockInfraKongGenerate).toHaveBeenCalledWith({ env: 'prod' });
+      expect(mockInfraKongGenerate).toHaveBeenCalledWith({
+        env: 'prod',
+        nextSteps: false,
+      });
       expect(mockInfraKongBuild).toHaveBeenCalledWith({
         env: 'prod',
         tag: undefined,
+        nextSteps: false,
       });
       expect(mockInfraKongDeploy).toHaveBeenCalledWith({
         env: 'prod',
         tag: undefined,
+        nextSteps: false,
       });
     });
 
@@ -414,10 +435,12 @@ describe('gcpDeploy', () => {
       expect(mockInfraKongBuild).toHaveBeenCalledWith({
         env: 'prod',
         tag: 'v1.2.3',
+        nextSteps: false,
       });
       expect(mockInfraKongDeploy).toHaveBeenCalledWith({
         env: 'prod',
         tag: 'v1.2.3',
+        nextSteps: false,
       });
     });
   });

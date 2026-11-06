@@ -69,7 +69,9 @@ describe('infraPlan', () => {
     it('should call gcpPlan for GCP provider', async () => {
       await infraPlan({});
 
-      expect(mockGcpPlan).toHaveBeenCalledWith(mockGCPContext);
+      expect(mockGcpPlan).toHaveBeenCalledWith(mockGCPContext, {
+        upgrade: undefined,
+      });
       expect(mockAwsPlan).not.toHaveBeenCalled();
     });
   });
@@ -107,6 +109,17 @@ describe('infraPlan', () => {
 
       expect(mockAwsPlan).toHaveBeenCalledWith(mockAWSContext, {
         forceUnlock: true,
+      });
+    });
+
+    it('should pass upgrade to awsPlan', async () => {
+      mockSetupInfraCommand.mockResolvedValue(mockAWSContext);
+
+      await infraPlan({ upgrade: true });
+
+      expect(mockAwsPlan).toHaveBeenCalledWith(mockAWSContext, {
+        forceUnlock: undefined,
+        upgrade: true,
       });
     });
   });

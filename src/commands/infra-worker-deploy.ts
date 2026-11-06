@@ -24,9 +24,11 @@ import {
 } from '@tsdevstack/infra-core';
 import { getTotalServiceMaxInstances } from '../utils/deploy/get-total-service-max-instances';
 import { loadInfrastructureConfig } from '../utils/infrastructure/load-infrastructure-config';
+import { getTraceSampleRate } from '../utils/infrastructure/get-trace-sample-rate';
 import { getServiceConfig } from '../utils/infrastructure/get-service-config';
 import {
   getAcrIdentityOutputs,
+  getOtlpTracesUrl,
   getServiceSecretsIdentities,
 } from '../utils/azure/terraform';
 import { buildRuntime } from '../utils/build-runtime';
@@ -175,6 +177,13 @@ export async function infraWorkerDeploy(
       );
     }
 
+    const workerConfig = getServiceConfig(
+      infraConfig,
+      worker.name,
+      targetEnv,
+      'azure',
+    );
+
     const backendEnv = buildAzureBackendEnv({
       projectName,
       targetEnv,
@@ -185,14 +194,11 @@ export async function infraWorkerDeploy(
       poolMax: workerPoolMax,
       managedIdentityClientId,
       secretsIdentityClientId: secretsIdentity.client_id,
+      logLevel: workerConfig.logLevel,
+      workerName: worker.name,
+      traceSampleRate: getTraceSampleRate(infraConfig, targetEnv),
+      otlpTracesUrl: getOtlpTracesUrl(terraformDir, tfEnv, targetEnv),
     });
-
-    const workerConfig = getServiceConfig(
-      infraConfig,
-      worker.name,
-      targetEnv,
-      'azure',
-    );
 
     await azureDeployWorker({
       projectRoot,

@@ -19,6 +19,7 @@ const mockListApplicationSettings = rs.fn();
 const mockUpdateApplicationSettings = rs.fn();
 const mockRestart = rs.fn();
 const mockGet = rs.fn();
+const mockCreateOrUpdateSiteContainer = rs.fn();
 
 rs.mock('../../build-runtime', () => ({ buildRuntime: () => ({}) }));
 
@@ -40,6 +41,7 @@ rs.mock('@azure/arm-appservice', () => ({
       updateApplicationSettings: mockUpdateApplicationSettings,
       restart: mockRestart,
       get: mockGet,
+      createOrUpdateSiteContainer: mockCreateOrUpdateSiteContainer,
     };
     constructor() {}
   },
@@ -73,6 +75,7 @@ describe('deployAppService', () => {
     mockUpdateApplicationSettings.mockResolvedValue({});
     mockRestart.mockResolvedValue({});
     mockGet.mockResolvedValue({ state: 'Running' });
+    mockCreateOrUpdateSiteContainer.mockResolvedValue({});
   });
 
   describe('Standard use cases', () => {
@@ -237,6 +240,92 @@ describe('deployAppService', () => {
       await expect(deployAppService(baseParams)).rejects.toThrow(
         mocks.CliError,
       );
+    });
+  });
+
+  describe('With sidecars (site containers)', () => {
+    const kongParams = {
+      ...baseParams,
+      appServiceName: 'my-app-dev-kong',
+      imageUri: 'myacr.azurecr.io/kong:abc123',
+      main: { name: 'main', port: 8080 },
+      sidecars: [
+        {
+          name: 'otel-collector',
+          imageUri: 'myacr.azurecr.io/kong-collector:abc123',
+        },
+      ],
+    };
+
+    it('should run the main container on its port, pulled with the app identity', async () => {
+      await deployAppService(kongParams);
+
+      expect(mockCreateOrUpdateSiteContainer).toHaveBeenCalledWith(
+        'my-app-dev-rg',
+        'my-app-dev-kong',
+        'main',
+        {
+          image: 'myacr.azurecr.io/kong:abc123',
+          isMain: true,
+          targetPort: '8080',
+          authType: 'SystemIdentity',
+          inheritAppSettingsAndConnectionStrings: true,
+        },
+      );
+    });
+
+    it('should run each sidecar next to it, with the shared app settings', async () => {
+      await deployAppService(kongParams);
+
+      expect(mockCreateOrUpdateSiteContainer).toHaveBeenCalledWith(
+        'my-app-dev-rg',
+        'my-app-dev-kong',
+        'otel-collector',
+        {
+          image: 'myacr.azurecr.io/kong-collector:abc123',
+          isMain: false,
+          authType: 'SystemIdentity',
+          inheritAppSettingsAndConnectionStrings: true,
+        },
+      );
+    });
+
+    it('should switch the app to site containers after the containers exist', async () => {
+      await deployAppService(kongParams);
+
+      expect(mockUpdateConfiguration).toHaveBeenCalledWith(
+        'my-app-dev-rg',
+        'my-app-dev-kong',
+        { linuxFxVersion: 'sitecontainers' },
+      );
+      expect(
+        mockCreateOrUpdateSiteContainer.mock.invocationCallOrder[1],
+      ).toBeLessThan(mockUpdateConfiguration.mock.invocationCallOrder[0]);
+    });
+
+    it('should not set a single DOCKER image', async () => {
+      await deployAppService(kongParams);
+
+      expect(mockUpdateConfiguration).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        { linuxFxVersion: expect.stringContaining('DOCKER|') },
+      );
+    });
+
+    it('should fail clearly when a site container cannot be created', async () => {
+      mockCreateOrUpdateSiteContainer.mockRejectedValue(new Error('Forbidden'));
+
+      await expect(deployAppService(kongParams)).rejects.toThrow(
+        mocks.CliError,
+      );
+      expect(mockRestart).not.toHaveBeenCalled();
+    });
+
+    it('should not create site containers without sidecars', async () => {
+      await deployAppService(baseParams);
+
+      expect(mockCreateOrUpdateSiteContainer).not.toHaveBeenCalled();
     });
   });
 });

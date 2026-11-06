@@ -1,4 +1,12 @@
-import { describe, it, expect } from '@rstest/core';
+import { describe, it, expect, rs } from '@rstest/core';
+import type { MockContext } from '@tsdevstack/cli/test-utils';
+
+rs.mock('../../../context', () => ({
+  getContext: rs.fn(
+    () => (globalThis as unknown as { contextMocks: MockContext }).contextMocks,
+  ),
+}));
+
 import { addAzureHealthToKongConfig } from './add-azure-health-to-kong-config';
 import type { KongTemplate } from '@tsdevstack/cli/plugin';
 
@@ -62,5 +70,30 @@ describe('addAzureHealthToKongConfig', () => {
       (s) => s.name === 'health-check',
     );
     expect(healthService!.url).toBe('http://localhost:65535');
+  });
+  it('should not trace the health route (its own tracing plugin at rate 0)', () => {
+    const result = addAzureHealthToKongConfig({
+      services: [],
+      plugins: [
+        {
+          name: 'opentelemetry',
+          config: {
+            traces_endpoint: 'http://localhost:4318/v1/traces',
+            sampling_rate: 1,
+          },
+        },
+      ],
+    });
+
+    const health = result.services.find((s) => s.name === 'health-check');
+    expect(health?.routes?.[0].paths).toEqual(['/status']);
+    expect(health?.plugins).toContainEqual({
+      name: 'opentelemetry',
+      config: {
+        traces_endpoint: 'http://localhost:4318/v1/traces',
+        sampling_rate: 0,
+      },
+    });
+    expect(result.plugins?.[0].config.sampling_rate).toBe(1);
   });
 });

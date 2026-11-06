@@ -397,8 +397,51 @@ describe('infraKongBuild', () => {
       await infraKongBuild({});
 
       expect(mocks.logger.complete).toHaveBeenCalledWith(
-        expect.stringContaining('Kong image built'),
+        'Kong and collector images built and pushed!',
       );
+    });
+
+    it('should print the deploy command to run next', async () => {
+      await infraKongBuild({ env: 'dev' });
+
+      expect(mocks.logger.info).toHaveBeenCalledWith('Next steps:');
+      expect(mocks.logger.info).toHaveBeenCalledWith(
+        expect.stringContaining('npx tsdevstack infra:deploy-kong --env'),
+      );
+    });
+
+    it('should not print next steps inside infra:deploy (nextSteps false)', async () => {
+      await infraKongBuild({ env: 'dev', nextSteps: false });
+
+      expect(mocks.logger.info).not.toHaveBeenCalledWith('Next steps:');
+    });
+  });
+
+  describe('collector sidecar', () => {
+    it("should build and push the collector with the project's Cloud Trace config", async () => {
+      await infraKongBuild({});
+
+      const builds = mockExecSync.mock.calls
+        .map((call: unknown[]) => call[0] as string)
+        .filter((command: string) => command.startsWith('docker build'));
+      expect(builds).toEqual([
+        expect.stringContaining('/kong:abc123 .'),
+        expect.stringContaining('/kong-collector:abc123 .'),
+      ]);
+      const configWrite = mockFs.writeFileSync.mock.calls.find(
+        (call: unknown[]) => (call[0] as string).endsWith('config.yaml'),
+      );
+      expect(configWrite?.[1]).toContain('google_client_auth');
+      expect(configWrite?.[1]).toContain('gcp.project_id');
+      const pushes = mockExecSync.mock.calls
+        .map((call: unknown[]) => call[0] as string)
+        .filter((command: string) => command.startsWith('docker push'));
+      expect(pushes).toEqual([
+        expect.stringMatching(/\/kong:abc123$/),
+        expect.stringMatching(/\/kong:latest$/),
+        expect.stringMatching(/\/kong-collector:abc123$/),
+        expect.stringMatching(/\/kong-collector:latest$/),
+      ]);
     });
   });
 

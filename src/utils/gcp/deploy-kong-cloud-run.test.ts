@@ -49,6 +49,7 @@ const baseOptions: KongDeployOptions = {
   projectName: 'myapp',
   region: 'us-central1',
   imageUri: 'gcr.io/my-gcp-project/kong:abc123',
+  collectorImageUri: 'gcr.io/my-gcp-project/kong-collector:abc123',
   vpcNetwork: 'projects/my-gcp-project/global/networks/myapp-vpc',
   vpcSubnet:
     'projects/my-gcp-project/regions/us-central1/subnetworks/myapp-subnet',
@@ -109,6 +110,33 @@ describe('deployKongCloudRun', () => {
 
       expect(containers[0].image).toBe('gcr.io/my-gcp-project/kong:abc123');
       expect(containers[0].ports[0].containerPort).toBe(8080);
+    });
+
+    it('should run the collector sidecar next to Kong and start Kong after it', async () => {
+      await deployKongCloudRun(baseOptions);
+
+      const containers = mockUpdateService.mock.calls[0][0].service.template
+        .containers as Array<Record<string, unknown>>;
+      expect(containers).toHaveLength(2);
+      expect(containers[0]).toMatchObject({
+        name: 'kong',
+        image: 'gcr.io/my-gcp-project/kong:abc123',
+        ports: [{ containerPort: 8080 }],
+        dependsOn: ['otel-collector'],
+      });
+      expect(containers[1]).toEqual({
+        name: 'otel-collector',
+        image: 'gcr.io/my-gcp-project/kong-collector:abc123',
+        resources: {
+          limits: { cpu: '0.25', memory: '256Mi' },
+          cpuIdle: true,
+        },
+        startupProbe: {
+          httpGet: { path: '/', port: 13133 },
+          periodSeconds: 2,
+          failureThreshold: 30,
+        },
+      });
     });
 
     it('should configure VPC access with Direct VPC Egress', async () => {

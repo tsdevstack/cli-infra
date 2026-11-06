@@ -26,10 +26,12 @@ import {
 } from '@tsdevstack/infra-core';
 import {
   getAcrIdentityOutputs,
+  getOtlpTracesUrl,
   getServiceSecretsIdentities,
 } from '../terraform';
 import { getTotalServiceMaxInstances } from '../../deploy/get-total-service-max-instances';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
+import { getTraceSampleRate } from '../../infrastructure/get-trace-sample-rate';
 import { getServiceConfig } from '../../infrastructure/merge-with-defaults';
 import type { EnvironmentOverrides } from '../../infrastructure/types';
 import { azureDbMigrateRun } from './db-migrate-run';
@@ -110,6 +112,7 @@ export async function deployContainerAppServices(
     getAcrIdentityOutputs(terraformDir, tfEnv);
   // Each service reads Key Vault with its own identity
   const secretsIdentities = getServiceSecretsIdentities(terraformDir, tfEnv);
+  const otlpTracesUrl = getOtlpTracesUrl(terraformDir, tfEnv, targetEnv);
 
   // Get NestJS backend services (Next.js uses App Service, see deploy-nextjs-app-services.ts)
   let services = config.services.filter((s) => s.type === 'nestjs');
@@ -281,6 +284,9 @@ export async function deployContainerAppServices(
         poolMax,
         managedIdentityClientId,
         secretsIdentityClientId: secretsIdentity.client_id,
+        logLevel: serviceConfig.logLevel,
+        traceSampleRate: getTraceSampleRate(infraConfig, targetEnv),
+        otlpTracesUrl,
       });
       const envVars = backendEnv.envVars;
       const secrets = backendEnv.secrets;

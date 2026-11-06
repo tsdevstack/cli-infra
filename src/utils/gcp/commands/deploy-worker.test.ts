@@ -125,6 +125,7 @@ describe('gcpDeployWorker', () => {
       timeout: '300',
       port: 3000,
       concurrency: 1,
+      logLevel: 'info',
     });
     rs.mocked(calculatePoolSize).mockReturnValue({
       poolMax: 5,
@@ -231,6 +232,8 @@ describe('gcpDeployWorker', () => {
       projectName: 'my-app',
       projectId: 'my-gcp-project',
       poolMax: 5,
+      logLevel: 'info',
+      workerName: 'auth-worker',
     });
   });
 

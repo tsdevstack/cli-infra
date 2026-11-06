@@ -108,6 +108,100 @@ describe('getServiceWorkspaceDeps', () => {
     });
   });
 
+  describe('when workspace packages depend on other workspace packages', () => {
+    const packageJsons: Record<string, object> = {
+      'apps/bff-service/package.json': {
+        dependencies: {
+          '@shared/auth-service-client': '*',
+          '@tsdevstack/nest-common': '^0.10.0',
+        },
+      },
+      'packages/auth-service-client/package.json': {
+        name: '@shared/auth-service-client',
+      },
+      'packages/nest-common/package.json': {
+        name: '@tsdevstack/nest-common',
+        dependencies: { '@tsdevstack/telemetry': '^0.0.0', pino: '^10.0.0' },
+      },
+      'packages/telemetry/package.json': {
+        name: '@tsdevstack/telemetry',
+        dependencies: { '@opentelemetry/api': '^1.10.0' },
+      },
+    };
+
+    beforeEach(() => {
+      rs.mocked(fs.existsSync).mockReturnValue(true);
+      rs.mocked(fs.readdirSync).mockReturnValue(
+        createMockDirents(
+          { name: 'auth-service-client', isDir: true },
+          { name: 'nest-common', isDir: true },
+          { name: 'telemetry', isDir: true },
+        ),
+      );
+    });
+
+    it('should include the packages they need, before them', () => {
+      rs.mocked(fs.readFileSync).mockImplementation((p: unknown) => {
+        const key = Object.keys(packageJsons).find((k) =>
+          String(p).endsWith(k),
+        );
+        return JSON.stringify(key ? packageJsons[key] : {});
+      });
+
+      const result = getServiceWorkspaceDeps('/project', 'bff-service');
+
+      expect(result).toEqual([
+        'packages/auth-service-client',
+        'packages/telemetry',
+        'packages/nest-common',
+      ]);
+    });
+
+    it('should list a package needed twice once', () => {
+      const withShared: Record<string, object> = {
+        ...packageJsons,
+        'packages/auth-service-client/package.json': {
+          name: '@shared/auth-service-client',
+          dependencies: { '@tsdevstack/telemetry': '^0.0.0' },
+        },
+      };
+      rs.mocked(fs.readFileSync).mockImplementation((p: unknown) => {
+        const key = Object.keys(withShared).find((k) => String(p).endsWith(k));
+        return JSON.stringify(key ? withShared[key] : {});
+      });
+
+      const result = getServiceWorkspaceDeps('/project', 'bff-service');
+
+      expect(result).toEqual([
+        'packages/telemetry',
+        'packages/auth-service-client',
+        'packages/nest-common',
+      ]);
+    });
+
+    it('should stop on packages that need each other', () => {
+      const cyclic: Record<string, object> = {
+        ...packageJsons,
+        'packages/telemetry/package.json': {
+          name: '@tsdevstack/telemetry',
+          devDependencies: { '@tsdevstack/nest-common': '*' },
+        },
+      };
+      rs.mocked(fs.readFileSync).mockImplementation((p: unknown) => {
+        const key = Object.keys(cyclic).find((k) => String(p).endsWith(k));
+        return JSON.stringify(key ? cyclic[key] : {});
+      });
+
+      const result = getServiceWorkspaceDeps('/project', 'bff-service');
+
+      expect(result).toEqual([
+        'packages/auth-service-client',
+        'packages/telemetry',
+        'packages/nest-common',
+      ]);
+    });
+  });
+
   describe('when service has no workspace dependencies', () => {
     it('should return empty array', () => {
       rs.mocked(fs.existsSync).mockReturnValue(true);

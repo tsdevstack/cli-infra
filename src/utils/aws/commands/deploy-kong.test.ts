@@ -163,6 +163,58 @@ describe('awsKongDeploy', () => {
     ]);
   });
 
+  it('should run the collector sidecar next to Kong, Kong starting after it', async () => {
+    await awsKongDeploy(mockParams);
+
+    const registered = rs.mocked(RegisterTaskDefinitionCommand).mock
+      .calls[0][0] as unknown as {
+      containerDefinitions: Array<Record<string, unknown>>;
+    };
+    const [kong, collector] = registered.containerDefinitions;
+    expect(registered.containerDefinitions).toHaveLength(2);
+    expect(kong.name).toBe('kong');
+    expect(kong.dependsOn).toEqual([
+      { containerName: 'otel-collector', condition: 'START' },
+    ]);
+    expect(collector).toEqual({
+      name: 'otel-collector',
+      image:
+        '123456789012.dkr.ecr.us-east-1.amazonaws.com/my-app/kong-collector:abc123',
+      essential: false,
+      memory: 256,
+      logConfiguration: { logDriver: 'awslogs' },
+    });
+  });
+
+  it('should keep using the Kong container when the task already has the sidecar', async () => {
+    mockSend.mockReset();
+    mockSend
+      .mockResolvedValueOnce({
+        taskDefinition: {
+          family: 'my-app-kong',
+          containerDefinitions: [
+            { name: 'kong', image: 'old', environment: [] },
+            { name: 'otel-collector', image: 'old-collector' },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        taskDefinition: { taskDefinitionArn: 'arn:task-def/kong:3' },
+      })
+      .mockResolvedValueOnce({ service: { deployments: [{ id: 'd' }] } });
+
+    await awsKongDeploy(mockParams);
+
+    const registered = rs.mocked(RegisterTaskDefinitionCommand).mock
+      .calls[0][0] as unknown as {
+      containerDefinitions: Array<{ name: string }>;
+    };
+    expect(registered.containerDefinitions.map((c) => c.name)).toEqual([
+      'kong',
+      'otel-collector',
+    ]);
+  });
+
   it('should update ECS service with new task definition', async () => {
     await awsKongDeploy(mockParams);
 

@@ -261,6 +261,16 @@ export function generateTerraformFiles(
     logFile('loadbalancer.tf');
   }
 
+  // The environment's Cloud Monitoring dashboard (infra:deploy prints its link)
+  writeTextFile(
+    path.join(outputDir, 'dashboard.tf'),
+    gcp.generateDashboardTf({
+      environment: ctx.targetEnv,
+      hasLoadBalancer: frontendServices.length > 0,
+    }),
+  );
+  logFile('dashboard.tf');
+
   // Generate cloud-scheduler.tf when scheduled jobs are configured.
   // Uses computed Cloud Run URLs (no dependency on existing services).
   if (scheduledJobs.length > 0) {

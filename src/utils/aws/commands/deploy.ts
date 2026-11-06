@@ -33,6 +33,7 @@ import { setSecretViaCli } from '../../credentials/set-secret-via-cli';
 import { generateTerraformFiles } from './generate-terraform-files';
 import { applyWithCapacityRetry } from '../../deploy/apply-with-capacity-retry';
 import { buildCloudMapUrl } from '../build-cloud-map-url';
+import { buildAwsDashboardUrl } from '../build-aws-dashboard-url';
 import { deployEcsServices } from './deploy-ecs-services';
 import { deployNextjsServices } from './deploy-nextjs-services';
 import { awsKongDeploy } from './deploy-kong';
@@ -571,10 +572,14 @@ export async function awsDeploy(
   logger.info('════════════════════════════════════════════');
 
   // Generate Kong config
-  await infraKongGenerate({ env: ctx.targetEnv });
+  await infraKongGenerate({ env: ctx.targetEnv, nextSteps: false });
 
   // Build Kong image (fetches secrets, builds, pushes to ECR)
-  await infraKongBuild({ env: ctx.targetEnv, tag: options.tag });
+  await infraKongBuild({
+    env: ctx.targetEnv,
+    tag: options.tag,
+    nextSteps: false,
+  });
 
   // Deploy Kong to ECS
   const imageTag = options.tag ?? getGitSha();
@@ -615,5 +620,20 @@ export async function awsDeploy(
   logger.info('════════════════════════════════════════════');
   logger.complete('Infrastructure deployment complete!');
   logger.info('════════════════════════════════════════════');
+
+  // The environment's dashboard (CloudWatch)
+  try {
+    const dashboardName = getTerraformOutput(
+      outputDir,
+      'dashboard_name',
+      tfEnv,
+    );
+    logger.newline();
+    logger.info(
+      `Dashboard: ${buildAwsDashboardUrl(dashboardName, ctx.credentials.region)}`,
+    );
+  } catch {
+    // No dashboard output (Terraform files from an older CLI)
+  }
   logger.newline();
 }

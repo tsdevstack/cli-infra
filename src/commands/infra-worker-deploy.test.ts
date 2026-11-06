@@ -57,6 +57,8 @@ rs.mock('../utils/azure/terraform', () => ({
   getAcrIdentityOutputs: (...args: unknown[]) =>
     mockGetAcrIdentityOutputs(...args),
   getServiceSecretsIdentities: () => mockGetServiceSecretsIdentities(),
+  getOtlpTracesUrl: () =>
+    'https://dce/datacollectionRules/dcr/streams/Microsoft-OTLP-Traces/otlp/v1/traces',
 }));
 
 rs.mock('../utils/build-runtime', () => ({

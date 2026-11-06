@@ -23,6 +23,12 @@ export const GCP_REQUIRED_APIS = [
   'storage.googleapis.com', // For Terraform state bucket + SPA uploads
   'iam.googleapis.com', // Runtime service accounts and their IAM bindings
   'iamcredentials.googleapis.com', // signBlob for storage presigned URLs; WIF in CI
+  // Traces (OTLP to telemetry.googleapis.com) and dashboards: Google asks for
+  // all four
+  'telemetry.googleapis.com',
+  'cloudtrace.googleapis.com',
+  'logging.googleapis.com',
+  'monitoring.googleapis.com',
 ] as const;
 
 /**
@@ -45,4 +51,6 @@ export const GCP_DEPLOY_SA_ROLES = [
   'roles/certificatemanager.owner', // SSL certificates with DNS authorization
   'roles/dns.admin', // Private DNS zones for internal Cloud Run routing
   'roles/cloudscheduler.admin', // For scheduled jobs
+  'roles/logging.viewer', // infra:logs
+  'roles/monitoring.dashboardEditor', // The environment's dashboard
 ] as const;

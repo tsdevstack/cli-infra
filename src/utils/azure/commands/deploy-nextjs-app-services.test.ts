@@ -18,6 +18,10 @@ rs.mock('../../build-runtime', () => ({ buildRuntime: () => ({}) }));
 
 rs.mock('../terraform', () => ({
   getTerraformOutput: rs.fn(),
+  getOtlpTracesUrl: rs.fn(
+    () =>
+      'https://dce/datacollectionRules/dcr/streams/Microsoft-OTLP-Traces/otlp/v1/traces',
+  ),
 }));
 
 rs.mock('./deploy-app-service', () => ({
@@ -53,6 +57,10 @@ rs.mock('@tsdevstack/infra-core', () => ({
       : undefined,
   ),
   buildAzureTerraformEnv: rs.fn(),
+}));
+
+rs.mock('../../infrastructure/load-infrastructure-config', () => ({
+  loadInfrastructureConfig: () => ({ dev: { tracing: { sampleRate: 0.5 } } }),
 }));
 
 rs.mock('../../deploy/get-service-secret-keys', () => ({
@@ -271,6 +279,29 @@ describe('deployNextjsAppServices', () => {
       'my-app-frontend-app',
       expect.objectContaining({
         NODE_ENV: 'production',
+      }),
+    );
+  });
+
+  it("should tell the frontend's telemetry the cloud and the environment's sample rate", async () => {
+    await deployNextjsAppServices(mockCtx, {});
+
+    expect(buildFrontendEnvVars).toHaveBeenCalledWith({
+      provider: 'azure',
+      traceSampleRate: 0.5,
+    });
+  });
+
+  it('should tell the frontend where to send spans', async () => {
+    await deployNextjsAppServices(mockCtx, {});
+
+    expect(setAppServiceSettings).toHaveBeenCalledWith(
+      mockCtx.credentials,
+      'my-app-dev-rg',
+      'my-app-frontend-app',
+      expect.objectContaining({
+        OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:
+          'https://dce/datacollectionRules/dcr/streams/Microsoft-OTLP-Traces/otlp/v1/traces',
       }),
     );
   });

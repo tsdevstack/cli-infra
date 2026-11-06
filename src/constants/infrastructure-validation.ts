@@ -18,6 +18,7 @@ export const VALID_OVERRIDE_FIELDS = [
   'concurrency',
   'domain',
   'type',
+  'logLevel',
 ] as const;
 
 /**
@@ -33,6 +34,7 @@ export const RESERVED_ENVIRONMENT_KEYS = [
   'scheduledJobs',
   'appService',
   'frontdoorPremium',
+  'tracing',
 ] as const;
 
 /**
@@ -56,6 +58,11 @@ export const VALID_MIGRATION_JOB_FIELDS = ['cpu', 'memory'] as const;
  * Valid field names in RedisOverride
  */
 export const VALID_REDIS_FIELDS = ['tier', 'memoryGb'] as const;
+
+/**
+ * Valid field names in TracingOverride
+ */
+export const VALID_TRACING_FIELDS = ['sampleRate'] as const;
 
 /**
  * Valid field names in KongOverride

@@ -41,6 +41,7 @@ describe('mergeServiceWithDefaults', () => {
           timeout: INFRASTRUCTURE_DEFAULTS_GCP.timeout,
           port: INFRASTRUCTURE_DEFAULTS_GCP.port,
           concurrency: INFRASTRUCTURE_DEFAULTS_GCP.concurrency,
+          logLevel: 'info',
         });
       });
 
@@ -59,6 +60,7 @@ describe('mergeServiceWithDefaults', () => {
           timeout: INFRASTRUCTURE_DEFAULTS_GCP.timeout,
           port: INFRASTRUCTURE_DEFAULTS_GCP.port,
           concurrency: INFRASTRUCTURE_DEFAULTS_GCP.concurrency,
+          logLevel: 'info',
         });
       });
     });
@@ -154,6 +156,7 @@ describe('mergeServiceWithDefaults', () => {
             timeout: '300s',
             port: 3000,
             concurrency: 500,
+            logLevel: 'debug',
           },
           'api-service',
           'prod',
@@ -167,6 +170,7 @@ describe('mergeServiceWithDefaults', () => {
           timeout: '300s',
           port: 3000,
           concurrency: 500,
+          logLevel: 'debug',
         });
       });
     });
@@ -189,6 +193,7 @@ describe('mergeServiceWithDefaults', () => {
           timeout: INFRASTRUCTURE_DEFAULTS_AWS.timeout,
           port: INFRASTRUCTURE_DEFAULTS_AWS.port,
           concurrency: INFRASTRUCTURE_DEFAULTS_AWS.concurrency,
+          logLevel: 'info',
         });
       });
     });
@@ -204,6 +209,7 @@ describe('mergeServiceWithDefaults', () => {
             timeout: '300s',
             port: 3000,
             concurrency: 500,
+            logLevel: 'debug',
           },
           'api-service',
           'prod',
@@ -217,6 +223,7 @@ describe('mergeServiceWithDefaults', () => {
           timeout: '300s',
           port: 3000,
           concurrency: 500,
+          logLevel: 'debug',
         });
       });
     });
@@ -239,6 +246,7 @@ describe('mergeServiceWithDefaults', () => {
           timeout: INFRASTRUCTURE_DEFAULTS_AZURE.timeout,
           port: INFRASTRUCTURE_DEFAULTS_AZURE.port,
           concurrency: INFRASTRUCTURE_DEFAULTS_AZURE.concurrency,
+          logLevel: 'info',
         });
       });
     });
@@ -254,6 +262,7 @@ describe('mergeServiceWithDefaults', () => {
             timeout: '600s',
             port: 8080,
             concurrency: 100,
+            logLevel: 'debug',
           },
           'api-service',
           'prod',
@@ -267,6 +276,7 @@ describe('mergeServiceWithDefaults', () => {
           timeout: '600s',
           port: 8080,
           concurrency: 100,
+          logLevel: 'debug',
         });
       });
     });
@@ -301,7 +311,7 @@ describe('mergeServiceWithDefaults', () => {
       // Azure Container Apps
       expect(azureResult.cpu).toBe('0.5');
       expect(azureResult.memory).toBe('1Gi');
-      expect(azureResult.minInstances).toBe(0); // Scale-to-zero by default
+      expect(azureResult.minInstances).toBe(1); // One replica always runs
     });
   });
 

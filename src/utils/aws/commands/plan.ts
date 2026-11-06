@@ -7,6 +7,7 @@
 
 import { getContext } from '../../../context';
 import { executeTerraform } from '../terraform';
+import { logProviderUpgradeNextSteps } from '../../terraform';
 import { createStateBackend } from '../bootstrap/create-state-backend';
 import { generateTerraformFiles } from './generate-terraform-files';
 import {
@@ -78,13 +79,18 @@ export async function awsPlan(
   // Terraform generates them with random_password and stores them there
   // No need to pass TF_VAR_db_*_password from external sources
 
-  logger.info('Initializing...');
+  logger.info(
+    options.upgrade
+      ? 'Initializing and upgrading Terraform providers...'
+      : 'Initializing...',
+  );
   logger.newline();
 
   const initResult = await executeTerraform('init', {
     workDir: outputDir,
     env: tfEnv,
     reconfigure: true, // Handle backend changes (e.g., switching from GCP to AWS)
+    upgrade: options.upgrade,
   });
 
   if (!initResult.success) {
@@ -145,6 +151,11 @@ export async function awsPlan(
       'infra:plan',
       planResult.error || 'Check the output above for details',
     );
+  }
+
+  if (options.upgrade) {
+    logProviderUpgradeNextSteps(outputDir, ctx.targetEnv);
+    return;
   }
 
   logger.newline();

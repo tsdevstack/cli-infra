@@ -70,6 +70,33 @@ describe('generateInfrastructureSchema', () => {
       const timeout = result.definitions.ServiceOverride.properties.timeout;
       expect(timeout.pattern).toBe('^[0-9]+s$');
     });
+
+    it('should list the pino levels for logLevel', () => {
+      const result = JSON.parse(generateInfrastructureSchema());
+      const logLevel = result.definitions.ServiceOverride.properties.logLevel;
+      expect(logLevel.enum).toEqual([
+        'trace',
+        'debug',
+        'info',
+        'warn',
+        'error',
+        'fatal',
+      ]);
+    });
+  });
+
+  describe('tracing', () => {
+    it('should allow a sample rate from 0 to 1 per environment, default 1', () => {
+      const result = JSON.parse(generateInfrastructureSchema());
+      const tracing = result.definitions.EnvironmentConfig.properties.tracing;
+      expect(tracing.additionalProperties).toBe(false);
+      expect(tracing.properties.sampleRate).toMatchObject({
+        type: 'number',
+        minimum: 0,
+        maximum: 1,
+        default: 1,
+      });
+    });
   });
 
   describe('DatabaseOverride definition', () => {

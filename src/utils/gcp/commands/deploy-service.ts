@@ -12,6 +12,7 @@ import { getContext } from '../../../context';
 import { getTerraformOutput, getTerraformOutputJson } from '../terraform';
 import { buildRuntime } from '../../build-runtime';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
+import { getTraceSampleRate } from '../../infrastructure/get-trace-sample-rate';
 import { getServiceConfig } from '../../infrastructure/merge-with-defaults';
 import { getGitSha } from '../../docker';
 import {
@@ -32,6 +33,7 @@ import type { SecretConfig } from '@tsdevstack/infra-core';
 import type { EnvironmentOverrides } from '../../infrastructure/types';
 import type { GCPCredentials, FrameworkService } from '@tsdevstack/cli/plugin';
 import { warnIfSmallDatabasePool } from '../../deploy/warn-if-small-database-pool';
+import { isServiceCpuAlwaysOn } from '../infrastructure/is-service-cpu-always-on';
 
 export interface GcpDeployServiceOptions {
   projectRoot: string;
@@ -181,6 +183,13 @@ export async function gcpDeployService(
   logger.info(`Service: ${service.name} (${service.type})`);
   logger.info(`Image: ${imageUri}`);
   logger.info(`Max instances: ${maxInstances}`);
+  const cpuAlwaysOn = isServiceCpuAlwaysOn(
+    service.type,
+    serviceConfig.minInstances,
+  );
+  logger.info(
+    `CPU: ${cpuAlwaysOn ? 'always on' : 'only while handling requests'}`,
+  );
   if (isNestJs) {
     logger.info(`Database tier: ${dbTier} (${dbConnections} max connections)`);
     logger.info(`Pool max per instance: ${poolMax}`);
@@ -195,16 +204,26 @@ export async function gcpDeployService(
   logger.newline();
 
   // Build environment variables and secrets based on service type
+  const traceSampleRate = getTraceSampleRate(infraConfig, targetEnv);
   const envVars = isNestJs
     ? buildBackendEnvVars({
         provider: 'gcp',
         projectName,
         projectId: credentials.project_id,
         poolMax,
+        logLevel: serviceConfig.logLevel,
+        traceSampleRate,
       })
-    : // Next.js: the header with the visitor's address, which the frontend
-      // forwards to Kong on its server-side calls
-      { ...buildFrontendEnvVars(), ...GCP_NEXTJS_CLIENT_IP_SETTINGS };
+    : // Next.js: where its traces go, and the header with the visitor's
+      // address, which the frontend forwards to Kong on its server-side calls
+      {
+        ...buildFrontendEnvVars({
+          provider: 'gcp',
+          projectId: credentials.project_id,
+          traceSampleRate,
+        }),
+        ...GCP_NEXTJS_CLIENT_IP_SETTINGS,
+      };
 
   let secrets: SecretConfig[];
   if (isNestJs) {
@@ -236,6 +255,9 @@ export async function gcpDeployService(
     memory: serviceConfig.memory,
     timeout: serviceConfig.timeout,
     concurrency: serviceConfig.concurrency,
+    // A NestJS service with min instances 1 or more keeps its CPU between
+    // requests, so its message handlers run while no request comes in
+    cpuIdle: !cpuAlwaysOn,
     envVars,
     secrets,
     ingress: isNestJs

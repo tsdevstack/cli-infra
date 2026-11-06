@@ -36,6 +36,7 @@ import { infraKongDeploy } from '../../../commands/infra-kong-deploy';
 import { lockDownPublicAccess } from './lock-down-public-access';
 import { upgradeFrontdoorSku } from './upgrade-frontdoor-sku';
 import { setSecretWithRetry } from '../set-secret-with-retry';
+import { buildAzureDashboardUrl } from '../build-azure-dashboard-url';
 import type { AzureCommandContext, DeployOptions } from './types';
 
 /**
@@ -340,35 +341,6 @@ export async function azureDeploy(
   logger.success('Infrastructure deployed successfully!');
   logger.newline();
 
-  // Display DNS name servers (if custom domain configured)
-  try {
-    const nameServers = getTerraformOutputJson<string[]>(
-      outputDir,
-      'dns_name_servers',
-      tfEnv,
-    );
-    if (nameServers && nameServers.length > 0) {
-      logger.info('DNS Setup Required:');
-      logger.newline();
-      logger.info("  Point your domain registrar's nameservers to:");
-      logger.newline();
-      for (const ns of nameServers) {
-        logger.info(`    ${ns}`);
-      }
-      logger.newline();
-      logger.info(
-        '  All other DNS records are managed by Terraform within Azure DNS.',
-      );
-      logger.newline();
-      if (generateConfig.baseDomain) {
-        logger.info(`  Verify: dig NS ${generateConfig.baseDomain} +short`);
-        logger.newline();
-      }
-    }
-  } catch {
-    // No dns_name_servers output — no custom domain configured, skip silently
-  }
-
   // ============================================
   // Approve Private Endpoint connections (Premium)
   // ============================================
@@ -615,13 +587,21 @@ export async function azureDeploy(
   logger.info('════════════════════════════════════════════');
 
   // Generate Kong config
-  await infraKongGenerate({ env: ctx.targetEnv });
+  await infraKongGenerate({ env: ctx.targetEnv, nextSteps: false });
 
   // Build Kong image
-  await infraKongBuild({ env: ctx.targetEnv, tag: options.tag });
+  await infraKongBuild({
+    env: ctx.targetEnv,
+    tag: options.tag,
+    nextSteps: false,
+  });
 
   // Deploy Kong to Container Apps
-  await infraKongDeploy({ env: ctx.targetEnv, tag: options.tag });
+  await infraKongDeploy({
+    env: ctx.targetEnv,
+    tag: options.tag,
+    nextSteps: false,
+  });
 
   // ============================================
   // Complete!
@@ -630,5 +610,45 @@ export async function azureDeploy(
   logger.info('════════════════════════════════════════════');
   logger.complete('Full infrastructure deployment complete!');
   logger.info('════════════════════════════════════════════');
+
+  // The environment's dashboard (an Azure Monitor workbook)
+  try {
+    const workbookId = getTerraformOutput(outputDir, 'dashboard_id', tfEnv);
+    logger.newline();
+    logger.info(`Dashboard: ${buildAzureDashboardUrl(workbookId)}`);
+  } catch {
+    // No dashboard output (Terraform files from an older CLI)
+  }
+
+  // The DNS zone's name servers, last so they don't scroll away (if custom
+  // domain configured)
+  try {
+    const nameServers = getTerraformOutputJson<string[]>(
+      outputDir,
+      'dns_name_servers',
+      tfEnv,
+    );
+    if (nameServers && nameServers.length > 0) {
+      logger.newline();
+      logger.info('DNS Setup Required:');
+      logger.newline();
+      logger.info("  Point your domain registrar's nameservers to:");
+      logger.newline();
+      for (const ns of nameServers) {
+        // Azure returns them with a trailing dot; registrars want none
+        logger.info(`    ${ns.replace(/\.$/, '')}`);
+      }
+      logger.newline();
+      logger.info(
+        '  All other DNS records are managed by Terraform within Azure DNS.',
+      );
+      if (generateConfig.baseDomain) {
+        logger.newline();
+        logger.info(`  Verify: dig NS ${generateConfig.baseDomain} +short`);
+      }
+    }
+  } catch {
+    // No dns_name_servers output — no custom domain configured, skip silently
+  }
   logger.newline();
 }

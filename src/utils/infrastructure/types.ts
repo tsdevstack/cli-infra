@@ -9,6 +9,7 @@ import {
   RESERVED_ENVIRONMENT_KEYS,
   VALID_DATABASE_FIELDS,
   VALID_REDIS_FIELDS,
+  VALID_TRACING_FIELDS,
   VALID_KONG_FIELDS,
   VALID_LOADBALANCER_FIELDS,
   VALID_ACCESS_CONTROL_FIELDS,
@@ -22,6 +23,7 @@ export {
   RESERVED_ENVIRONMENT_KEYS,
   VALID_DATABASE_FIELDS,
   VALID_REDIS_FIELDS,
+  VALID_TRACING_FIELDS,
   VALID_KONG_FIELDS,
   VALID_LOADBALANCER_FIELDS,
   VALID_ACCESS_CONTROL_FIELDS,
@@ -92,6 +94,17 @@ export interface DatabaseOverride {
 export interface RedisOverride {
   tier?: string;
   memoryGb?: number;
+}
+
+/**
+ * Tracing settings of an environment
+ */
+export interface TracingOverride {
+  /**
+   * Share of new traces kept, 0 to 1 (default 1). Kong decides per request
+   * and the services follow; scheduled jobs and workers use the same rate.
+   */
+  sampleRate?: number;
 }
 
 /**
@@ -305,6 +318,8 @@ export interface ServiceOverride {
   domain?: string;
   /** Hosting type for frontend services: "cloudrun" (default) or "spa" (Cloud Storage + CDN) */
   type?: FrontendHostingType;
+  /** LOG_LEVEL of a NestJS service or worker (pino level, default "info") */
+  logLevel?: string;
 }
 
 /**
@@ -321,6 +336,7 @@ export interface EnvironmentOverrides {
   appService?: AppServiceOverride;
   /** Enable Front Door Premium tier (Private Link, DRS 2.1 managed WAF rulesets) */
   frontdoorPremium?: boolean;
+  tracing?: TracingOverride;
   [serviceName: string]:
     | ServiceOverride
     | DatabaseOverride
@@ -331,6 +347,7 @@ export interface EnvironmentOverrides {
     | AccessControlOverride
     | ScheduledJobConfig[]
     | AppServiceOverride
+    | TracingOverride
     | boolean
     | undefined;
 }
@@ -354,6 +371,8 @@ export interface ResolvedServiceConfig {
   timeout: string;
   port: number;
   concurrency: number;
+  /** LOG_LEVEL of a NestJS service or worker */
+  logLevel: string;
 }
 
 /**
@@ -413,6 +432,7 @@ export type ValidOverrideField = (typeof VALID_OVERRIDE_FIELDS)[number];
 export type ReservedEnvironmentKey = (typeof RESERVED_ENVIRONMENT_KEYS)[number];
 export type ValidDatabaseField = (typeof VALID_DATABASE_FIELDS)[number];
 export type ValidRedisField = (typeof VALID_REDIS_FIELDS)[number];
+export type ValidTracingField = (typeof VALID_TRACING_FIELDS)[number];
 export type ValidKongField = (typeof VALID_KONG_FIELDS)[number];
 export type ValidLoadBalancerField = (typeof VALID_LOADBALANCER_FIELDS)[number];
 export type ValidAccessControlField =

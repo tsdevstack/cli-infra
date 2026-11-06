@@ -15,6 +15,8 @@ import { addAwsHealthToKongConfig } from '../utils/kong/aws/add-aws-health-to-ko
 import { addRedisTlsToKongConfig } from '../utils/kong/add-redis-tls-to-kong-config';
 import { addAzureHealthToKongConfig } from '../utils/kong/azure/add-azure-health-to-kong-config';
 import { extractPlaceholders } from '../utils/kong/extract-placeholders';
+import { loadInfrastructureConfig } from '../utils/infrastructure/load-infrastructure-config';
+import { getTraceSampleRate } from '../utils/infrastructure/get-trace-sample-rate';
 import type {
   KongTemplate,
   PartnerApiSettings,
@@ -24,6 +26,11 @@ import type {
 
 interface InfraKongGenerateOptions {
   env?: string;
+  /**
+   * Print the commands to run next (default true). infra:deploy passes
+   * false: it runs them itself.
+   */
+  nextSteps?: boolean;
 }
 
 /**
@@ -47,6 +54,7 @@ export async function infraKongGenerate(
     writeTextFile,
     resolveGlobalPrefix,
     buildFrameworkKongConfig,
+    KONG_CLOUD_TRACES_ENDPOINT,
     validateRequestTransformerHeaders,
     validateStripIdentityPlugin,
     validateKongTrustTokenUse,
@@ -89,10 +97,12 @@ export async function infraKongGenerate(
     logger.newline();
     logger.info(`Output: ${outputPath}`);
     logger.newline();
-    logger.info('Next steps:');
-    logger.info('  npx tsdevstack infra:build-kong --env ' + targetEnv);
-    logger.info('  npx tsdevstack infra:deploy-kong --env ' + targetEnv);
-    logger.newline();
+    if (options.nextSteps !== false) {
+      logger.info('Next steps:');
+      logger.info('  npx tsdevstack infra:build-kong --env ' + targetEnv);
+      logger.info('  npx tsdevstack infra:deploy-kong --env ' + targetEnv);
+      logger.newline();
+    }
     return;
   }
 
@@ -265,8 +275,12 @@ export async function infraKongGenerate(
   }
 
   // Build framework config (same services and framework global plugins as
-  // the local generate-kong)
-  const frameworkConfig = buildFrameworkKongConfig(allServices);
+  // the local generate-kong). Kong's spans go to its collector sidecar, at
+  // the environment's tracing.sampleRate.
+  const frameworkConfig = buildFrameworkKongConfig(allServices, {
+    tracesEndpoint: KONG_CLOUD_TRACES_ENDPOINT,
+    sampleRate: getTraceSampleRate(loadInfrastructureConfig(), targetEnv),
+  });
 
   // Merge the user config (kong.user.yml in project root)
   let finalConfig: KongTemplate = frameworkConfig;
@@ -319,8 +333,10 @@ export async function infraKongGenerate(
     logger.info(`  \${${placeholder}}`);
   }
   logger.newline();
-  logger.info('Next steps:');
-  logger.info('  npx tsdevstack infra:build-kong --env ' + targetEnv);
-  logger.info('  npx tsdevstack infra:deploy-kong --env ' + targetEnv);
-  logger.newline();
+  if (options.nextSteps !== false) {
+    logger.info('Next steps:');
+    logger.info('  npx tsdevstack infra:build-kong --env ' + targetEnv);
+    logger.info('  npx tsdevstack infra:deploy-kong --env ' + targetEnv);
+    logger.newline();
+  }
 }

@@ -32,6 +32,8 @@ rs.mock('@tsdevstack/infra-core', () => ({
     generateAppServiceTf: rs.fn(() => '# app-service.tf'),
     generateAppServiceAutoscaleTf: rs.fn(() => ''),
     generateDiagnosticsTf: rs.fn(() => '# diagnostics.tf'),
+    generateTracingTf: rs.fn(() => '# tracing.tf'),
+    generateDashboardTf: rs.fn(() => '# dashboard.tf'),
   },
 }));
 
@@ -173,7 +175,7 @@ describe('generateTerraformFiles', () => {
   it('should write all generated files', () => {
     generateTerraformFiles(mockCtx, 'infra:generate');
 
-    expect(mocks.writeTextFile).toHaveBeenCalledTimes(16);
+    expect(mocks.writeTextFile).toHaveBeenCalledTimes(18);
     expect(mocks.writeTextFile).toHaveBeenCalledWith(
       '/test/project/infrastructure/terraform/dev/main.tf',
       '# main.tf',
@@ -238,6 +240,36 @@ describe('generateTerraformFiles', () => {
       '/test/project/infrastructure/terraform/dev/diagnostics.tf',
       '# diagnostics.tf',
     );
+    expect(mocks.writeTextFile).toHaveBeenCalledWith(
+      '/test/project/infrastructure/terraform/dev/tracing.tf',
+      '# tracing.tf',
+    );
+    expect(mocks.writeTextFile).toHaveBeenCalledWith(
+      '/test/project/infrastructure/terraform/dev/dashboard.tf',
+      '# dashboard.tf',
+    );
+  });
+
+  it("should chart the environment's services, workers and Next.js apps", () => {
+    mocks.loadFrameworkConfig.mockReturnValue({
+      project: { name: 'my-app' },
+      cloud: { provider: 'azure' },
+      services: [
+        { name: 'auth-service', type: 'nestjs', hasDatabase: true },
+        { name: 'auth-worker', type: 'worker', baseService: 'auth-service' },
+        { name: 'frontend', type: 'nextjs' },
+      ],
+    });
+
+    generateTerraformFiles(mockCtx, 'infra:generate');
+
+    expect(azure.generateDashboardTf).toHaveBeenCalledWith({
+      serviceNames: ['auth-service'],
+      workerNames: ['auth-worker'],
+      nextjsNames: ['frontend'],
+      // The default tier is Burstable
+      queryStore: false,
+    });
   });
 
   it("should name the shared vault and each backend service's vault", () => {

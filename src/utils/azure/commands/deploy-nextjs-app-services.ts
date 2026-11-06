@@ -9,7 +9,7 @@ import path from 'node:path';
 import pMap from 'p-map';
 import { getContext } from '../../../context';
 import { buildRuntime } from '../../build-runtime';
-import { getTerraformOutput } from '../terraform';
+import { getOtlpTracesUrl, getTerraformOutput } from '../terraform';
 import { deployAppService } from './deploy-app-service';
 import { setAppServiceSettings } from './set-app-service-settings';
 import { infraDockerGenerate } from '../../../commands/infra-docker-generate';
@@ -28,6 +28,8 @@ import {
 import { getServiceSecretKeys } from '../../deploy/get-service-secret-keys';
 import { toTerraformId } from '../../terraform';
 import type { AzureCommandContext } from './types';
+import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
+import { getTraceSampleRate } from '../../infrastructure/get-trace-sample-rate';
 
 interface DeployNextjsAppServicesOptions {
   service?: string;
@@ -76,6 +78,9 @@ export async function deployNextjsAppServices(
       `Run npx tsdevstack infra:deploy --env ${targetEnv} to deploy infrastructure`,
     );
   }
+
+  // Where the frontends send spans (their own identity signs in)
+  const otlpTracesUrl = getOtlpTracesUrl(terraformDir, tfEnv, targetEnv);
 
   // Get Next.js services
   let services = config.services.filter((s) => s.type === 'nextjs');
@@ -188,10 +193,19 @@ export async function deployNextjsAppServices(
     // Build settings from frontend env vars + secrets
     const settings: Record<string, string> = {};
 
-    // Standard frontend env vars
-    const standardEnvVars = buildFrontendEnvVars();
+    // Standard frontend env vars, with where its traces go
+    const standardEnvVars = buildFrontendEnvVars({
+      provider: 'azure',
+      traceSampleRate: getTraceSampleRate(
+        loadInfrastructureConfig(),
+        targetEnv,
+      ),
+    });
     for (const [name, value] of Object.entries(standardEnvVars)) {
       settings[name] = String(value);
+    }
+    if (otlpTracesUrl) {
+      settings.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = otlpTracesUrl;
     }
 
     // Header with the visitor's address (Front Door), which the frontend

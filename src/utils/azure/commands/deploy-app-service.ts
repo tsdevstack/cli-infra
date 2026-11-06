@@ -3,6 +3,12 @@
  *
  * Updates an App Service's container image and restarts it.
  * Uses the @azure/arm-appservice SDK.
+ *
+ * With sidecars, the app runs as site containers (Microsoft's "Configure
+ * sidecars"): linuxFxVersion "sitecontainers", the main container and each
+ * sidecar a site container, all pulled with the app's system-assigned
+ * identity. The containers share the app settings and reach each other on
+ * localhost. Without, the classic single container (DOCKER|<image>).
  */
 
 import { WebSiteManagementClient } from '@azure/arm-appservice';
@@ -22,6 +28,10 @@ interface DeployAppServiceParams {
    * deploy: Terraform ignores app_settings changes after creation
    */
   appSettings?: Record<string, string>;
+  /** Containers next to the main one (Kong's collector) */
+  sidecars?: Array<{ name: string; imageUri: string }>;
+  /** Main container's name and port, with sidecars */
+  main?: { name: string; port: number };
 }
 
 export async function deployAppService(
@@ -35,6 +45,8 @@ export async function deployAppService(
     acrLoginServer,
     imageUri,
     appSettings,
+    sidecars,
+    main,
   } = params;
 
   const runtime = buildRuntime();
@@ -47,11 +59,47 @@ export async function deployAppService(
 
   // Step 1: Update container image in site config
   try {
-    await client.webApps.updateConfiguration(
-      resourceGroupName,
-      appServiceName,
-      { linuxFxVersion: `DOCKER|${imageUri}` },
-    );
+    if (sidecars && sidecars.length > 0) {
+      if (!main) {
+        throw new Error('the main container needs a name and a port');
+      }
+      const containers = [
+        { name: main.name, image: imageUri, isMain: true, port: main.port },
+        ...sidecars.map((sidecar) => ({
+          name: sidecar.name,
+          image: sidecar.imageUri,
+          isMain: false,
+          port: undefined,
+        })),
+      ];
+      for (const container of containers) {
+        await client.webApps.createOrUpdateSiteContainer(
+          resourceGroupName,
+          appServiceName,
+          container.name,
+          {
+            image: container.image,
+            isMain: container.isMain,
+            ...(container.port !== undefined && {
+              targetPort: String(container.port),
+            }),
+            authType: 'SystemIdentity',
+            inheritAppSettingsAndConnectionStrings: true,
+          },
+        );
+      }
+      await client.webApps.updateConfiguration(
+        resourceGroupName,
+        appServiceName,
+        { linuxFxVersion: 'sitecontainers' },
+      );
+    } else {
+      await client.webApps.updateConfiguration(
+        resourceGroupName,
+        appServiceName,
+        { linuxFxVersion: `DOCKER|${imageUri}` },
+      );
+    }
   } catch (err: unknown) {
     const error = err as { message?: string };
     throw new CliError(

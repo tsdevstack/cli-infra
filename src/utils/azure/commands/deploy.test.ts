@@ -15,6 +15,7 @@ rs.mock('../../build-runtime', () => ({ buildRuntime: () => ({}) }));
 rs.mock('../terraform', () => ({
   executeTerraform: rs.fn(),
   getTerraformOutput: rs.fn(),
+  getTerraformOutputJson: rs.fn(),
 }));
 
 rs.mock('../../credentials/set-secret-via-cli', () => ({
@@ -78,7 +79,11 @@ rs.mock('../../../commands/infra-kong-deploy', () => ({
 }));
 
 import { azureDeploy } from './deploy';
-import { executeTerraform, getTerraformOutput } from '../terraform';
+import {
+  executeTerraform,
+  getTerraformOutput,
+  getTerraformOutputJson,
+} from '../terraform';
 import { createStateBackend } from '../bootstrap/create-state-backend';
 import { generateTerraformFiles } from './generate-terraform-files';
 import { extractLockId, buildAzureTerraformEnv } from '@tsdevstack/infra-core';
@@ -715,14 +720,19 @@ describe('azureDeploy', () => {
     it('should deploy Kong after services', async () => {
       await azureDeploy(mockCtx, { autoApprove: true });
 
-      expect(mockInfraKongGenerate).toHaveBeenCalledWith({ env: 'dev' });
+      expect(mockInfraKongGenerate).toHaveBeenCalledWith({
+        env: 'dev',
+        nextSteps: false,
+      });
       expect(mockInfraKongBuild).toHaveBeenCalledWith({
         env: 'dev',
         tag: undefined,
+        nextSteps: false,
       });
       expect(mockInfraKongDeploy).toHaveBeenCalledWith({
         env: 'dev',
         tag: undefined,
+        nextSteps: false,
       });
     });
 
@@ -732,10 +742,12 @@ describe('azureDeploy', () => {
       expect(mockInfraKongBuild).toHaveBeenCalledWith({
         env: 'dev',
         tag: 'v1.2.3',
+        nextSteps: false,
       });
       expect(mockInfraKongDeploy).toHaveBeenCalledWith({
         env: 'dev',
         tag: 'v1.2.3',
+        nextSteps: false,
       });
     });
 
@@ -745,6 +757,34 @@ describe('azureDeploy', () => {
       expect(mocks.logger.complete).toHaveBeenCalledWith(
         'Full infrastructure deployment complete!',
       );
+    });
+
+    it("should print the DNS zone's name servers after the banner, without trailing dots", async () => {
+      rs.mocked(getTerraformOutputJson).mockImplementation(((
+        _dir: string,
+        name: string,
+      ) =>
+        name === 'dns_name_servers'
+          ? ['ns1-09.azure-dns.com.', 'ns2-09.azure-dns.net.']
+          : undefined) as unknown as typeof getTerraformOutputJson);
+
+      await azureDeploy(mockCtx, { autoApprove: true });
+
+      expect(mocks.logger.info).toHaveBeenCalledWith(
+        '    ns1-09.azure-dns.com',
+      );
+      expect(mocks.logger.info).toHaveBeenCalledWith(
+        '    ns2-09.azure-dns.net',
+      );
+      const bannerOrder = Math.max(
+        ...mocks.logger.complete.mock.invocationCallOrder,
+      );
+      const dnsIndex = mocks.logger.info.mock.calls.findIndex(
+        (call: unknown[]) => call[0] === 'DNS Setup Required:',
+      );
+      expect(
+        mocks.logger.info.mock.invocationCallOrder[dnsIndex],
+      ).toBeGreaterThan(bannerOrder);
     });
   });
 });

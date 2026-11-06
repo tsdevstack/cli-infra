@@ -21,6 +21,11 @@ import type {
 interface InfraKongDeployOptions {
   env?: string;
   tag?: string;
+  /**
+   * Print the commands to run next (default true). infra:deploy passes
+   * false: it runs them itself.
+   */
+  nextSteps?: boolean;
 }
 
 /**
@@ -64,6 +69,7 @@ export async function infraKongDeploy(
       projectName,
       credentials: ctx.credentials as GCPCredentials,
       imageTag,
+      nextSteps: options.nextSteps,
     });
   } else if (provider === 'aws') {
     await awsKongDeploy({

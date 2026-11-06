@@ -8,18 +8,28 @@
  * Kong's runtime secrets (KONG_RUNTIME_SECRETS): Cloud Run sets them as
  * environment variables from Secret Manager when an instance starts, and
  * kong.yml references them ({vault://env/...}).
+ * - Two containers: Kong (takes the traffic) and the OpenTelemetry Collector
+ *   sidecar, which sends Kong's spans to Cloud Trace with Kong's account
  */
 
 import { ServicesClient } from '@google-cloud/run';
 import { GCP_KONG_CLIENT_IP_SETTINGS } from '@tsdevstack/infra-core';
 import type { GCPCredentials } from '@tsdevstack/cli/plugin';
 import { getContext } from '../../context';
+import {
+  KONG_COLLECTOR_CLOUD_RUN_CPU,
+  KONG_COLLECTOR_CLOUD_RUN_MEMORY,
+  KONG_COLLECTOR_CONTAINER_NAME,
+  KONG_COLLECTOR_HEALTH_PORT,
+} from '../../constants';
 
 export interface KongDeployOptions {
   projectId: string;
   projectName: string;
   region: string;
   imageUri: string;
+  /** Kong's collector sidecar image ({registry}/kong-collector:{tag}) */
+  collectorImageUri: string;
   // Direct VPC Egress - Kong gets IP directly in subnet
   vpcNetwork: string; // e.g., "projects/xxx/global/networks/tsdevstack-vpc"
   vpcSubnet: string; // e.g., "projects/xxx/regions/us-central1/subnetworks/tsdevstack-subnet"
@@ -68,8 +78,11 @@ export async function deployKongCloudRun(
     },
     containers: [
       {
+        name: 'kong',
         image: options.imageUri,
         ports: [{ containerPort: 8080 }],
+        // Kong starts once the collector answers its health check
+        dependsOn: [KONG_COLLECTOR_CONTAINER_NAME],
         env: [
           // The client's address from the load balancer's header (overrides
           // the image defaults, which trust private ranges and X-Forwarded-For)
@@ -111,6 +124,25 @@ export async function deployKongCloudRun(
           failureThreshold: 12, // 12 * 5s = 60s max startup
         },
         // No liveness probe - Cloud Run doesn't support TCP for liveness
+      },
+      {
+        // Receives Kong's spans on localhost:4318 and sends them to Cloud
+        // Trace. With request-based billing it gets CPU while the instance
+        // handles a request, so spans may leave with a later request.
+        name: KONG_COLLECTOR_CONTAINER_NAME,
+        image: options.collectorImageUri,
+        resources: {
+          limits: {
+            cpu: KONG_COLLECTOR_CLOUD_RUN_CPU,
+            memory: KONG_COLLECTOR_CLOUD_RUN_MEMORY,
+          },
+          cpuIdle: true,
+        },
+        startupProbe: {
+          httpGet: { path: '/', port: KONG_COLLECTOR_HEALTH_PORT },
+          periodSeconds: 2,
+          failureThreshold: 30,
+        },
       },
     ],
     timeout: { seconds: 30 },

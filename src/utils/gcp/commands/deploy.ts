@@ -25,6 +25,7 @@ import { createBucket } from '../create-bucket';
 import { getGcsLocationFromRegion } from '../get-gcs-location-from-region';
 import { fetchDbPasswordsFromSecretManager } from '../../credentials/fetch-db-passwords-from-secret-manager';
 import { setSecretViaCli } from '../../credentials/set-secret-via-cli';
+import { buildGcpDashboardUrl } from '../build-gcp-dashboard-url';
 import { generateTerraformFiles } from './generate-terraform-files';
 import { applyWithCapacityRetry } from '../../deploy/apply-with-capacity-retry';
 import { applyWithServiceAgentRetry } from '../terraform';
@@ -431,12 +432,20 @@ export async function gcpDeploy(
   logger.info('════════════════════════════════════════════');
 
   // Generate Kong config
-  await infraKongGenerate({ env: ctx.targetEnv });
+  await infraKongGenerate({ env: ctx.targetEnv, nextSteps: false });
 
   // Build Kong image
-  await infraKongBuild({ env: ctx.targetEnv, tag: options.tag });
+  await infraKongBuild({
+    env: ctx.targetEnv,
+    tag: options.tag,
+    nextSteps: false,
+  });
 
-  await infraKongDeploy({ env: ctx.targetEnv, tag: options.tag });
+  await infraKongDeploy({
+    env: ctx.targetEnv,
+    tag: options.tag,
+    nextSteps: false,
+  });
 
   // ============================================
   // Complete!
@@ -445,6 +454,17 @@ export async function gcpDeploy(
   logger.info('════════════════════════════════════════════');
   logger.complete('Full infrastructure deployment complete!');
   logger.info('════════════════════════════════════════════');
+
+  // The environment's dashboard (Cloud Monitoring)
+  try {
+    const dashboardId = getTerraformOutput(outputDir, 'dashboard_id', tfEnv);
+    logger.newline();
+    logger.info(
+      `Dashboard: ${buildGcpDashboardUrl(dashboardId, ctx.credentials.project_id)}`,
+    );
+  } catch {
+    // No dashboard output (Terraform files from an older CLI)
+  }
 
   // DNS records at the registrar: show only the ones not in place yet
   try {

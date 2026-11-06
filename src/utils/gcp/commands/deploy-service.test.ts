@@ -31,6 +31,7 @@ rs.mock('@tsdevstack/infra-core', () => ({
   buildBackendEnvVars: rs.fn(),
   buildBackendSecrets: rs.fn(),
   buildFrontendEnvVars: rs.fn(),
+  DEFAULT_TRACE_SAMPLE_RATE: 1,
   buildFrontendSecrets: rs.fn(),
   buildGcpTerraformEnv: rs.fn(),
   calculatePoolSize: rs.fn(),
@@ -156,6 +157,7 @@ describe('gcpDeployService', () => {
       timeout: '300s',
       port: 3000,
       concurrency: 80,
+      logLevel: 'info',
     });
     rs.mocked(calculatePoolSize).mockReturnValue({
       poolMax: 11,
@@ -327,6 +329,8 @@ describe('gcpDeployService', () => {
       projectName: 'my-app',
       projectId: 'my-gcp-project',
       poolMax: 11,
+      logLevel: 'info',
+      traceSampleRate: 1,
     });
     expect(buildBackendSecrets).toHaveBeenCalled();
   });
@@ -337,7 +341,11 @@ describe('gcpDeployService', () => {
       service: { name: 'frontend', type: 'nextjs' },
     });
 
-    expect(buildFrontendEnvVars).toHaveBeenCalled();
+    expect(buildFrontendEnvVars).toHaveBeenCalledWith({
+      provider: 'gcp',
+      projectId: 'my-gcp-project',
+      traceSampleRate: 1,
+    });
     expect(buildFrontendSecrets).toHaveBeenCalled();
   });
 
@@ -386,6 +394,53 @@ describe('gcpDeployService', () => {
         timeout: '300s',
         concurrency: 80,
       }),
+    );
+  });
+
+  it('should keep CPU always on for a nestjs service with min instances 1', async () => {
+    await gcpDeployService({
+      ...baseOptions,
+      service: { name: 'auth-service', type: 'nestjs', hasDatabase: true },
+    });
+
+    expect(deployCloudRunService).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ cpuIdle: false }),
+    );
+  });
+
+  it('should give CPU only during requests to a nestjs service with min instances 0', async () => {
+    rs.mocked(getServiceConfig).mockReturnValue({
+      minInstances: 0,
+      maxInstances: 3,
+      cpu: '1',
+      memory: '512Mi',
+      timeout: '300s',
+      port: 3000,
+      concurrency: 80,
+      logLevel: 'info',
+    });
+
+    await gcpDeployService({
+      ...baseOptions,
+      service: { name: 'auth-service', type: 'nestjs', hasDatabase: true },
+    });
+
+    expect(deployCloudRunService).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ cpuIdle: true }),
+    );
+  });
+
+  it('should give CPU only during requests to a nextjs service with min instances 1', async () => {
+    await gcpDeployService({
+      ...baseOptions,
+      service: { name: 'frontend', type: 'nextjs' },
+    });
+
+    expect(deployCloudRunService).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ cpuIdle: true }),
     );
   });
 

@@ -5,6 +5,7 @@
  */
 
 import { getContext } from '../../context';
+import { DEFAULT_SERVICE_LOG_LEVEL } from '@tsdevstack/infra-core';
 import {
   INFRASTRUCTURE_DEFAULTS_GCP,
   INFRASTRUCTURE_DEFAULTS_AWS,
@@ -47,6 +48,7 @@ export function mergeServiceWithDefaults(
     timeout: override?.timeout ?? defaults.timeout,
     port: override?.port ?? defaults.port,
     concurrency: override?.concurrency ?? defaults.concurrency,
+    logLevel: override?.logLevel ?? DEFAULT_SERVICE_LOG_LEVEL,
   };
 
   // Validate minInstances <= maxInstances after merge

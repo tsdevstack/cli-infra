@@ -23,11 +23,13 @@ import { getProviderSchemaConfig } from './get-provider-schema-config';
 import { mergeServiceWithDefaults } from './merge-service-with-defaults';
 import { mergeKongWithDefaults } from './merge-kong-with-defaults';
 import { validateCloudRunResources } from '../gcp/infrastructure/validate-cloud-run-resources';
+import { isServiceCpuAlwaysOn } from '../gcp/infrastructure/is-service-cpu-always-on';
 import { validateAccessControl } from './validate-access-control';
 import { validateDatabaseServerName } from './validate-database-server-name';
 import { validateDatabaseDiskSize } from './validate-database-disk-size';
 import { validateDatabaseHa } from './validate-database-ha';
 import { validateRedisMemoryGb } from './validate-redis-memory-gb';
+import { validateTracingOverride } from './validate-tracing-override';
 import { mergeDatabaseWithDefaults } from './merge-database-with-defaults';
 import { validateAwsMinInstances } from '../aws/infrastructure/validate-aws-min-instances';
 import { validateAppServiceScaling } from '../azure/infrastructure/validate-app-service-scaling';
@@ -82,6 +84,9 @@ export function validateInfrastructureConfig(
       ) {
         if (itemKey === 'accessControl') {
           validateAccessControl(key, override);
+        }
+        if (itemKey === 'tracing') {
+          validateTracingOverride(key, override);
         }
         // Cloud Run limits on Kong's cpu/memory (with defaults filled in)
         if (
@@ -180,15 +185,21 @@ export function validateInfrastructureConfig(
       // Cloud Run limits on cpu/memory/concurrency (with defaults filled in;
       // SPAs are served from a bucket)
       if (provider === 'gcp' && serviceTypes.get(itemKey) !== 'spa') {
+        const serviceType = serviceTypes.get(itemKey);
+        const resolved = mergeServiceWithDefaults(
+          override as ServiceOverride,
+          itemKey,
+          key,
+          'gcp',
+        );
         validateCloudRunResources(
           `${key}.${itemKey}`,
-          mergeServiceWithDefaults(
-            override as ServiceOverride,
-            itemKey,
-            key,
-            'gcp',
-          ),
-          serviceTypes.get(itemKey) === 'worker' ? 'worker' : 'service',
+          resolved,
+          serviceType === 'worker'
+            ? 'worker'
+            : isServiceCpuAlwaysOn(serviceType, resolved.minInstances)
+              ? 'always-on-service'
+              : 'service',
         );
       }
 

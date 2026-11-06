@@ -28,6 +28,10 @@ export const INFRASTRUCTURE_DEFAULTS_GCP = {
  * minInstances: 1 is also the minimum on AWS: there is no scale-to-zero,
  * every ECS service runs at least one task. minInstances: 0 fails validation.
  *
+ * cpu/memory here only fill in a partial override: without "cpu" or "memory"
+ * in infrastructure.json, services, Next.js apps and workers deploy at
+ * FARGATE_DEFAULT (0.25 vCPU / 512 MB, generate-terraform-files.ts).
+ *
  * CPU/memory must be valid Fargate combinations:
  * - 0.5 vCPU: 1GB-4GB
  * - 1 vCPU: 2GB-8GB
@@ -42,6 +46,16 @@ export const INFRASTRUCTURE_DEFAULTS_AWS = {
   port: 3000,
   concurrency: 80,
 } as const;
+
+/** pino's levels, from most to least output */
+export const VALID_LOG_LEVEL_VALUES = [
+  'trace',
+  'debug',
+  'info',
+  'warn',
+  'error',
+  'fatal',
+] as const;
 
 /**
  * Default values for database configuration (GCP Cloud SQL)
@@ -314,12 +328,24 @@ export const KONG_DEFAULTS_GCP = {
  *
  * minInstances: 1 is also the minimum on AWS (no scale-to-zero); 0 fails validation.
  * CPU/memory must be valid Fargate combination (1 vCPU requires 2GB minimum).
+ * cpu/memory here only fill in a partial override: without "cpu" or "memory"
+ * for kong in infrastructure.json, Kong deploys at KONG_FARGATE_DEFAULT.
  */
 export const KONG_DEFAULTS_AWS = {
   minInstances: 1,
   maxInstances: 10,
   cpu: '1',
   memory: '2Gi',
+} as const;
+
+/**
+ * Kong's ECS task without "cpu" or "memory" for kong in infrastructure.json,
+ * in Fargate units (0.25 vCPU / 1 GB). The collector sidecar takes 256 MB of
+ * it (KONG_COLLECTOR_ECS_MEMORY); Kong gets the rest.
+ */
+export const KONG_FARGATE_DEFAULT = {
+  cpu: 256,
+  memory: 1024,
 } as const;
 
 /**
@@ -344,11 +370,13 @@ export const REDIS_DEFAULTS_AZURE = {
 /**
  * Default values for service configuration (Azure Container Apps)
  *
- * minInstances: 0 enables scale-to-zero for dev environments (native on Container Apps).
+ * minInstances: 1 keeps one replica running, so message handlers and other
+ * background work run while no request comes in (same default on every cloud).
+ * minInstances: 0 scales to zero (native on Container Apps).
  * CPU/memory must be valid Container Apps combinations.
  */
 export const INFRASTRUCTURE_DEFAULTS_AZURE = {
-  minInstances: 0,
+  minInstances: 1,
   maxInstances: 5,
   cpu: '0.5',
   memory: '1Gi',
@@ -390,7 +418,10 @@ export const VALID_DATABASE_TIERS_AZURE = [
   'B_Standard_B2ms',
   'GP_Standard_D2s_v3',
   'GP_Standard_D4s_v3',
+  'GP_Standard_D2ds_v5',
+  'GP_Standard_D4ds_v5',
   'MO_Standard_E4s_v3',
+  'MO_Standard_E4ds_v5',
 ] as const;
 
 /**

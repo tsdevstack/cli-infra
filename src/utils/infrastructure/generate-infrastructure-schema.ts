@@ -7,6 +7,7 @@
 
 import {
   VALIDATION_CONSTRAINTS,
+  VALID_LOG_LEVEL_VALUES,
   AZURE_POSTGRES_SERVER_NAME_CONSTRAINTS,
   REDIS_CONSTRAINTS,
 } from '../../constants';
@@ -341,6 +342,21 @@ export function generateInfrastructureSchema(
           loadBalancer: { $ref: '#/definitions/LoadBalancerOverride' },
           accessControl: { $ref: '#/definitions/AccessControlOverride' },
           security: { $ref: '#/definitions/SecurityOverride' },
+          tracing: {
+            type: 'object',
+            description: 'Traces of this environment',
+            properties: {
+              sampleRate: {
+                type: 'number',
+                minimum: 0,
+                maximum: 1,
+                default: 1,
+                description:
+                  'Share of new traces kept, 0 to 1. Kong decides per request and the services follow; scheduled jobs use the same rate.',
+              },
+            },
+            additionalProperties: false,
+          },
           scheduledJobs: {
             type: 'array',
             description: 'Scheduled jobs configuration',
@@ -414,6 +430,12 @@ export function generateInfrastructureSchema(
             type: 'string',
             enum: [...providerConfig.serviceTypes],
             description: providerConfig.serviceTypeDescription,
+          },
+          logLevel: {
+            type: 'string',
+            enum: [...VALID_LOG_LEVEL_VALUES],
+            description:
+              'Log level of a NestJS service or worker (default: info)',
           },
         },
         additionalProperties: false,

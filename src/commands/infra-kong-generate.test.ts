@@ -49,6 +49,10 @@ rs.mock('../utils/setup/setup-infra-command', () => ({
   setupInfraCommand: (...args: unknown[]) => mockSetupInfraCommand(...args),
 }));
 
+rs.mock('../utils/infrastructure/load-infrastructure-config', () => ({
+  loadInfrastructureConfig: () => ({ prod: { tracing: { sampleRate: 0.2 } } }),
+}));
+
 import { infraKongGenerate } from './infra-kong-generate';
 
 describe('infraKongGenerate', () => {
@@ -113,10 +117,17 @@ describe('infraKongGenerate', () => {
     it('should build the framework config with the shared builder (same routes and plugins as local)', async () => {
       await infraKongGenerate({});
 
-      expect(mocks.buildFrameworkKongConfig).toHaveBeenCalledWith([
-        expect.objectContaining({ name: 'auth-service' }),
-        expect.objectContaining({ name: 'auth-service' }),
-      ]);
+      expect(mocks.buildFrameworkKongConfig).toHaveBeenCalledWith(
+        [
+          expect.objectContaining({ name: 'auth-service' }),
+          expect.objectContaining({ name: 'auth-service' }),
+        ],
+        // Kong's spans go to its collector sidecar at the environment's rate
+        {
+          tracesEndpoint: 'http://localhost:4318/v1/traces',
+          sampleRate: 0.2,
+        },
+      );
       const written = JSON.parse(
         mockWriteTextFile.mock.calls.at(-1)![1] as string,
       ) as { plugins: Array<{ name: string }> };
@@ -363,6 +374,32 @@ describe('infraKongGenerate', () => {
       expect(mocks.logger.complete).toHaveBeenCalledWith(
         expect.stringContaining('Kong configuration generated'),
       );
+    });
+
+    it('should print the commands to run next', async () => {
+      await infraKongGenerate({});
+
+      expect(mocks.logger.info).toHaveBeenCalledWith('Next steps:');
+    });
+
+    it('should not print next steps inside infra:deploy (nextSteps false)', async () => {
+      await infraKongGenerate({ nextSteps: false });
+
+      expect(mocks.logger.info).not.toHaveBeenCalledWith('Next steps:');
+    });
+
+    it('should not print next steps with kong.custom.yml either (nextSteps false)', async () => {
+      mocks.isFile.mockImplementation((p: string) =>
+        p.includes('kong.custom.yml'),
+      );
+      mockReadYamlFile.mockReturnValue({
+        _format_version: '3.0',
+        services: [],
+      });
+
+      await infraKongGenerate({ nextSteps: false });
+
+      expect(mocks.logger.info).not.toHaveBeenCalledWith('Next steps:');
     });
   });
 });

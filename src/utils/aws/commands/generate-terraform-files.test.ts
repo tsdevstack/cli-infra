@@ -27,6 +27,8 @@ rs.mock('@tsdevstack/infra-core', () => ({
     generateRedisTf: rs.fn(() => '# redis.tf'),
     generateEcsTf: rs.fn(() => '# ecs.tf'),
     generateLoggingTf: rs.fn(() => '# logging.tf'),
+    generateXrayTf: rs.fn(() => '# xray.tf'),
+    generateDashboardTf: rs.fn(() => '# dashboard.tf'),
     generateAlbTf: rs.fn(() => '# alb.tf'),
     generateWafTf: rs.fn(() => '# waf.tf'),
     generateCloudfrontTf: rs.fn(() => '# cloudfront.tf'),
@@ -192,6 +194,8 @@ describe('generateTerraformFiles', () => {
     expect(writeCalls).toContain('redis.tf');
     expect(writeCalls).toContain('ecs.tf');
     expect(writeCalls).toContain('logging.tf');
+    expect(writeCalls).toContain('xray.tf');
+    expect(writeCalls).toContain('dashboard.tf');
     expect(writeCalls).toContain('alb.tf');
     expect(writeCalls).toContain('waf.tf');
     expect(writeCalls).toContain('cloudfront.tf');
@@ -288,6 +292,7 @@ describe('generateTerraformFiles', () => {
       timeout: '300s',
       port: 3000,
       concurrency: 80,
+      logLevel: 'info',
     });
 
     it('should throw a CliError when a service resolves to minInstances 0', () => {
@@ -346,6 +351,19 @@ describe('generateTerraformFiles', () => {
       expect(result.generateConfig.services['kong'].minInstances).toBe(1);
       expect(result.generateConfig.frontends['frontend'].minInstances).toBe(2);
       expect(result.generateConfig.workers['auth-worker'].minInstances).toBe(2);
+    });
+  });
+
+  it("should size Kong's task at 0.25 vCPU / 1 GB without a cpu or memory override", () => {
+    const result = generateTerraformFiles(mockCtx, 'infra:generate');
+
+    expect(result.generateConfig.services['kong']).toMatchObject({
+      cpu: 256,
+      memory: '1024',
+    });
+    expect(result.generateConfig.services['auth-service']).toMatchObject({
+      cpu: 256,
+      memory: '512',
     });
   });
 

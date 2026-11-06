@@ -18,6 +18,7 @@ rs.mock('../../build-runtime', () => ({ buildRuntime: () => ({}) }));
 
 rs.mock('../terraform', () => ({
   getTerraformOutput: rs.fn(),
+  getOtlpTracesUrl: rs.fn(),
 }));
 
 rs.mock('@tsdevstack/infra-core', () => ({
@@ -42,7 +43,7 @@ rs.mock('../key-vault/wait-for-key-vault-references', () => ({
 }));
 
 import { azureKongDeploy } from './deploy-kong';
-import { getTerraformOutput } from '../terraform';
+import { getOtlpTracesUrl, getTerraformOutput } from '../terraform';
 import { buildAzureTerraformEnv } from '@tsdevstack/infra-core';
 import { deployAppService } from './deploy-app-service';
 import { grantKeyVaultSecretRead } from '../key-vault/grant-key-vault-secret-read';
@@ -64,6 +65,9 @@ const baseParams = {
   imageTag: 'abc123',
 };
 
+const TRACES_URL =
+  'https://dce/datacollectionRules/dcr/streams/Microsoft-OTLP-Traces/otlp/v1/traces';
+
 describe('azureKongDeploy', () => {
   beforeEach(() => {
     rs.resetAllMocks();
@@ -84,6 +88,7 @@ describe('azureKongDeploy', () => {
         return outputs[name] || '';
       },
     );
+    rs.mocked(getOtlpTracesUrl).mockReturnValue(TRACES_URL);
   });
 
   describe('Standard use cases', () => {
@@ -114,8 +119,37 @@ describe('azureKongDeploy', () => {
             REDIS_PASSWORD: reference('REDIS-PASSWORD'),
             KONG_TRUST_TOKEN: reference('KONG-TRUST-TOKEN'),
             KONG_FRONTEND_TOKEN: reference('KONG-FRONTEND-TOKEN'),
+            OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: TRACES_URL,
           },
         }),
+      );
+    });
+
+    it('should run Kong with its collector sidecar, from the same tag', async () => {
+      await azureKongDeploy(baseParams);
+
+      expect(deployAppService).toHaveBeenCalledWith(
+        expect.objectContaining({
+          main: { name: 'main', port: 8080 },
+          sidecars: [
+            {
+              name: 'otel-collector',
+              imageUri: 'myacr.azurecr.io/kong-collector:abc123',
+            },
+          ],
+        }),
+      );
+    });
+
+    it('should run Kong alone while the environment has no traces destination', async () => {
+      rs.mocked(getOtlpTracesUrl).mockReturnValue(undefined);
+
+      await azureKongDeploy(baseParams);
+
+      const params = rs.mocked(deployAppService).mock.calls[0][0];
+      expect(params.sidecars).toBeUndefined();
+      expect(params.appSettings).not.toHaveProperty(
+        'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT',
       );
     });
 

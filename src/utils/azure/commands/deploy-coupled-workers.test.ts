@@ -27,6 +27,10 @@ rs.mock('../../build-runtime', () => ({
 
 rs.mock('../terraform', () => ({
   getTerraformOutput: rs.fn(() => ''),
+  getOtlpTracesUrl: rs.fn(
+    () =>
+      'https://dce/datacollectionRules/dcr/streams/Microsoft-OTLP-Traces/otlp/v1/traces',
+  ),
   getAcrIdentityOutputs: rs.fn(() => ({
     acrManagedIdentityId: undefined,
     managedIdentityClientId: 'shared-client',
@@ -123,6 +127,7 @@ describe('deployCoupledWorkers', () => {
       timeout: '540s',
       port: 3000,
       concurrency: 80,
+      logLevel: 'info',
     });
     rs.mocked(getGitSha).mockReturnValue('abc1234');
   });
@@ -253,6 +258,7 @@ describe('deployCoupledWorkers', () => {
       timeout: '540s',
       port: 3000,
       concurrency: 80,
+      logLevel: 'info',
     });
 
     await deployCoupledWorkers(mockCtx, configWithWorker, ['auth-service']);

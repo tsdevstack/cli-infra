@@ -56,6 +56,7 @@ rs.mock('@tsdevstack/infra-core', () => ({
     generateNetworkTf: rs.fn(() => '# network.tf'),
     generateDatabaseTf: rs.fn(() => '# database.tf'),
     generateRedisTf: rs.fn(() => '# redis.tf'),
+    generateDashboardTf: rs.fn(() => '# dashboard.tf'),
     generateIamTf: rs.fn(() => '# iam.tf'),
     generateArtifactRegistryTf: rs.fn(() => '# artifact-registry.tf'),
     generateSpaBucketsTf: rs.fn(() => '# spa-buckets.tf'),
@@ -85,6 +86,7 @@ rs.mock('../terraform-generate', () => ({
   generateNetworkTf: rs.fn(() => '# network.tf'),
   generateDatabaseTf: rs.fn(() => '# database.tf'),
   generateRedisTf: rs.fn(() => '# redis.tf'),
+  generateDashboardTf: rs.fn(() => '# dashboard.tf'),
   generateIamTf: rs.fn(() => '# iam.tf'),
   generateArtifactRegistryTf: rs.fn(() => '# artifact-registry.tf'),
   generateSpaBucketsTf: rs.fn(() => '# spa-buckets.tf'),
@@ -233,6 +235,37 @@ describe('gcpPlan', () => {
 
       expect(mocks.logger.info).toHaveBeenCalledWith(
         expect.stringContaining('infra:deploy'),
+      );
+    });
+  });
+
+  describe('--upgrade', () => {
+    it('should upgrade providers past the lock file only when asked', async () => {
+      await gcpPlan(mockContext, { upgrade: true });
+
+      expect(mockExecuteTerraform).toHaveBeenCalledWith(
+        'init',
+        expect.objectContaining({ upgrade: true }),
+      );
+    });
+
+    it('should not upgrade by default', async () => {
+      await gcpPlan(mockContext);
+
+      expect(mockExecuteTerraform).toHaveBeenCalledWith(
+        'init',
+        expect.objectContaining({ upgrade: undefined }),
+      );
+    });
+
+    it('should name the lock file to commit after an upgrade', async () => {
+      await gcpPlan(mockContext, { upgrade: true });
+
+      expect(mocks.logger.info).toHaveBeenCalledWith(
+        expect.stringContaining('.terraform.lock.hcl'),
+      );
+      expect(mocks.logger.info).not.toHaveBeenCalledWith(
+        'To apply these changes, run:',
       );
     });
   });

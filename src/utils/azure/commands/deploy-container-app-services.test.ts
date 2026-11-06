@@ -16,6 +16,10 @@ rs.mock('../terraform', () => ({
   getTerraformOutput: rs.fn(),
   getAcrIdentityOutputs: rs.fn(),
   getServiceSecretsIdentities: rs.fn(),
+  getOtlpTracesUrl: rs.fn(
+    () =>
+      'https://dce/datacollectionRules/dcr/streams/Microsoft-OTLP-Traces/otlp/v1/traces',
+  ),
 }));
 
 rs.mock('../../docker', () => ({
@@ -166,6 +170,7 @@ describe('deployContainerAppServices', () => {
       timeout: '300s',
       port: 3000,
       concurrency: 80,
+      logLevel: 'info',
     });
     rs.mocked(calculatePoolSize).mockReturnValue({
       poolMax: 11,
@@ -387,6 +392,7 @@ describe('deployContainerAppServices', () => {
       projectName: 'my-app',
       projectId: 'sub-123',
       poolMax: 11,
+      logLevel: 'info',
     });
   });
 
@@ -404,6 +410,11 @@ describe('deployContainerAppServices', () => {
             {
               name: 'AZURE_SERVICE_KEYVAULT_NAME',
               value: 'my-app-dev-auth-service',
+            },
+            {
+              name: 'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT',
+              value:
+                'https://dce/datacollectionRules/dcr/streams/Microsoft-OTLP-Traces/otlp/v1/traces',
             },
             { name: 'PORT', value: '3000' },
           ],

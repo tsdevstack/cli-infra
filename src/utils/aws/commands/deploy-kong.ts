@@ -23,6 +23,11 @@ import {
   waitForEcsStable,
 } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
+import {
+  KONG_COLLECTOR_CONTAINER_NAME,
+  KONG_COLLECTOR_ECS_MEMORY,
+  KONG_COLLECTOR_IMAGE_NAME,
+} from '../../../constants';
 import type { AWSCredentials } from '@tsdevstack/cli/plugin';
 
 interface AwsKongDeployParams {
@@ -77,9 +82,11 @@ export async function awsKongDeploy(
   const region = credentials.region;
 
   const imageUri = `${ecrUrl}/kong:${imageTag}`;
+  const collectorImageUri = `${ecrUrl}/${KONG_COLLECTOR_IMAGE_NAME}:${imageTag}`;
 
   logger.info(`Environment: ${targetEnv}`);
   logger.info(`Image: ${imageUri}`);
+  logger.info(`Collector: ${collectorImageUri}`);
   logger.info(`Cluster: ${clusterName}`);
   logger.newline();
 
@@ -113,8 +120,11 @@ export async function awsKongDeploy(
     );
   }
 
-  // Get existing container definition
-  const existingContainer = existingTaskDef.containerDefinitions?.[0];
+  // Get existing Kong container definition (the task also holds the
+  // collector sidecar after the first deploy)
+  const existingContainer = existingTaskDef.containerDefinitions?.find(
+    (container) => container.name !== KONG_COLLECTOR_CONTAINER_NAME,
+  );
   if (!existingContainer) {
     throw new CliError(
       'Container definition not found',
@@ -162,6 +172,31 @@ export async function awsKongDeploy(
           logConfiguration: existingContainer.logConfiguration,
           healthCheck: existingContainer.healthCheck,
           essential: existingContainer.essential,
+          // Kong sends its spans to the collector on localhost:4318
+          dependsOn: [
+            {
+              containerName: KONG_COLLECTOR_CONTAINER_NAME,
+              condition: 'START',
+            },
+          ],
+        },
+        {
+          // OpenTelemetry Collector sidecar: Kong's spans to X-Ray, signed
+          // with the task role. Not essential: if it stops, Kong keeps
+          // serving and only its spans are lost.
+          name: KONG_COLLECTOR_CONTAINER_NAME,
+          image: collectorImageUri,
+          essential: false,
+          memory: KONG_COLLECTOR_ECS_MEMORY,
+          logConfiguration: existingContainer.logConfiguration?.options
+            ? {
+                ...existingContainer.logConfiguration,
+                options: {
+                  ...existingContainer.logConfiguration.options,
+                  'awslogs-stream-prefix': 'collector',
+                },
+              }
+            : existingContainer.logConfiguration,
         },
       ],
     }),

@@ -23,6 +23,14 @@ interface BuildAzureBackendEnvConfig {
   managedIdentityClientId?: string;
   /** The service's own Key Vault identity's client ID (AZURE_SECRETS_CLIENT_ID) */
   secretsIdentityClientId: string;
+  /** LOG_LEVEL (from infrastructure.json, default info) */
+  logLevel?: string;
+  /** A worker's own name, for its log lines (serviceName stays the base service) */
+  workerName?: string;
+  /** TRACE_SAMPLE_RATE (tracing.sampleRate of the environment) */
+  traceSampleRate?: number;
+  /** Where spans go (tracing.tf's otlp_traces_url); none: no spans sent */
+  otlpTracesUrl?: string;
 }
 
 interface AzureBackendEnv {
@@ -56,6 +64,9 @@ export function buildAzureBackendEnv(
     projectName,
     projectId: credentials.subscriptionId,
     poolMax,
+    logLevel: config.logLevel,
+    workerName: config.workerName,
+    traceSampleRate: config.traceSampleRate,
   });
 
   const envVars = Object.entries(standardEnvVars).map(([name, value]) => ({
@@ -90,6 +101,15 @@ export function buildAzureBackendEnv(
     },
   );
   logger.info('  Injecting managed identities and Key Vault names');
+
+  // Spans go to Azure Monitor's data collection rule, signed in with the
+  // service's own identity (AZURE_SECRETS_CLIENT_ID has the role on it)
+  if (config.otlpTracesUrl) {
+    envVars.push({
+      name: 'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT',
+      value: config.otlpTracesUrl,
+    });
+  }
 
   // Azure Storage Account name for StorageModule
   if (config.hasStorage) {

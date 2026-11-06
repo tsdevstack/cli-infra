@@ -7,6 +7,7 @@
 import { getContext } from '../../../context';
 import { buildRuntime } from '../../build-runtime';
 import { executeTerraform } from '../terraform';
+import { logProviderUpgradeNextSteps } from '../../terraform';
 import { createStateBackend } from '../bootstrap/create-state-backend';
 import { generateTerraformFiles } from './generate-terraform-files';
 import {
@@ -71,13 +72,18 @@ export async function azurePlan(
   // Build Terraform environment
   const tfEnv = buildAzureTerraformEnv(runtime, ctx.credentials);
 
-  logger.info('Initializing...');
+  logger.info(
+    options.upgrade
+      ? 'Initializing and upgrading Terraform providers...'
+      : 'Initializing...',
+  );
   logger.newline();
 
   const initResult = await executeTerraform('init', {
     workDir: outputDir,
     env: tfEnv,
     reconfigure: true,
+    upgrade: options.upgrade,
   });
 
   if (!initResult.success) {
@@ -137,6 +143,11 @@ export async function azurePlan(
       'infra:plan',
       planResult.error || 'Check the output above for details',
     );
+  }
+
+  if (options.upgrade) {
+    logProviderUpgradeNextSteps(outputDir, ctx.targetEnv);
+    return;
   }
 
   logger.newline();
