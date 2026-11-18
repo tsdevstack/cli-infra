@@ -45,10 +45,22 @@ describe('printSetupInstructions', () => {
     printSetupInstructions([], 'myproject', ['dev'], logger);
 
     const infoCalls = logger.info.mock.calls.map((c) => c[0]).join('\n');
-    expect(infoCalls).toContain('Verify Trust Policy');
+    expect(infoCalls).toContain('Edit the Trust Policy');
     expect(infoCalls).toContain('sts:AssumeRoleWithWebIdentity');
     expect(infoCalls).toContain('StringLike');
-    expect(infoCalls).toContain('repo:YOUR_ORG/YOUR_REPO:*');
+    expect(infoCalls).toContain('"repo:YOUR_ORG/YOUR_REPO:*",');
+    expect(infoCalls).toContain('"repo:YOUR_ORG@OWNER_ID/YOUR_REPO@REPO_ID:*"');
+  });
+
+  it("should say how to find the repository's IDs for the newer subject form", () => {
+    const logger = createMockLogger();
+    printSetupInstructions([], 'myproject', ['dev'], logger);
+
+    const infoCalls = logger.info.mock.calls.map((c) => c[0]).join('\n');
+    expect(infoCalls).toContain('created after 15 July 2026');
+    expect(infoCalls).toContain(
+      "gh api repos/YOUR_ORG/YOUR_REPO --jq '.owner.id, .id'",
+    );
   });
 
   it('should reference docs for permissions policy', () => {
@@ -57,7 +69,10 @@ describe('printSetupInstructions', () => {
 
     const infoCalls = logger.info.mock.calls.map((c) => c[0]).join('\n');
     expect(infoCalls).toContain('Inline Policy');
-    expect(infoCalls).toContain('docs/infra-notes/aws.md');
+    expect(infoCalls).toContain(
+      'https://tsdevstack.dev/docs/infrastructure/providers/aws/cicd',
+    );
+    expect(infoCalls).not.toContain('docs/infra-notes');
   });
 
   it('should include troubleshooting section', () => {

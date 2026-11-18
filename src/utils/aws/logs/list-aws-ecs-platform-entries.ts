@@ -1,9 +1,10 @@
 /**
  * Platform lines on AWS come from ECS, not from CloudWatch Logs: each
  * service's events (deployments, steady state, tasks it could not place)
- * and its stopped tasks with their reasons and exit codes. Migrations are
- * standalone tasks: their stopped tasks only. ECS keeps the last 100 events
- * per service and stopped tasks for about an hour.
+ * and its stopped tasks with their reasons and exit codes. Migrations and
+ * the database setup job (db-init) are standalone tasks: their stopped tasks
+ * only. ECS keeps the last 100 events per service and stopped tasks for
+ * about an hour.
  */
 
 import {
@@ -13,23 +14,29 @@ import {
   type ECSClient,
   type Task,
 } from '@aws-sdk/client-ecs';
-import { AWS_MIGRATION_TASK_FAMILY_SUFFIX } from '../../../constants';
+import {
+  AWS_DB_INIT_TASK_FAMILY_SUFFIX,
+  AWS_ECS_SERVICE_LOG_SOURCE_TYPES,
+  MIGRATION_LOG_SOURCE_PREFIX,
+} from '../../../constants';
+import { buildAwsMigrationNames } from '../build-aws-migration-names';
 import type { LogEntry, LogSource } from '../../logs/types';
 import { formatAwsStoppedTask } from './format-aws-stopped-task';
 
-const ECS_SERVICE_TYPES = new Set(['service', 'worker', 'frontend', 'kong']);
+const ECS_SERVICE_TYPES = new Set<string>(AWS_ECS_SERVICE_LOG_SOURCE_TYPES);
 /** DescribeServices takes up to 10 services, DescribeTasks up to 100 tasks */
 const DESCRIBE_SERVICES_BATCH = 10;
 const DESCRIBE_TASKS_BATCH = 100;
 
 export async function listAwsEcsPlatformEntries(params: {
   ecs: ECSClient;
+  projectName: string;
   clusterName: string;
   sources: LogSource[];
   since: Date;
   until: Date;
 }): Promise<LogEntry[]> {
-  const { ecs, clusterName, sources, since, until } = params;
+  const { ecs, projectName, clusterName, sources, since, until } = params;
   const inWindow = (date: Date | undefined): date is Date =>
     date !== undefined && date >= since && date <= until;
 
@@ -38,6 +45,7 @@ export async function listAwsEcsPlatformEntries(params: {
     ECS_SERVICE_TYPES.has(source.type),
   );
   const migrations = sources.filter((source) => source.type === 'migration');
+  const dbInit = sources.filter((source) => source.type === 'db-init');
 
   // Service events
   for (let i = 0; i < services.length; i += DESCRIBE_SERVICES_BATCH) {
@@ -107,8 +115,19 @@ export async function listAwsEcsPlatformEntries(params: {
     await stoppedTasks(source, { serviceName: source.name });
   }
   for (const source of migrations) {
+    // Both families: the old one ran until the environment migrated with
+    // this CLI
+    const names = buildAwsMigrationNames(
+      projectName,
+      source.name.slice(MIGRATION_LOG_SOURCE_PREFIX.length),
+    );
+    for (const family of [names.taskFamily, names.legacyTaskFamily]) {
+      await stoppedTasks(source, { family });
+    }
+  }
+  for (const source of dbInit) {
     await stoppedTasks(source, {
-      family: `${source.name}${AWS_MIGRATION_TASK_FAMILY_SUFFIX}`,
+      family: `${projectName}${AWS_DB_INIT_TASK_FAMILY_SUFFIX}`,
     });
   }
 

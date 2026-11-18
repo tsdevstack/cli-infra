@@ -18,12 +18,26 @@ import {
   buildDeletionSteps,
   executeSteps,
   showFailureReport,
-  fetchAllDbPasswords,
   getOtherEnvironments,
   selectServiceInteractive,
 } from '../remove-service';
 import type { GCPCredentials } from '@tsdevstack/cli/plugin';
 import type { GCPCommandContext } from './types';
+import { resolveGcpNamingScheme } from '../naming/resolve-gcp-naming-scheme';
+import { logRemoveServiceNextSteps } from '../../display/log-remove-service-next-steps';
+import { logDatabaseRecoveryHint } from '../../display/log-database-recovery-hint';
+import { logDatabaseSavedHint } from '../../display/log-database-saved-hint';
+import {
+  buildGcpTerraformEnv,
+  DB_EXPORT_REASONS,
+} from '@tsdevstack/infra-core';
+import { buildDbExportFileName } from '../../database-export/build-db-export-file-name';
+import { saveDatabaseBeforeRemoval } from '../../database-export/save-database-before-removal';
+import { getGcpDbExportsBucket } from '../database-export/get-gcp-db-exports-bucket';
+import { runGcpDatabaseJob } from '../database-export/run-gcp-database-job';
+import type { DeletionStepResult } from '../remove-service/types';
+import { buildRuntime } from '../../build-runtime';
+import { initTerraformBeforeChanges } from '../../terraform';
 
 interface GcpRemoveServiceParams {
   serviceName: string | undefined;
@@ -31,6 +45,8 @@ interface GcpRemoveServiceParams {
   runningInCI: boolean;
   dryRunOption: boolean | undefined;
   confirmOption: boolean | undefined;
+  /** Remove without saving the database (--skip-export) */
+  skipExportOption: boolean | undefined;
 }
 
 interface GcpRemoveServiceResult {
@@ -46,12 +62,18 @@ export async function gcpRemoveService(
 ): Promise<GcpRemoveServiceResult> {
   const { logger, CliError, loadFrameworkConfig } = getContext();
   const { serviceName, ctx, runningInCI, dryRunOption } = params;
+  // --confirm answers the questions, as in CI: delete, without typing the name
+  const interactive = !runningInCI && params.confirmOption !== true;
+  const skipExport = params.skipExportOption === true;
 
   const credentials = ctx.credentials as GCPCredentials;
   const { projectName, targetEnv } = ctx;
 
   // SQL instance name follows project naming convention
   const sqlInstanceName = `${projectName}-postgres`;
+
+  // Cloud Run names follow the scheme the environment was first deployed with
+  const naming = await resolveGcpNamingScheme(ctx, 'infra:remove-service');
 
   // In CI mode, service name is required
   if (!serviceName && runningInCI) {
@@ -71,6 +93,7 @@ export async function gcpRemoveService(
       region: credentials.region,
       sqlInstanceName,
       credentials,
+      naming,
     });
   } else {
     resolvedServiceName = serviceName;
@@ -90,6 +113,7 @@ export async function gcpRemoveService(
     region: credentials.region,
     sqlInstanceName,
     credentials,
+    naming,
   });
 
   if (!hasAnyResources(discovered)) {
@@ -109,6 +133,8 @@ export async function gcpRemoveService(
   let coupledWorkers: CoupledWorkerInfo[] = [];
   if (discovered.serviceAccount && discovered.serviceAccountEmail) {
     coupledWorkers = await discoverCoupledWorkers({
+      projectName,
+      naming,
       baseServiceName: resolvedServiceName,
       baseServiceAccount: discovered.serviceAccountEmail,
       projectId: credentials.project_id,
@@ -126,7 +152,7 @@ export async function gcpRemoveService(
 
   // Ask about dry-run in interactive mode (if not already specified)
   let dryRun = dryRunOption;
-  if (!runningInCI && dryRun === undefined) {
+  if (interactive && dryRun === undefined) {
     const { runMode } = await inquirer.prompt([
       {
         type: 'select',
@@ -149,6 +175,7 @@ export async function gcpRemoveService(
     coupledWorkers,
     targetEnv,
     dryRun,
+    skipExport,
     logger,
   });
 
@@ -160,33 +187,8 @@ export async function gcpRemoveService(
     return { aborted: true };
   }
 
-  // Database backup prompt (interactive only)
-  if (discovered.database && !runningInCI) {
-    logger.newline();
-    logger.warn('BACKUP YOUR DATABASE before proceeding!');
-    logger.newline();
-    logger.info('  Export via Console: https://console.cloud.google.com/sql');
-    logger.info(`  Instance: ${projectName}-postgres`);
-    logger.info(`  Database: ${resolvedServiceName}`);
-    logger.newline();
-
-    const { backedUp } = await inquirer.prompt([
-      {
-        type: 'confirm',
-        name: 'backedUp',
-        message: 'Have you backed up the database?',
-        default: false,
-      },
-    ]);
-
-    if (!backedUp) {
-      logger.info('Aborted. Please back up your database first.');
-      return { aborted: true };
-    }
-  }
-
   // Final confirmation (interactive only)
-  if (!runningInCI) {
+  if (interactive) {
     const { confirmation } = await inquirer.prompt([
       {
         type: 'input',
@@ -201,20 +203,57 @@ export async function gcpRemoveService(
     }
   }
 
-  // Pre-fetch ALL database passwords BEFORE deleting anything
-  // TF needs these and secrets will be deleted at the end
-  logger.info('Fetching database passwords for Terraform...');
-  const dbPasswords = await fetchAllDbPasswords({
-    projectName,
-    projectId: credentials.project_id,
-    region: credentials.region,
-    sqlInstanceName,
-    credentials,
+  // The database step reads Terraform outputs: set up the folder first
+  // (CI and other machines have no backend yet). Nothing is deleted if it
+  // fails.
+  await initTerraformBeforeChanges({
+    projectRoot: ctx.projectRoot,
     targetEnv,
+    env: buildGcpTerraformEnv(buildRuntime(), credentials),
   });
-  logger.info(
-    `  Found ${Object.keys(dbPasswords).length} database password(s)`,
-  );
+
+  // The database is saved to the exports bucket before it is dropped.
+  // Terraform makes the bucket at deploy: an environment last deployed with
+  // an older CLI has none yet.
+  const exportsBucket =
+    discovered.database && !skipExport ? getGcpDbExportsBucket(ctx) : null;
+  if (discovered.database && !skipExport && !exportsBucket) {
+    throw new CliError(
+      'This environment has no bucket for saved databases yet. Nothing was deleted.',
+      'infra:remove-service',
+      `Run npx tsdevstack infra:deploy --env ${targetEnv} first (it makes the bucket), or add --skip-export to remove the service without saving its data.`,
+    );
+  }
+  let savedFile: string | undefined;
+  const saveDatabase = exportsBucket
+    ? async (): Promise<DeletionStepResult> => {
+        let file = '';
+        const result = await saveDatabaseBeforeRemoval({
+          interactive,
+          save: () => {
+            // A new name each try: a try that failed left no file
+            file = buildDbExportFileName(
+              resolvedServiceName,
+              DB_EXPORT_REASONS.removed,
+            );
+            return runGcpDatabaseJob({
+              ctx,
+              mode: 'export',
+              serviceName: resolvedServiceName,
+              file,
+            });
+          },
+        });
+        if (result.outcome === 'saved') {
+          savedFile = file;
+          return { success: true, deleted: true };
+        }
+        if (result.outcome === 'skipped') {
+          return { success: true, deleted: false };
+        }
+        return { success: false, deleted: false, error: result.error };
+      }
+    : undefined;
 
   // Execute deletion
   logger.newline();
@@ -226,8 +265,8 @@ export async function gcpRemoveService(
     serviceName: resolvedServiceName,
     discovered,
     projectName,
-    dbPasswords,
     coupledWorkers,
+    saveDatabase,
   });
   const { completed, failed, remaining } = await executeSteps(logger, steps);
 
@@ -249,23 +288,25 @@ export async function gcpRemoveService(
   );
   logger.newline();
 
-  // Database recovery hints (if database was removed)
-  if (discovered.database) {
-    logger.info(
-      `Database "${resolvedServiceName}" has been dropped from the shared Cloud SQL instance.`,
+  // Where the database's data is now
+  if (savedFile && exportsBucket) {
+    logDatabaseSavedHint(
+      resolvedServiceName,
+      targetEnv,
+      `gs://${exportsBucket}/${savedFile}`,
     );
-    logger.newline();
-    logger.info('Data recovery options:');
-    logger.info(
-      '  Automated backups are retained for 7 days (if backup was enabled).',
-    );
-    logger.info(
-      `  Console: https://console.cloud.google.com/sql/instances/${projectName}-postgres/backups`,
-    );
-    logger.info(
-      '  Note: Restoring a backup restores the ENTIRE instance, not a single database.',
-    );
-    logger.newline();
+  } else if (discovered.database) {
+    logDatabaseRecoveryHint(resolvedServiceName, {
+      server: 'the shared Cloud SQL instance',
+      backups: "the instance's backups (7 days, if backup is on)",
+      restore:
+        'clone the instance to a time just before the removal (point-in-time recovery)',
+      inPlaceWarning:
+        "Don't restore a backup onto the live instance: that rolls back every service's database.",
+      links: [
+        `Console: https://console.cloud.google.com/sql/instances/${projectName}-postgres/backups`,
+      ],
+    });
   }
 
   // Check if service is in config.json (affects next steps messaging)
@@ -292,28 +333,7 @@ export async function gcpRemoveService(
       logger.newline();
     }
 
-    logger.info('Next steps:');
-    logger.info(`  1. Remove from other environments (if deployed)`);
-    logger.info(
-      `  2. npx tsdevstack remove-service ${resolvedServiceName}  # removes from config.json`,
-    );
-    logger.info(
-      `  3. npx tsdevstack sync                                  # regenerates files`,
-    );
-    logger.info(
-      `  4. npx tsdevstack infra:generate-kong --env ${targetEnv}  # regenerates Kong routes`,
-    );
-    logger.info(
-      `  5. npx tsdevstack infra:build-kong --env ${targetEnv}     # rebuilds the Kong image`,
-    );
-    logger.info(
-      `  6. npx tsdevstack infra:deploy-kong --env ${targetEnv}    # deploys the new Kong image`,
-    );
-    logger.newline();
-
-    logger.warn(
-      'Kong routes for this service will return 502 until Kong is redeployed.',
-    );
+    logRemoveServiceNextSteps(resolvedServiceName, targetEnv);
   } else {
     // Service was only in cloud (orphaned deployment or already removed from config)
     if (otherEnvs.length > 0) {

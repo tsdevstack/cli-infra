@@ -2,7 +2,11 @@ import { describe, it, expect } from '@rstest/core';
 import { buildAzureLogsQuery } from './build-azure-logs-query';
 import type { LogsQuery } from '../../logs/types';
 
-const NAMES = { projectName: 'shop', targetEnv: 'az4' };
+const NAMES = {
+  projectName: 'shop',
+  targetEnv: 'az4',
+  naming: { scheme: 'legacy' as const, subscriptionId: 'sub-1' },
+};
 const QUERY: LogsQuery = {
   sources: [{ name: 'edge', type: 'edge' }],
   since: new Date('2026-10-30T11:00:00.000Z'),

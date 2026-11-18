@@ -141,6 +141,7 @@ describe('awsDeploy', () => {
       bucketName: 'my-app-terraform-state-123456789012',
       tableName: 'my-app-terraform-locks',
       bucketCreated: false,
+      bucketPolicySet: false,
       tableCreated: false,
     });
 
@@ -217,6 +218,7 @@ describe('awsDeploy', () => {
       bucketName: '',
       tableName: '',
       bucketCreated: false,
+      bucketPolicySet: false,
       tableCreated: false,
     });
 

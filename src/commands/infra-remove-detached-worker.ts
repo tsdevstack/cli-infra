@@ -30,6 +30,7 @@ import type {
   AWSCredentials,
   AzureCredentials,
 } from '@tsdevstack/cli/plugin';
+import { resolveGcpNamingScheme } from '../utils/gcp/naming/resolve-gcp-naming-scheme';
 
 interface InfraRemoveDetachedWorkerOptions {
   env?: string;
@@ -81,6 +82,14 @@ export async function infraRemoveDetachedWorker(
     workerName = await selectWorkerInteractiveGcp(
       ctx.credentials as GCPCredentials,
       projectName,
+      await resolveGcpNamingScheme(
+        {
+          projectName,
+          targetEnv,
+          credentials: ctx.credentials as GCPCredentials,
+        },
+        'infra:remove-detached-worker',
+      ),
     );
   } else if (provider === 'azure') {
     workerName = await selectWorkerInteractiveAzure(
@@ -127,9 +136,15 @@ export async function infraRemoveDetachedWorker(
   }
 
   if (provider === 'gcp') {
+    const credentials = ctx.credentials as GCPCredentials;
     await gcpRemoveDetachedWorker({
       workerName,
-      credentials: ctx.credentials as GCPCredentials,
+      projectName,
+      credentials,
+      naming: await resolveGcpNamingScheme(
+        { projectName, targetEnv, credentials },
+        'infra:remove-detached-worker',
+      ),
     });
   } else if (provider === 'aws') {
     await awsRemoveDetachedWorker({

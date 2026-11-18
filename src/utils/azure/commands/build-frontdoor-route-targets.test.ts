@@ -7,6 +7,7 @@ function makeConfig(
 ): AzureInfraConfig {
   return {
     provider: 'azure',
+    naming: 'legacy',
     projectName: 'test-project',
     environment: 'dev',
     subscriptionId: 'sub-123',
@@ -14,6 +15,8 @@ function makeConfig(
     storageAccountName: 'testprojectdevtfstate',
     keyVaultName: 'myproject-dev-kv',
     serviceKeyVaults: {},
+    dbJobsKeyVault: 'test-dev-dbjobs',
+    databaseServiceKeyVaults: {},
     database: {
       tier: 'B_Standard_B1ms',
       storageSizeGb: 32,

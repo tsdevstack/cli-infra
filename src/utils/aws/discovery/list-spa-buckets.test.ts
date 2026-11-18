@@ -50,10 +50,12 @@ describe('listSpaBuckets', () => {
     it('should filter to SPA buckets only', async () => {
       mockSend.mockResolvedValueOnce({
         Buckets: [
-          { Name: 'myproject-frontend-spa' },
+          { Name: 'myproject-frontend-spa-123456789012' },
           { Name: 'myproject-assets' },
           { Name: 'other-bucket' },
-          { Name: 'myproject-admin-spa' },
+          { Name: 'myproject-admin-spa-123456789012' },
+          // Another account's SPA bucket with the same project name
+          { Name: 'myproject-shop-spa-999999999999' },
         ],
       });
 
@@ -64,19 +66,19 @@ describe('listSpaBuckets', () => {
 
     it('should extract service name from bucket name', async () => {
       mockSend.mockResolvedValueOnce({
-        Buckets: [{ Name: 'myproject-frontend-spa' }],
+        Buckets: [{ Name: 'myproject-frontend-spa-123456789012' }],
       });
 
       const result = await listSpaBuckets(baseOptions);
       expect(result.buckets[0]).toEqual({
-        name: 'myproject-frontend-spa',
+        name: 'myproject-frontend-spa-123456789012',
         serviceName: 'frontend',
       });
     });
 
     it('should handle hyphenated service names', async () => {
       mockSend.mockResolvedValueOnce({
-        Buckets: [{ Name: 'myproject-admin-dashboard-spa' }],
+        Buckets: [{ Name: 'myproject-admin-dashboard-spa-123456789012' }],
       });
 
       const result = await listSpaBuckets(baseOptions);

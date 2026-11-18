@@ -44,7 +44,7 @@ interface AzureKongDeployParams {
 export async function azureKongDeploy(
   params: AzureKongDeployParams,
 ): Promise<void> {
-  const { logger, CliError, buildKeyVaultName } = getContext();
+  const { logger, CliError, resolveKeyVaultName } = getContext();
   const runtime = buildRuntime();
   const { projectRoot, targetEnv, projectName, credentials, imageTag } = params;
 
@@ -104,7 +104,11 @@ export async function azureKongDeploy(
   logger.newline();
 
   // Kong's runtime secrets, by their names in the shared vault (hyphens)
-  const keyVaultName = buildKeyVaultName(projectName, targetEnv);
+  const keyVaultName = await resolveKeyVaultName(
+    credentials,
+    projectName,
+    targetEnv,
+  );
   const vaultSecretNames = buildKongVaultSecretNames(projectName);
 
   logger.info('Granting Kong read access to its secrets...');

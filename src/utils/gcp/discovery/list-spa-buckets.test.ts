@@ -58,8 +58,8 @@ describe('listSpaBuckets', () => {
     it('should find SPA buckets matching pattern', async () => {
       mocks.getBuckets.mockResolvedValue([
         [
-          createBucket('myproject-landing-page-spa'),
-          createBucket('myproject-dashboard-spa'),
+          createBucket('myproject-landing-page-spa-my-gcp-project'),
+          createBucket('myproject-dashboard-spa-my-gcp-project'),
           createBucket('other-bucket'),
         ],
       ]);
@@ -70,17 +70,17 @@ describe('listSpaBuckets', () => {
       expect(result.buckets).toHaveLength(2);
       expect(result.buckets).toContainEqual({
         serviceName: 'landing-page',
-        bucketName: 'myproject-landing-page-spa',
+        bucketName: 'myproject-landing-page-spa-my-gcp-project',
       });
       expect(result.buckets).toContainEqual({
         serviceName: 'dashboard',
-        bucketName: 'myproject-dashboard-spa',
+        bucketName: 'myproject-dashboard-spa-my-gcp-project',
       });
     });
 
     it('should extract service name correctly', async () => {
       mocks.getBuckets.mockResolvedValue([
-        [createBucket('myproject-my-cool-app-spa')],
+        [createBucket('myproject-my-cool-app-spa-my-gcp-project')],
       ]);
 
       const result = await listSpaBuckets(baseOptions);
@@ -93,15 +93,17 @@ describe('listSpaBuckets', () => {
     it('should skip buckets without project prefix', async () => {
       mocks.getBuckets.mockResolvedValue([
         [
-          createBucket('otherproject-landing-spa'),
-          createBucket('myproject-landing-spa'),
+          createBucket('otherproject-landing-spa-my-gcp-project'),
+          createBucket('myproject-landing-spa-my-gcp-project'),
         ],
       ]);
 
       const result = await listSpaBuckets(baseOptions);
 
       expect(result.buckets).toHaveLength(1);
-      expect(result.buckets[0].bucketName).toBe('myproject-landing-spa');
+      expect(result.buckets[0].bucketName).toBe(
+        'myproject-landing-spa-my-gcp-project',
+      );
     });
 
     it('should skip buckets without -spa suffix', async () => {
@@ -109,21 +111,23 @@ describe('listSpaBuckets', () => {
         [
           createBucket('myproject-assets'),
           createBucket('myproject-backups'),
-          createBucket('myproject-app-spa'),
+          createBucket('myproject-app-spa-my-gcp-project'),
         ],
       ]);
 
       const result = await listSpaBuckets(baseOptions);
 
       expect(result.buckets).toHaveLength(1);
-      expect(result.buckets[0].bucketName).toBe('myproject-app-spa');
+      expect(result.buckets[0].bucketName).toBe(
+        'myproject-app-spa-my-gcp-project',
+      );
     });
 
     it('should skip malformed bucket names', async () => {
       mocks.getBuckets.mockResolvedValue([
         [
-          createBucket('myproject--spa'), // Empty service name
-          createBucket('myproject-valid-spa'),
+          createBucket('myproject--spa-my-gcp-project'), // Empty service name
+          createBucket('myproject-valid-spa-my-gcp-project'),
         ],
       ]);
 
@@ -134,7 +138,9 @@ describe('listSpaBuckets', () => {
     });
 
     it('should not match bucket named exactly prefix+suffix', async () => {
-      mocks.getBuckets.mockResolvedValue([[createBucket('myproject-spa')]]);
+      mocks.getBuckets.mockResolvedValue([
+        [createBucket('myproject-spa-my-gcp-project')],
+      ]);
 
       const result = await listSpaBuckets(baseOptions);
 
@@ -167,7 +173,7 @@ describe('listSpaBuckets', () => {
   describe('edge cases', () => {
     it('should handle service names with multiple hyphens', async () => {
       mocks.getBuckets.mockResolvedValue([
-        [createBucket('myproject-my-long-service-name-spa')],
+        [createBucket('myproject-my-long-service-name-spa-my-gcp-project')],
       ]);
 
       const result = await listSpaBuckets(baseOptions);
@@ -177,7 +183,10 @@ describe('listSpaBuckets', () => {
 
     it('should work with different project names', async () => {
       mocks.getBuckets.mockResolvedValue([
-        [createBucket('tsdevstack-app-spa'), createBucket('myproject-app-spa')],
+        [
+          createBucket('tsdevstack-app-spa-my-gcp-project'),
+          createBucket('myproject-app-spa-my-gcp-project'),
+        ],
       ]);
 
       const result = await listSpaBuckets({
@@ -186,7 +195,27 @@ describe('listSpaBuckets', () => {
       });
 
       expect(result.buckets).toHaveLength(1);
-      expect(result.buckets[0].bucketName).toBe('tsdevstack-app-spa');
+      expect(result.buckets[0].bucketName).toBe(
+        'tsdevstack-app-spa-my-gcp-project',
+      );
+    });
+  });
+
+  describe('name with the GCP project ID', () => {
+    it("should skip a bucket without this GCP project's ID", async () => {
+      mocks.getBuckets.mockResolvedValue([
+        [
+          createBucket('myproject-app-spa'),
+          createBucket('myproject-app-spa-other-project'),
+          createBucket('myproject-app-spa-my-gcp-project'),
+        ],
+      ]);
+
+      const result = await listSpaBuckets(baseOptions);
+
+      expect(result.buckets).toEqual([
+        { serviceName: 'app', bucketName: 'myproject-app-spa-my-gcp-project' },
+      ]);
     });
   });
 });

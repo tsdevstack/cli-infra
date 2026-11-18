@@ -29,6 +29,8 @@ interface InfraRemoveServiceOptions {
   env?: string;
   confirm?: boolean;
   dryRun?: boolean;
+  /** Remove without saving the database first */
+  skipExport?: boolean;
 }
 
 /**
@@ -66,6 +68,7 @@ export async function infraRemoveService(
       runningInCI,
       dryRunOption: options.dryRun,
       confirmOption: options.confirm,
+      skipExportOption: options.skipExport,
     });
   } else if (provider === 'aws') {
     await awsRemoveService({
@@ -74,6 +77,7 @@ export async function infraRemoveService(
       runningInCI,
       dryRunOption: options.dryRun,
       confirmOption: options.confirm,
+      skipExportOption: options.skipExport,
     });
   } else if (provider === 'azure') {
     await azureRemoveService({
@@ -82,6 +86,7 @@ export async function infraRemoveService(
       runningInCI,
       dryRunOption: options.dryRun,
       confirmOption: options.confirm,
+      skipExportOption: options.skipExport,
     });
   } else {
     throw new CliError(

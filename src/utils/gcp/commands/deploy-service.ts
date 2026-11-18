@@ -23,6 +23,8 @@ import {
   buildGcpTerraformEnv,
   calculatePoolSize,
   deployCloudRunService,
+  buildGcpCloudRunName,
+  type NamingScheme,
   getTotalWorkerMaxInstances,
   GCP_NEXTJS_CLIENT_IP_SETTINGS,
   waitForImage,
@@ -34,6 +36,7 @@ import type { EnvironmentOverrides } from '../../infrastructure/types';
 import type { GCPCredentials, FrameworkService } from '@tsdevstack/cli/plugin';
 import { warnIfSmallDatabasePool } from '../../deploy/warn-if-small-database-pool';
 import { isServiceCpuAlwaysOn } from '../infrastructure/is-service-cpu-always-on';
+import { buildGcpServiceLabels } from '../build-gcp-service-labels';
 
 export interface GcpDeployServiceOptions {
   projectRoot: string;
@@ -41,6 +44,8 @@ export interface GcpDeployServiceOptions {
   targetEnv: string;
   credentials: GCPCredentials;
   service: FrameworkService;
+  /** The environment's naming scheme (the service's Cloud Run name) */
+  naming: NamingScheme;
   tag?: string;
 }
 
@@ -243,7 +248,12 @@ export async function gcpDeployService(
   const result = await deployCloudRunService(runtime, {
     projectId: credentials.project_id,
     region: credentials.region,
-    serviceName: service.name,
+    serviceName: buildGcpCloudRunName(
+      projectName,
+      service.name,
+      options.naming,
+    ),
+    labels: buildGcpServiceLabels(projectName, options.naming),
     imageUri,
     vpcNetwork,
     vpcSubnet,

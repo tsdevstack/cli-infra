@@ -12,6 +12,19 @@ rs.mock('../../build-runtime', () => ({
 
 rs.mock('@tsdevstack/infra-core', () => ({
   createAzureCredential: rs.fn(() => ({})),
+  // The legacy name (the builder has its own tests in infra-core)
+  buildAzureResourceName: (
+    _resource: string,
+    options: { projectName: string; environment: string },
+  ) =>
+    `${options.projectName.replace(/[^a-z0-9]/g, '')}${options.environment}tfstate`,
+}));
+
+rs.mock('../naming/resolve-azure-naming', () => ({
+  resolveAzureNaming: async () => ({
+    scheme: 'legacy',
+    subscriptionId: 'test-subscription',
+  }),
 }));
 
 rs.mock('@azure/arm-storage', () => ({

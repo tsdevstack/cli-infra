@@ -12,10 +12,46 @@ class MockCliError extends Error {
 rs.mock('../../../context', () => ({
   getContext: () => ({ CliError: MockCliError }),
 }));
+// --follow: the live apps and the reconnects are tested on their own
+const appFollows: Array<{
+  params: { source: { name: string }; app: string; resourceGroup: string };
+  what: { output: boolean; events: boolean };
+}> = [];
+rs.mock('./azure-app-follower', () => ({
+  AzureAppFollower: class {
+    constructor(
+      private readonly params: {
+        source: { name: string };
+        app: string;
+        resourceGroup: string;
+      },
+    ) {}
+    async follow(what: { output: boolean; events: boolean }): Promise<void> {
+      appFollows.push({ params: this.params, what });
+    }
+  },
+}));
+const kuduFollows: Array<{ source: { name: string }; app: string }> = [];
+rs.mock('./follow-azure-kudu-stream', () => ({
+  followAzureKuduStream: async (params: {
+    source: { name: string };
+    app: string;
+  }) => {
+    kuduFollows.push({ source: params.source, app: params.app });
+  },
+}));
+rs.mock('../../logs/follow-log-stream', () => ({ followLogStream: rs.fn() }));
 
 import type { AzureCredentials } from '@tsdevstack/cli/plugin';
+import { followLogStream } from '../../logs/follow-log-stream';
 import { AzureLogsReader } from './azure-logs-reader';
-import type { LogEntry, LogsQuery } from '../../logs/types';
+import type {
+  LogEntry,
+  LogsFollowQuery,
+  LogsQuery,
+  LogStreamEnd,
+} from '../../logs/types';
+import type { AzureContainerAppsClient } from './types';
 
 const queryResource = rs.fn();
 const credentials = {
@@ -25,12 +61,18 @@ const credentials = {
   location: 'swedencentral',
 } as AzureCredentials;
 
-function reader(): AzureLogsReader {
+function reader(
+  options: { appServicePrivate?: boolean } = {},
+): AzureLogsReader {
   return new AzureLogsReader({
     projectName: 'shop',
     targetEnv: 'az4',
     credentials,
+    naming: { scheme: 'legacy', subscriptionId: 'sub-1' },
     client: { queryResource },
+    containerApps: {} as AzureContainerAppsClient,
+    kuduCredential: { getToken: rs.fn() },
+    ...options,
   });
 }
 
@@ -229,6 +271,162 @@ describe('AzureLogsReader', () => {
           String(call[1]).endsWith('| count'),
         ),
       ).toBe(false);
+    });
+  });
+
+  describe('follow', () => {
+    const ALL: LogsFollowQuery = {
+      sources: [
+        { name: 'auth-service', type: 'service' },
+        { name: 'auth-worker', type: 'worker' },
+        { name: 'kong', type: 'kong' },
+        { name: 'migrate-auth-service', type: 'migration' },
+        { name: 'edge', type: 'edge' },
+      ],
+    };
+
+    type Open = (
+      onOpen: () => void,
+      signal: AbortSignal,
+    ) => Promise<LogStreamEnd>;
+
+    async function startFollow(
+      query: LogsFollowQuery,
+      options: { appServicePrivate?: boolean } = {},
+    ) {
+      appFollows.length = 0;
+      kuduFollows.length = 0;
+      const streams: Array<{ name: string; open: Open }> = [];
+      rs.mocked(followLogStream).mockImplementation(async (params) => {
+        streams.push({ name: params.name, open: params.open });
+      });
+      const handlers = { onEntries: rs.fn(), onNotice: rs.fn() };
+      await reader(options).follow(
+        query,
+        handlers,
+        new AbortController().signal,
+      );
+      return { streams, handlers };
+    }
+
+    it('should follow services and workers live and read the rest from Log Analytics', async () => {
+      const { streams, handlers } = await startFollow(ALL);
+
+      expect(
+        appFollows.map(({ params, what }) => [
+          params.source.name,
+          params.app,
+          params.resourceGroup,
+          what,
+        ]),
+      ).toEqual([
+        [
+          'auth-service',
+          'shop-auth-service',
+          'shop-az4-rg',
+          { output: true, events: true },
+        ],
+        [
+          'auth-worker',
+          'shop-auth-worker',
+          'shop-az4-rg',
+          { output: true, events: true },
+        ],
+      ]);
+      expect(kuduFollows).toEqual([
+        { source: { name: 'kong', type: 'kong' }, app: 'shop-az4-kong' },
+      ]);
+      expect(streams.map((stream) => stream.name)).toEqual(['Log Analytics']);
+      expect(handlers.onNotice).toHaveBeenCalledWith(
+        'migrate-auth-service, edge: from Log Analytics every 30 seconds, so their lines show up 1 to 10 minutes after they are written.',
+      );
+      expect(handlers.onNotice).toHaveBeenCalledWith(
+        "kong: App Service's request log from Log Analytics every 30 seconds, 1 to 10 minutes late (the rest is live).",
+      );
+    });
+
+    it("should follow each Next.js app from its Kudu site under the environment's names", async () => {
+      await startFollow({
+        sources: [
+          { name: 'frontend', type: 'frontend' },
+          { name: 'admin', type: 'frontend' },
+        ],
+      });
+
+      expect(kuduFollows.map(({ app }) => app)).toEqual([
+        'shop-az4-frontend',
+        'shop-az4-admin',
+      ]);
+    });
+
+    it('should read the late sources from the command start on, through the same query', async () => {
+      queryResource.mockResolvedValue(rows());
+      const { streams } = await startFollow({
+        sources: [{ name: 'kong', type: 'kong' }],
+      });
+
+      // The first check covers the time since the command started
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      const controller = new AbortController();
+      const onOpen = rs.fn(() => controller.abort());
+      await expect(streams[0].open(onOpen, controller.signal)).resolves.toBe(
+        'dropped',
+      );
+
+      expect(onOpen).toHaveBeenCalledTimes(1);
+      const [, kql] = queryResource.mock.calls[0] as [string, string];
+      // Its output and events come live from Kudu
+      expect(kql).toContain('AppServiceHTTPLogs');
+      expect(kql).not.toContain('AppServiceConsoleLogs');
+    });
+
+    it('should leave the events out with --kind app, and sources without app lines', async () => {
+      const { streams, handlers } = await startFollow({ ...ALL, kind: 'app' });
+
+      expect(appFollows.map(({ what }) => what)).toEqual([
+        { output: true, events: false },
+        { output: true, events: false },
+      ]);
+      expect(kuduFollows.map(({ app }) => app)).toEqual(['shop-az4-kong']);
+      expect(streams).toHaveLength(1);
+      // App Service's request log is a platform line: nothing late for kong
+      expect(handlers.onNotice).toHaveBeenCalledWith(
+        'migrate-auth-service: from Log Analytics every 30 seconds, so their lines show up 1 to 10 minutes after they are written.',
+      );
+      expect(handlers.onNotice).toHaveBeenCalledTimes(1);
+    });
+
+    it('should read Kong and Next.js from Log Analytics when their public access is off (Front Door Premium)', async () => {
+      queryResource.mockResolvedValue(rows());
+      const { streams, handlers } = await startFollow(
+        { sources: [{ name: 'kong', type: 'kong' }] },
+        { appServicePrivate: true },
+      );
+
+      expect(kuduFollows).toEqual([]);
+      expect(handlers.onNotice).toHaveBeenCalledWith(
+        'kong: from Log Analytics every 30 seconds, so their lines show up 1 to 10 minutes after they are written.',
+      );
+      // The first check covers the time since the command started
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      const controller = new AbortController();
+      await streams[0].open(() => controller.abort(), controller.signal);
+      const [, kql] = queryResource.mock.calls[0] as [string, string];
+      expect(kql).toContain('AppServiceConsoleLogs');
+    });
+
+    it('should say when no selected source has lines of the kind', async () => {
+      const { streams, handlers } = await startFollow({
+        sources: [{ name: 'auth-service', type: 'service' }],
+        kind: 'edge',
+      });
+
+      expect(appFollows).toEqual([]);
+      expect(kuduFollows).toEqual([]);
+      expect(streams).toEqual([]);
+      expect(handlers.onNotice).toHaveBeenCalledWith(
+        'No selected source has edge lines.',
+      );
     });
   });
 });

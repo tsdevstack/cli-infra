@@ -15,6 +15,8 @@ export const AWS_REQUIRED_ACTIONS = [
   's3:PutBucketVersioning',
   's3:PutBucketEncryption',
   's3:PutPublicAccessBlock',
+  's3:GetBucketPolicy',
+  's3:PutBucketPolicy',
   's3:GetObject',
   's3:PutObject',
   's3:DeleteObject',
@@ -120,6 +122,8 @@ export const AWS_REQUIRED_ACTIONS = [
   'logs:PutLogEvents',
   'logs:GetLogEvents',
   'logs:FilterLogEvents', // infra:logs
+  'logs:DescribeLogGroups', // infra:logs --follow: which groups exist
+  'logs:StartLiveTail', // infra:logs --follow
   'logs:PutResourcePolicy', // X-Ray Transaction Search writes spans to logs
   'logs:DescribeResourcePolicies',
 
@@ -143,7 +147,7 @@ export const AWS_REQUIRED_ACTIONS = [
   'application-autoscaling:DescribeScalableTargets',
   'application-autoscaling:ListTagsForResource',
 
-  // Service Discovery (Cloud Map) - for ECS service connect
+  // Service Discovery (Cloud Map) - DNS names the ECS services register under
   'servicediscovery:CreatePrivateDnsNamespace',
   'servicediscovery:CreateService',
   'servicediscovery:GetNamespace',

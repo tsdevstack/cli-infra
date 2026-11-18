@@ -8,6 +8,10 @@ import type { MockContext } from '@tsdevstack/cli/test-utils';
 const mocks = (globalThis as unknown as { contextMocks: MockContext })
   .contextMocks;
 
+rs.mock('../naming/resolve-gcp-naming-scheme', () => ({
+  resolveGcpNamingScheme: rs.fn(async () => 'legacy'),
+}));
+
 rs.mock('../../../context', () => ({
   getContext: rs.fn(
     () => (globalThis as unknown as { contextMocks: MockContext }).contextMocks,
@@ -19,11 +23,16 @@ rs.mock('../terraform', () => ({
   getTerraformOutputJson: rs.fn(),
 }));
 
+rs.mock('../resolve-gcp-migration-job-access', () => ({
+  resolveGcpMigrationJobAccess: rs.fn(),
+}));
 rs.mock('../../build-runtime', () => ({
   buildRuntime: () => ({}),
 }));
 
 rs.mock('@tsdevstack/infra-core', () => ({
+  buildGcpCloudRunName: (project: string, name: string, naming: string) =>
+    naming === 'unique' ? `${project}-${name}` : name,
   buildGcpTerraformEnv: rs.fn(),
   executeCloudRunJob: rs.fn(),
 }));
@@ -38,6 +47,7 @@ rs.mock('../../infrastructure/merge-with-defaults', () => ({
 
 import { gcpDbMigrateRun } from './db-migrate-run';
 import { getTerraformOutput, getTerraformOutputJson } from '../terraform';
+import { resolveGcpMigrationJobAccess } from '../resolve-gcp-migration-job-access';
 import {
   buildGcpTerraformEnv,
   executeCloudRunJob,
@@ -87,6 +97,10 @@ describe('gcpDbMigrateRun', () => {
     rs.mocked(getTerraformOutputJson).mockReturnValue({
       'auth-service': 'auth-sa@my-project-123.iam.gserviceaccount.com',
     });
+    rs.mocked(resolveGcpMigrationJobAccess).mockResolvedValue({
+      secretName: 'myapp-auth-service-MIGRATION_DATABASE_URL',
+      serviceAccount: 'myapp-db-jobs@my-project-123.iam.gserviceaccount.com',
+    });
 
     rs.mocked(executeCloudRunJob).mockResolvedValue({
       success: true,
@@ -127,8 +141,9 @@ describe('gcpDbMigrateRun', () => {
       expect(executeCloudRunJob).toHaveBeenCalledWith(
         expect.anything(),
         expect.objectContaining({
-          secretName: 'myapp-auth-service-DATABASE_URL',
-          serviceAccount: 'auth-sa@my-project-123.iam.gserviceaccount.com',
+          secretName: 'myapp-auth-service-MIGRATION_DATABASE_URL',
+          serviceAccount:
+            'myapp-db-jobs@my-project-123.iam.gserviceaccount.com',
         }),
       );
     });

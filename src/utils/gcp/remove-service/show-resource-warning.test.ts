@@ -1,4 +1,7 @@
 import { describe, it, expect, rs } from '@rstest/core';
+
+rs.mock('@tsdevstack/infra-core', () => ({ DB_EXPORT_RETENTION_DAYS: 7 }));
+
 import { showResourceWarning } from './show-resource-warning';
 import type { DiscoveredResources } from '../discovery';
 
@@ -11,6 +14,8 @@ describe('showResourceWarning', () => {
 
   const createEmptyDiscovery = (): DiscoveredResources => ({
     cloudRunService: false,
+    cloudRunServiceName: 'test-service',
+    migrationJobName: 'migrate-test-service',
     spaBucket: false,
     spaBucketName: '',
     secrets: [],
@@ -18,6 +23,8 @@ describe('showResourceWarning', () => {
     databaseUser: false,
     serviceAccount: false,
     serviceAccountEmail: '',
+    migrationServiceAccount: false,
+    migrationServiceAccountEmail: '',
     inferredType: 'unknown',
     hasDatabase: false,
   });
@@ -97,7 +104,7 @@ describe('showResourceWarning', () => {
     );
   });
 
-  it('should show database with data loss warning', () => {
+  it('should say the database is saved first', () => {
     const logger = createMockLogger();
     const discovered = createEmptyDiscovery();
     discovered.database = true;
@@ -111,10 +118,26 @@ describe('showResourceWarning', () => {
     });
 
     expect(logger.info).toHaveBeenCalledWith(
-      expect.stringContaining('Database'),
+      '   Database:        test-service (PostgreSQL) ← saved first, the file kept 7 days',
     );
+  });
+
+  it('should warn that the data is lost with --skip-export', () => {
+    const logger = createMockLogger();
+    const discovered = createEmptyDiscovery();
+    discovered.database = true;
+
+    showResourceWarning({
+      serviceName: 'test-service',
+      discovered,
+      coupledWorkers: [],
+      targetEnv: 'dev',
+      skipExport: true,
+      logger,
+    });
+
     expect(logger.info).toHaveBeenCalledWith(
-      expect.stringContaining('DATA LOST'),
+      '   Database:        test-service (PostgreSQL) ← DATA LOST (--skip-export)',
     );
   });
 
@@ -161,13 +184,38 @@ describe('showResourceWarning', () => {
     );
   });
 
+  it("should show the migration jobs' account when discovered", () => {
+    const logger = createMockLogger();
+    const discovered = createEmptyDiscovery();
+    discovered.migrationServiceAccount = true;
+    discovered.migrationServiceAccountEmail =
+      'p-test-service-mg@project.iam.gserviceaccount.com';
+
+    showResourceWarning({
+      serviceName: 'test-service',
+      discovered,
+      coupledWorkers: [],
+      targetEnv: 'dev',
+      logger,
+    });
+
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'Migrations SA:   p-test-service-mg@project.iam.gserviceaccount.com',
+      ),
+    );
+  });
+
   it('should show coupled workers when present', () => {
     const logger = createMockLogger();
 
     showResourceWarning({
       serviceName: 'test-service',
       discovered: createEmptyDiscovery(),
-      coupledWorkers: [{ name: 'worker-1' }, { name: 'worker-2' }],
+      coupledWorkers: [
+        { name: 'worker-1', cloudRunName: 'worker-1' },
+        { name: 'worker-2', cloudRunName: 'worker-2' },
+      ],
       targetEnv: 'dev',
       logger,
     });

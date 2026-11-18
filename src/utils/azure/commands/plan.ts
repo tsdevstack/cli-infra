@@ -7,7 +7,7 @@
 import { getContext } from '../../../context';
 import { buildRuntime } from '../../build-runtime';
 import { executeTerraform } from '../terraform';
-import { logProviderUpgradeNextSteps } from '../../terraform';
+import { logPlanNextSteps, logProviderUpgradeNextSteps } from '../../terraform';
 import { createStateBackend } from '../bootstrap/create-state-backend';
 import { generateTerraformFiles } from './generate-terraform-files';
 import {
@@ -16,6 +16,7 @@ import {
   extractLockId,
 } from '@tsdevstack/infra-core';
 import type { AzureCommandContext, PlanOptions } from './types';
+import { resolveAzureNaming } from '../naming/resolve-azure-naming';
 
 /**
  * Plan Azure infrastructure changes
@@ -64,7 +65,13 @@ export async function azurePlan(
   logger.newline();
 
   // Generate all Terraform files
-  const { outputDir } = generateTerraformFiles(ctx, 'infra:plan');
+  const { outputDir } = generateTerraformFiles(ctx, 'infra:plan', {
+    naming: await resolveAzureNaming(
+      ctx.credentials,
+      ctx.projectName,
+      ctx.targetEnv,
+    ),
+  });
 
   logger.complete('Configuration generated');
   logger.newline();
@@ -150,8 +157,5 @@ export async function azurePlan(
     return;
   }
 
-  logger.newline();
-  logger.info('To apply these changes, run:');
-  logger.info(`  npx tsdevstack infra:deploy --env ${ctx.targetEnv}`);
-  logger.newline();
+  logPlanNextSteps(planResult.output, ctx.targetEnv);
 }

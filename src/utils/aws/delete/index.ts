@@ -11,4 +11,6 @@ export { deleteSharedSecretsForService } from './delete-shared-secrets-for-servi
 export { deleteCloudMapService } from './delete-cloudmap-service';
 export { deleteCloudWatchLogGroup } from './delete-cloudwatch-log-group';
 export { invalidateCloudFrontCache } from './invalidate-cloudfront-cache';
+export { deleteCloudFrontDistribution } from './delete-cloudfront-distribution';
+export { deleteOriginAccessControl } from './delete-origin-access-control';
 export { deleteSchedulerSchedule } from './delete-scheduler-schedule';

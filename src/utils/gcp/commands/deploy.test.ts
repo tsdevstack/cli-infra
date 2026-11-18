@@ -4,6 +4,10 @@ import type { MockContext } from '@tsdevstack/cli/test-utils';
 const mocks = (globalThis as unknown as { contextMocks: MockContext })
   .contextMocks;
 
+rs.mock('../naming/resolve-gcp-naming-scheme', () => ({
+  resolveGcpNamingScheme: rs.fn(async () => 'legacy'),
+}));
+
 rs.mock('../../../context', () => ({
   initContext: rs.fn(),
   getContext: rs.fn(
@@ -46,6 +50,11 @@ const mockBuildGcpTerraformEnv = rs.fn(
   },
 );
 rs.mock('@tsdevstack/infra-core', () => ({
+  generateDbInit: rs.fn(() => ({
+    dockerfile: 'FROM node',
+    packageJson: '{}',
+    indexJs: '// init',
+  })),
   checkTerraformInstalled: (...args: unknown[]) =>
     mockCheckTerraformInstalled(...args),
   buildGcpTerraformEnv: (runtime: unknown, credentials: unknown) =>
@@ -142,6 +151,11 @@ rs.mock('../../credentials/fetch-db-passwords-from-secret-manager', () => ({
 rs.mock('../../credentials/set-secret-via-cli', () => ({
   setSecretViaCli: (...args: unknown[]) => mockSetSecretViaCli(...args),
 }));
+const mockSetUpGcpDatabaseUsers = rs.fn();
+rs.mock('../set-up-gcp-database-users', () => ({
+  setUpGcpDatabaseUsers: (...args: unknown[]) =>
+    mockSetUpGcpDatabaseUsers(...args),
+}));
 
 const mockInfraDeployServices = rs.fn();
 rs.mock('../../../commands/infra-deploy-services', () => ({
@@ -218,6 +232,7 @@ describe('gcpDeploy', () => {
     });
     // Default mock for setSecretViaCli (no-op)
     mockSetSecretViaCli.mockImplementation(() => {});
+    mockSetUpGcpDatabaseUsers.mockResolvedValue(undefined);
   });
 
   describe('state bucket', () => {
@@ -445,46 +460,46 @@ describe('gcpDeploy', () => {
     });
   });
 
-  describe('database URL sync', () => {
-    it('should sync DATABASE_URL for services with database', async () => {
-      mockGetTerraformOutput.mockImplementation(
-        (_dir: string, name: string) => {
-          if (name === 'database_private_ip') return '10.0.1.5';
-          if (name === 'redis_host') return '10.0.0.5';
-          if (name === 'redis_port') return '6379';
-          if (name === 'redis_auth_string') return 'redis-password';
-          return '';
-        },
-      );
-
+  describe('database users', () => {
+    it("should set up the database users with each owner's password", async () => {
       await gcpDeploy(mockContext, { autoApprove: true });
 
-      // Should call setSecretViaCli with DATABASE_URL for auth-service
-      expect(mockSetSecretViaCli).toHaveBeenCalledWith(
+      expect(mockSetUpGcpDatabaseUsers).toHaveBeenCalledWith(
+        expect.objectContaining({
+          projectName: 'my-app',
+          targetEnv: 'prod',
+          credentials: mockContext.credentials,
+          ownerPasswords: { 'auth-service': 'test-password' },
+        }),
+      );
+      // DATABASE_URL is db-init's now
+      expect(mockSetSecretViaCli).not.toHaveBeenCalledWith(
         'DATABASE_URL',
-        expect.stringContaining('postgresql://auth-service:'),
-        'prod',
-        'auth-service',
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
       );
     });
 
-    it('should skip DATABASE_URL for services without password', async () => {
+    it('should fail the deploy when the database users cannot be set up', async () => {
+      mockSetUpGcpDatabaseUsers.mockRejectedValue(new Error('db-init failed'));
+
+      await expect(
+        gcpDeploy(mockContext, { autoApprove: true }),
+      ).rejects.toThrow('db-init failed');
+    });
+
+    it('should skip the step without database services', async () => {
       mockFetchDbPasswordsFromSecretManager.mockResolvedValue({});
-      mockGetTerraformOutput.mockImplementation(
-        (_dir: string, name: string) => {
-          if (name === 'database_private_ip') return '10.0.1.5';
-          if (name === 'redis_host') return '10.0.0.5';
-          if (name === 'redis_port') return '6379';
-          if (name === 'redis_auth_string') return 'redis-password';
-          return '';
-        },
-      );
+      mocks.loadFrameworkConfig.mockReturnValue({
+        project: { name: 'my-app' },
+        cloud: { provider: 'gcp' },
+        services: [{ name: 'bff-service', hasDatabase: false }],
+      });
 
       await gcpDeploy(mockContext, { autoApprove: true });
 
-      expect(mocks.logger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('No password for auth-service'),
-      );
+      expect(mockSetUpGcpDatabaseUsers).not.toHaveBeenCalled();
     });
   });
 

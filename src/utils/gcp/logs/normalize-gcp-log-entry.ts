@@ -1,8 +1,10 @@
 /**
  * Turn a Cloud Logging entry into the shared line shape.
  *
- * - Source: the Cloud Run service or job, the Cloud Scheduler job, or edge
- *   for the load balancer. Kong's `{project}-kong` shows as kong.
+ * - Source: the Cloud Run service or job, the Cloud Scheduler job, a
+ *   storage bucket's access log (its source by the bucket's GCS name, from
+ *   bucketSources), or edge for the load balancer. Kong's `{project}-kong`
+ *   shows as kong.
  * - Kind: a Cloud Run container's stdout and stderr are app lines; every
  *   other Cloud Run log and Cloud Scheduler's run logs are platform lines;
  *   the load balancer's are edge lines.
@@ -11,7 +13,10 @@
  */
 
 import type { logging_v2 } from 'googleapis';
+import type { NamingScheme } from '@tsdevstack/infra-core';
 import {
+  DB_INIT_LOG_SOURCE,
+  GCP_DB_INIT_JOB_SUFFIX,
   GCP_KONG_SERVICE_SUFFIX,
   GCP_RUN_APP_LOG_IDS,
   EDGE_LOG_SOURCE,
@@ -20,12 +25,22 @@ import {
 import { normalizeLogLevel } from '../../logs/normalize-log-level';
 import { parseJsonLogPayload } from '../../logs/parse-json-log-payload';
 import type { LogEntry, LogKind } from '../../logs/types';
+import { formatGcpBucketAccess } from './format-gcp-bucket-access';
 import { formatGcpHttpRequest } from './format-gcp-http-request';
+import { parseGcpCloudRunName } from '../parse-gcp-cloud-run-name';
 
 export function normalizeGcpLogEntry(
   entry: logging_v2.Schema$LogEntry,
   projectName: string,
+  naming: NamingScheme,
+  /** Storage buckets' GCS names to their source names (bucket-{name}) */
+  bucketSources: Record<string, string> = {},
 ): LogEntry {
+  // The source by its name in config.json (Cloud Run and Cloud Scheduler
+  // names carry the project in the unique scheme)
+  const toSource = (cloudName: string): string =>
+    parseGcpCloudRunName(projectName, cloudName, naming) ?? cloudName;
+
   const resourceType = entry.resource?.type ?? '';
   const labels = entry.resource?.labels ?? {};
   const payload: Record<string, unknown> | undefined =
@@ -38,11 +53,18 @@ export function normalizeGcpLogEntry(
     source =
       name === `${projectName}${GCP_KONG_SERVICE_SUFFIX}`
         ? KONG_LOG_SOURCE
-        : name;
+        : toSource(name);
   } else if (resourceType === 'cloud_run_job') {
-    source = labels.job_name ?? '';
+    const name = labels.job_name ?? '';
+    source =
+      name === `${projectName}${GCP_DB_INIT_JOB_SUFFIX}`
+        ? DB_INIT_LOG_SOURCE
+        : toSource(name);
   } else if (resourceType === 'cloud_scheduler_job') {
-    source = labels.job_id ?? '';
+    source = toSource(labels.job_id ?? '');
+  } else if (resourceType === 'gcs_bucket') {
+    const bucket = labels.bucket_name ?? '';
+    source = bucketSources[bucket] ?? bucket;
   } else if (resourceType === 'http_load_balancer') {
     source = EDGE_LOG_SOURCE;
   } else {
@@ -84,6 +106,11 @@ export function normalizeGcpLogEntry(
       message: entry.textPayload ?? '',
       raw: entry,
     };
+  }
+
+  // A storage bucket's access (Cloud Storage's audit log)
+  if (resourceType === 'gcs_bucket') {
+    return { time, source, kind, ...formatGcpBucketAccess(entry), raw: entry };
   }
 
   // Platform and edge lines

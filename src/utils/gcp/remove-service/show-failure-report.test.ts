@@ -35,7 +35,7 @@ describe('showFailureReport', () => {
 
     showFailureReport(logger, completed, failed, []);
 
-    expect(logger.success).toHaveBeenCalledWith('Already deleted:');
+    expect(logger.success).toHaveBeenCalledWith('Done:');
     expect(logger.info).toHaveBeenCalledWith('   - Cloud Run: my-service');
     expect(logger.info).toHaveBeenCalledWith('   - Bucket: my-bucket');
   });
@@ -46,7 +46,7 @@ describe('showFailureReport', () => {
 
     showFailureReport(logger, [], failed, []);
 
-    expect(logger.success).not.toHaveBeenCalledWith('Already deleted:');
+    expect(logger.success).not.toHaveBeenCalledWith('Done:');
   });
 
   it('should show failed step in not yet deleted section', () => {
@@ -55,7 +55,7 @@ describe('showFailureReport', () => {
 
     showFailureReport(logger, [], failed, []);
 
-    expect(logger.info).toHaveBeenCalledWith('Not yet deleted:');
+    expect(logger.info).toHaveBeenCalledWith('Not done yet:');
     expect(logger.info).toHaveBeenCalledWith(
       '   - Database: my-database (failed)',
     );

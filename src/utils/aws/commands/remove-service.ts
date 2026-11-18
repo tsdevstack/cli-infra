@@ -14,12 +14,25 @@ import {
   buildDeletionSteps,
   executeSteps,
   showFailureReport,
-  fetchAllDbPasswords,
   getOtherEnvironments,
   selectServiceInteractive,
 } from '../remove-service';
 import type { AWSCredentials } from '@tsdevstack/cli/plugin';
 import type { AWSCommandContext } from './types';
+import { logRemoveServiceNextSteps } from '../../display/log-remove-service-next-steps';
+import { logDatabaseRecoveryHint } from '../../display/log-database-recovery-hint';
+import { logDatabaseSavedHint } from '../../display/log-database-saved-hint';
+import {
+  buildAwsTerraformEnv,
+  DB_EXPORT_REASONS,
+} from '@tsdevstack/infra-core';
+import { buildRuntime } from '../../build-runtime';
+import { initTerraformBeforeChanges } from '../../terraform';
+import { buildDbExportFileName } from '../../database-export/build-db-export-file-name';
+import { saveDatabaseBeforeRemoval } from '../../database-export/save-database-before-removal';
+import { getAwsDbExportsBucket } from '../database-export/get-aws-db-exports-bucket';
+import { runAwsDatabaseJob } from '../database-export/run-aws-database-job';
+import type { DeletionStepResult } from '../remove-service/types';
 
 export interface AwsRemoveServiceParams {
   serviceName: string | undefined;
@@ -27,6 +40,8 @@ export interface AwsRemoveServiceParams {
   runningInCI: boolean;
   dryRunOption: boolean | undefined;
   confirmOption: boolean | undefined;
+  /** Remove without saving the database (--skip-export) */
+  skipExportOption: boolean | undefined;
 }
 
 export interface AwsRemoveServiceResult {
@@ -40,8 +55,12 @@ export interface AwsRemoveServiceResult {
 export async function awsRemoveService(
   params: AwsRemoveServiceParams,
 ): Promise<AwsRemoveServiceResult> {
-  const { logger, CliError, loadFrameworkConfig } = getContext();
+  const { logger, CliError, loadFrameworkConfig, buildSecretName } =
+    getContext();
   const { serviceName, ctx, runningInCI, dryRunOption } = params;
+  // --confirm answers the questions, as in CI: delete, without typing the name
+  const interactive = !runningInCI && params.confirmOption !== true;
+  const skipExport = params.skipExportOption === true;
 
   const credentials = ctx.credentials as AWSCredentials;
   const { projectName, targetEnv } = ctx;
@@ -106,7 +125,7 @@ export async function awsRemoveService(
 
   // Ask about dry-run in interactive mode (if not already specified)
   let dryRun = dryRunOption;
-  if (!runningInCI && dryRun === undefined) {
+  if (interactive && dryRun === undefined) {
     const { runMode } = await inquirer.prompt([
       {
         type: 'select',
@@ -122,6 +141,18 @@ export async function awsRemoveService(
     dryRun = runMode === 'dry-run';
   }
 
+  // A running service may have a database (db-delete skips what isn't
+  // there). Its DATABASE_URL secret goes last, so a rerun after the service
+  // was deleted still runs the database step.
+  const hasDatabaseUrl = discovered.secrets.includes(
+    buildSecretName(projectName, resolvedServiceName, 'DATABASE_URL'),
+  );
+  const hasDatabase = discovered.inferredType === 'backend' || hasDatabaseUrl;
+  // RDS has no list of a server's databases: db-init writes DATABASE_URL
+  // right after it makes the database, so only then is there one to save
+  // (a backend without a database has none)
+  const savesDatabase = hasDatabaseUrl && !skipExport;
+
   // Show warning
   showResourceWarning({
     serviceName: resolvedServiceName,
@@ -129,6 +160,8 @@ export async function awsRemoveService(
     coupledWorkers,
     targetEnv,
     dryRun,
+    databaseSaved: savesDatabase,
+    skipExport,
     logger,
   });
 
@@ -140,32 +173,8 @@ export async function awsRemoveService(
     return { aborted: true };
   }
 
-  // Database backup prompt (interactive only)
-  const hasDatabase = discovered.inferredType === 'backend'; // Rough heuristic
-  if (hasDatabase && !runningInCI) {
-    logger.newline();
-    logger.warn('BACKUP YOUR DATABASE before proceeding!');
-    logger.newline();
-    logger.info('  Use AWS RDS snapshot or pg_dump');
-    logger.newline();
-
-    const { backedUp } = await inquirer.prompt([
-      {
-        type: 'confirm',
-        name: 'backedUp',
-        message: 'Have you backed up the database?',
-        default: false,
-      },
-    ]);
-
-    if (!backedUp) {
-      logger.info('Aborted. Please back up your database first.');
-      return { aborted: true };
-    }
-  }
-
   // Final confirmation (interactive only)
-  if (!runningInCI) {
+  if (interactive) {
     const { confirmation } = await inquirer.prompt([
       {
         type: 'input',
@@ -180,15 +189,56 @@ export async function awsRemoveService(
     }
   }
 
-  // Pre-fetch ALL database passwords BEFORE deleting anything
-  logger.info('Fetching database passwords for Terraform...');
-  const dbPasswords = await fetchAllDbPasswords({
-    projectName,
-    credentials,
+  // The database step reads Terraform outputs: set up the folder first
+  // (CI and other machines have no backend yet). Nothing is deleted if it
+  // fails.
+  await initTerraformBeforeChanges({
+    projectRoot: ctx.projectRoot,
+    targetEnv,
+    env: buildAwsTerraformEnv(buildRuntime(), credentials),
   });
-  logger.info(
-    `  Found ${Object.keys(dbPasswords).length} database password(s)`,
-  );
+
+  // The database is saved to the exports bucket before it is dropped.
+  // Terraform makes the bucket at deploy: an environment last deployed with
+  // an older CLI has none yet.
+  const exportsBucket = savesDatabase ? getAwsDbExportsBucket(ctx) : null;
+  if (savesDatabase && !exportsBucket) {
+    throw new CliError(
+      'This environment has no bucket for saved databases yet. Nothing was deleted.',
+      'infra:remove-service',
+      `Run npx tsdevstack infra:deploy --env ${targetEnv} first (it makes the bucket), or add --skip-export to remove the service without saving its data.`,
+    );
+  }
+  let savedFile: string | undefined;
+  const saveDatabase = exportsBucket
+    ? async (): Promise<DeletionStepResult> => {
+        let file = '';
+        const result = await saveDatabaseBeforeRemoval({
+          interactive,
+          save: () => {
+            // A new name each try: a try that failed left no file
+            file = buildDbExportFileName(
+              resolvedServiceName,
+              DB_EXPORT_REASONS.removed,
+            );
+            return runAwsDatabaseJob({
+              ctx,
+              mode: 'export',
+              serviceName: resolvedServiceName,
+              file,
+            });
+          },
+        });
+        if (result.outcome === 'saved') {
+          savedFile = file;
+          return { success: true, deleted: true };
+        }
+        if (result.outcome === 'skipped') {
+          return { success: true, deleted: false };
+        }
+        return { success: false, deleted: false, error: result.error };
+      }
+    : undefined;
 
   // Execute deletion
   logger.newline();
@@ -201,9 +251,9 @@ export async function awsRemoveService(
     discovered,
     projectName,
     targetEnv,
-    dbPasswords,
     coupledWorkers,
     hasDatabase,
+    saveDatabase,
   });
   const { completed, failed, remaining } = await executeSteps(logger, steps);
 
@@ -225,22 +275,21 @@ export async function awsRemoveService(
   );
   logger.newline();
 
-  // Database recovery hints (if database was removed)
-  if (hasDatabase) {
-    logger.info(
-      `Database "${resolvedServiceName}" has been dropped from the shared RDS instance.`,
+  // Where the database's data is now
+  if (savedFile && exportsBucket) {
+    logDatabaseSavedHint(
+      resolvedServiceName,
+      targetEnv,
+      `s3://${exportsBucket}/${savedFile}`,
     );
-    logger.newline();
-    logger.info('Data recovery options:');
-    logger.info('  RDS automated backups are retained for 7 days.');
-    logger.info('  Console: RDS → Automated backups');
-    logger.info(
-      '  Point-in-time restore: aws rds restore-db-instance-to-point-in-time',
-    );
-    logger.info(
-      '  Note: Restoring creates a NEW instance — you will need to extract the specific database.',
-    );
-    logger.newline();
+  } else if (hasDatabase) {
+    logDatabaseRecoveryHint(resolvedServiceName, {
+      server: 'the shared RDS instance',
+      backups: "the instance's backups (7 days, if backup is on)",
+      restore:
+        'restore the instance to a time just before the removal (point-in-time restore, into a new instance)',
+      links: ['Console: RDS → Automated backups'],
+    });
   }
 
   // Check if service is in config.json
@@ -266,28 +315,7 @@ export async function awsRemoveService(
       logger.newline();
     }
 
-    logger.info('Next steps:');
-    logger.info(`  1. Remove from other environments (if deployed)`);
-    logger.info(
-      `  2. npx tsdevstack remove-service ${resolvedServiceName}  # removes from config.json`,
-    );
-    logger.info(
-      `  3. npx tsdevstack sync                                  # regenerates files`,
-    );
-    logger.info(
-      `  4. npx tsdevstack infra:generate-kong --env ${targetEnv}  # regenerates Kong routes`,
-    );
-    logger.info(
-      `  5. npx tsdevstack infra:build-kong --env ${targetEnv}     # rebuilds the Kong image`,
-    );
-    logger.info(
-      `  6. npx tsdevstack infra:deploy-kong --env ${targetEnv}    # deploys the new Kong image`,
-    );
-    logger.newline();
-
-    logger.warn(
-      'Kong routes for this service will return 502 until Kong is redeployed.',
-    );
+    logRemoveServiceNextSteps(resolvedServiceName, targetEnv);
   } else {
     if (otherEnvs.length > 0) {
       logger.info('Check if service exists in other environments:');

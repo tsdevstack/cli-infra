@@ -31,6 +31,7 @@ rs.mock('./list-container-apps', { mock: true });
 rs.mock('./list-app-services', { mock: true });
 rs.mock('./list-spa-storage-accounts', { mock: true });
 
+import { azure, buildAccountSuffix } from '@tsdevstack/infra-core';
 import { discoverDeployedServices } from './discover-deployed-services';
 import { listContainerApps } from './list-container-apps';
 import { listAppServices } from './list-app-services';
@@ -214,6 +215,35 @@ describe('discoverDeployedServices', () => {
       expect(spa!.resources.spaBucket).toBe(true);
     });
 
+    it("should name an SPA by its configured name when the account's is cut short", async () => {
+      // Storage account names stop at 24 characters: react-app's account is
+      // myprojectdevreac + the subscription part
+      const accountName = azure.buildSpaStorageAccountName(
+        'myproject',
+        'dev',
+        'react-app',
+        testCredentials.subscriptionId,
+      );
+      rs.mocked(listContainerApps).mockResolvedValue({
+        success: true,
+        apps: [],
+      });
+      rs.mocked(listSpaStorageAccounts).mockResolvedValue({
+        success: true,
+        accounts: [{ name: accountName, spaName: 'reac' }],
+      });
+
+      const named = await discoverDeployedServices({
+        ...baseOptions,
+        spaServices: ['dashboard', 'react-app'],
+      });
+      const unnamed = await discoverDeployedServices(baseOptions);
+
+      expect(named.services.map((s) => s.name)).toEqual(['react-app']);
+      // Without the config (or an SPA no longer in it): the account's part
+      expect(unnamed.services.map((s) => s.name)).toEqual(['reac']);
+    });
+
     it('should mark spaBucket true on existing container app service when SPA matches', async () => {
       rs.mocked(listContainerApps).mockResolvedValue({
         success: true,
@@ -392,6 +422,45 @@ describe('discoverDeployedServices', () => {
       expect(frontend!.type).toBe('nextjs');
       expect(frontend!.resources.appService).toBe(true);
       expect(frontend!.resources.containerApp).toBe(false);
+    });
+
+    it('should strip the account suffix of an environment with unique names', async () => {
+      // az5 round: kong-519459 showed as a backend, and deploy-services saw
+      // it as a removed service with a database
+      const suffix = buildAccountSuffix(testCredentials.subscriptionId);
+      rs.mocked(listContainerApps).mockResolvedValue({
+        success: true,
+        apps: [],
+      });
+      rs.mocked(listAppServices).mockResolvedValue({
+        success: true,
+        apps: [
+          {
+            name: `myproject-dev-kong-${suffix}`,
+            status: 'Running',
+            image: 'myacr.azurecr.io/kong:v1',
+          },
+          {
+            name: `myproject-dev-dashboard-${suffix}`,
+            status: 'Running',
+            image: 'myacr.azurecr.io/dashboard:v1',
+          },
+        ],
+      });
+      rs.mocked(listSpaStorageAccounts).mockResolvedValue({
+        success: true,
+        accounts: [],
+      });
+
+      const result = await discoverDeployedServices(baseOptions);
+
+      expect(
+        result.services.map((s) => ({ name: s.name, type: s.type })),
+      ).toEqual([
+        { name: 'kong', type: 'kong' },
+        // App Service runs only Kong and the Next.js apps
+        { name: 'dashboard', type: 'nextjs' },
+      ]);
     });
 
     it('should skip App Service if already discovered as Container App', async () => {

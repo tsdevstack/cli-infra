@@ -10,7 +10,12 @@ const SOURCES: LogSource[] = [
   { name: 'edge', type: 'edge' },
 ];
 
-const PARAMS = { projectName: 'shop', targetEnv: 'dev', region: 'eu-west-1' };
+const PARAMS = {
+  projectName: 'shop',
+  targetEnv: 'dev',
+  region: 'eu-west-1',
+  accountId: '123456789012',
+};
 
 describe('buildAwsLogGroupReads', () => {
   describe('Standard use cases', () => {
@@ -30,6 +35,14 @@ describe('buildAwsLogGroupReads', () => {
           kind: 'app',
           format: 'app',
         },
+        {
+          source: SOURCES[2],
+          logGroupName: '/ecs/shop/migrate-auth-service',
+          region: 'eu-west-1',
+          kind: 'app',
+          format: 'app',
+        },
+        // The name before the project was in it, from earlier deploys
         {
           source: SOURCES[2],
           logGroupName: '/ecs/migrate-auth-service-migration',
@@ -103,6 +116,60 @@ describe('buildAwsLogGroupReads', () => {
         PARAMS,
       );
       expect(read.filterPattern).toBe('"job=auth-service-cleanup-tokens"');
+    });
+  });
+
+  describe('Storage buckets', () => {
+    const bucket: LogSource = {
+      name: 'bucket-uploads',
+      type: 'bucket',
+      bucket: 'uploads',
+    };
+
+    it("should read the bucket's events from the storage trail's group", () => {
+      expect(buildAwsLogGroupReads([bucket], PARAMS)).toEqual([
+        {
+          source: bucket,
+          logGroupName: '/aws/cloudtrail/shop-storage-access',
+          region: 'eu-west-1',
+          kind: 'platform',
+          format: 'bucket',
+          filterPattern:
+            '{ $.requestParameters.bucketName = "shop-uploads-dev-123456789012" }',
+          bucketName: 'shop-uploads-dev-123456789012',
+        },
+      ]);
+    });
+
+    it('should leave --level to the printer (the level comes from the event)', () => {
+      const [read] = buildAwsLogGroupReads([bucket], {
+        ...PARAMS,
+        level: 'warn',
+      });
+      expect(read.filterPattern).toBe(
+        '{ $.requestParameters.bucketName = "shop-uploads-dev-123456789012" }',
+      );
+    });
+
+    it('should read nothing for another kind', () => {
+      expect(
+        buildAwsLogGroupReads([bucket], { ...PARAMS, kind: 'app' }),
+      ).toEqual([]);
+    });
+  });
+
+  describe('Database setup job', () => {
+    it('should read its log group, /ecs/{project}/db-init', () => {
+      const dbInit: LogSource = { name: 'db-init', type: 'db-init' };
+      expect(buildAwsLogGroupReads([dbInit], PARAMS)).toEqual([
+        {
+          source: dbInit,
+          logGroupName: '/ecs/shop/db-init',
+          region: 'eu-west-1',
+          kind: 'app',
+          format: 'app',
+        },
+      ]);
     });
   });
 });

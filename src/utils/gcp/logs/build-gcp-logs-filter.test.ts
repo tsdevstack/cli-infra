@@ -19,13 +19,20 @@ const EDGE =
 describe('buildGcpLogsFilter', () => {
   describe('Standard use cases', () => {
     it('should combine the time window and the sources', () => {
-      expect(buildGcpLogsFilter(QUERY, 'shop')).toBe(
+      expect(buildGcpLogsFilter(QUERY, 'shop', 'legacy')).toBe(
         `timestamp>="2026-10-30T11:00:00.000Z" AND timestamp<="2026-10-30T12:00:00.000Z" AND (${JOB} OR ${EDGE})`,
       );
     });
 
     it('should leave out the time window for a Logs Explorer link', () => {
-      expect(buildGcpLogsFilter(QUERY, 'shop', { includeTime: false })).toBe(
+      expect(
+        buildGcpLogsFilter(QUERY, 'shop', 'legacy', { includeTime: false }),
+      ).toBe(`(${JOB} OR ${EDGE})`);
+    });
+
+    it('should leave out the time window for --follow (no window)', () => {
+      const { since: _since, until: _until, ...follow } = QUERY;
+      expect(buildGcpLogsFilter(follow, 'shop', 'legacy')).toBe(
         `(${JOB} OR ${EDGE})`,
       );
     });
@@ -35,6 +42,7 @@ describe('buildGcpLogsFilter', () => {
         buildGcpLogsFilter(
           { ...QUERY, sources: [QUERY.sources[0]], grep: 'req-1' },
           'shop',
+          'legacy',
           {
             includeTime: false,
           },
@@ -48,6 +56,7 @@ describe('buildGcpLogsFilter', () => {
       const filter = buildGcpLogsFilter(
         { ...QUERY, sources: [QUERY.sources[0]], grep: 'say "hi" \\o/' },
         'shop',
+        'legacy',
         { includeTime: false },
       );
       expect(filter).toBe(`${JOB} AND "say \\"hi\\" \\\\o/"`);
@@ -55,7 +64,7 @@ describe('buildGcpLogsFilter', () => {
 
     it('should return nothing when no source has lines of the kind', () => {
       expect(
-        buildGcpLogsFilter({ ...QUERY, kind: 'app' }, 'shop'),
+        buildGcpLogsFilter({ ...QUERY, kind: 'app' }, 'shop', 'legacy'),
       ).toBeUndefined();
     });
   });

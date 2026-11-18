@@ -91,8 +91,10 @@ rs.mock('../utils/kong/resolve-env-vars-strict', () => ({
     mockResolveEnvVarsStrict(...args),
 }));
 
+const mockLoadInfrastructureConfig = rs.fn();
 rs.mock('../utils/infrastructure/load-infrastructure-config', () => ({
-  loadInfrastructureConfig: rs.fn(() => null),
+  loadInfrastructureConfig: (...args: unknown[]) =>
+    mockLoadInfrastructureConfig(...args),
 }));
 
 rs.mock('../utils/infrastructure/get-kong-config', () => ({
@@ -200,6 +202,67 @@ describe('infraKongBuild', () => {
       });
 
       await expect(infraKongBuild({})).rejects.toThrow(mocks.CliError);
+    });
+  });
+
+  describe('CORS origins', () => {
+    function corsConfig(origins: string[]): Record<string, unknown> {
+      return {
+        _format_version: '3.0',
+        plugins: [{ name: 'cors', config: { origins } }],
+      };
+    }
+
+    function builtKongYml(): string {
+      return (mockWriteKongBuildContext.mock.calls[0][0] as { kongYml: string })
+        .kongYml;
+    }
+
+    it("should add the environment's domains the secret is missing", async () => {
+      mockResolveEnvVarsStrict.mockReturnValue(
+        corsConfig(['https://example.com']),
+      );
+      mockLoadInfrastructureConfig.mockReturnValue({
+        version: '1.0.0',
+        prod: {
+          frontend: { domain: 'example.com' },
+          'react-app': { domain: 'app.example.com' },
+          database: { tier: 'db-f1-micro' },
+        },
+      });
+      mocks.loadFrameworkConfig.mockReturnValue({
+        services: [
+          { name: 'frontend', type: 'nextjs' },
+          { name: 'react-app', type: 'spa' },
+        ],
+      });
+
+      await infraKongBuild({});
+
+      expect(JSON.parse(builtKongYml()).plugins[0].config.origins).toEqual([
+        'https://example.com',
+        'https://app.example.com',
+      ]);
+      expect(mocks.logger.info).toHaveBeenCalledWith(
+        '  CORS origin added from infrastructure.json: https://app.example.com',
+      );
+    });
+
+    it('should keep the secret as it is without an infrastructure.json block for the environment', async () => {
+      mockResolveEnvVarsStrict.mockReturnValue(
+        corsConfig(['https://example.com']),
+      );
+      mockLoadInfrastructureConfig.mockReturnValue({
+        version: '1.0.0',
+        staging: { frontend: { domain: 'staging.example.com' } },
+      });
+
+      await infraKongBuild({});
+
+      expect(JSON.parse(builtKongYml()).plugins[0].config.origins).toEqual([
+        'https://example.com',
+      ]);
+      expect(mocks.loadFrameworkConfig).not.toHaveBeenCalled();
     });
   });
 

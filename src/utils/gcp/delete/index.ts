@@ -68,3 +68,4 @@ export type {
   DeleteSchedulerJobOptions,
   DeleteSchedulerJobResult,
 } from './delete-scheduler-job';
+export { dropDatabaseRoles } from './drop-database-roles';

@@ -1,6 +1,11 @@
 import { describe, it, expect, rs, beforeEach } from '@rstest/core';
 import { buildDeletionSteps } from './build-deletion-steps';
-import { deleteDatabase } from '../delete';
+import {
+  deleteContainerAppJob,
+  deleteDatabase,
+  dropDatabaseRoles,
+  deleteMigrationDatabaseUrl,
+} from '../delete';
 import type { DiscoveredResources } from '../discovery';
 import type { AzureCommandContext } from '../commands/types';
 
@@ -17,6 +22,9 @@ rs.mock('../delete', () => ({
   deleteStorageAccount: rs
     .fn()
     .mockResolvedValue({ success: true, deleted: true }),
+  deleteContainerAppJob: rs
+    .fn()
+    .mockResolvedValue({ success: true, deleted: true }),
   deleteDatabase: rs.fn().mockResolvedValue({ success: true, deleted: true }),
   deleteKeyVaultSecretsByPrefix: rs
     .fn()
@@ -24,10 +32,12 @@ rs.mock('../delete', () => ({
   deleteSharedSecretsForService: rs
     .fn()
     .mockResolvedValue({ success: true, deleted: ['secret1'] }),
-}));
-
-rs.mock('./sync-terraform-state', () => ({
-  syncTerraformState: rs.fn().mockResolvedValue(undefined),
+  dropDatabaseRoles: rs
+    .fn()
+    .mockResolvedValue({ success: true, deleted: true }),
+  deleteMigrationDatabaseUrl: rs
+    .fn()
+    .mockResolvedValue({ success: true, deleted: true }),
 }));
 
 describe('buildDeletionSteps (Azure)', () => {
@@ -51,6 +61,8 @@ describe('buildDeletionSteps (Azure)', () => {
     overrides: Partial<DiscoveredResources> = {},
   ): DiscoveredResources => ({
     containerApp: false,
+    vaultName: 'myproject-dev-kv',
+    serviceVaultName: 'myproject-dev-auth-service',
     spaBucket: false,
     spaBucketName: '',
     secrets: [],
@@ -63,6 +75,7 @@ describe('buildDeletionSteps (Azure)', () => {
 
   const build = (
     discovered: DiscoveredResources,
+    saveDatabase?: Parameters<typeof buildDeletionSteps>[0]['saveDatabase'],
   ): ReturnType<typeof buildDeletionSteps> =>
     buildDeletionSteps({
       ctx,
@@ -70,8 +83,8 @@ describe('buildDeletionSteps (Azure)', () => {
       discovered,
       projectName: 'myproject',
       targetEnv: 'dev',
-      dbPasswords: {},
       coupledWorkers: [],
+      saveDatabase,
     });
 
   beforeEach(() => {
@@ -117,8 +130,113 @@ describe('buildDeletionSteps (Azure)', () => {
     });
   });
 
+  describe('Migration job step', () => {
+    it('should delete the migration job of a service with a database', async () => {
+      const steps = build(createDiscovery({ hasDatabase: true }));
+      const jobStep = steps.find((s) => s.name === 'Migration job');
+
+      expect(jobStep?.resource).toBe('migrate-auth-service');
+      await jobStep?.execute();
+      expect(deleteContainerAppJob).toHaveBeenCalledWith({
+        credentials,
+        resourceGroupName: 'myproject-dev-rg',
+        jobName: 'migrate-auth-service',
+      });
+    });
+
+    it('should delete the migration job before the database', () => {
+      const names = build(createDiscovery({ hasDatabase: true })).map(
+        (s) => s.name,
+      );
+
+      expect(names.indexOf('Migration job')).toBeLessThan(
+        names.indexOf('PostgreSQL database'),
+      );
+    });
+
+    it('should not add a migration job step without a database', () => {
+      const steps = build(createDiscovery());
+
+      expect(steps.some((s) => s.name === 'Migration job')).toBe(false);
+    });
+  });
+
+  describe('Database and roles, and migration URL steps', () => {
+    it("should drop the service's database and two roles in SQL before the API's database delete", async () => {
+      const steps = build(createDiscovery({ hasDatabase: true }));
+      const names = steps.map((s) => s.name);
+      const rolesStep = steps.find((s) => s.name === 'Database and roles');
+
+      expect(rolesStep?.resource).toBe('auth-service, auth-service_app');
+      expect(names.indexOf('Database and roles')).toBeLessThan(
+        names.indexOf('PostgreSQL database'),
+      );
+      await rolesStep?.execute();
+      expect(dropDatabaseRoles).toHaveBeenCalledWith({
+        ctx,
+        serviceName: 'auth-service',
+      });
+    });
+
+    it("should delete the owner's URL from the database jobs' vault", async () => {
+      const steps = build(createDiscovery({ hasDatabase: true }));
+      const urlStep = steps.find((s) => s.name === 'Migration URL');
+
+      await urlStep?.execute();
+      expect(deleteMigrationDatabaseUrl).toHaveBeenCalledWith({
+        ctx,
+        serviceName: 'auth-service',
+      });
+    });
+
+    it('should add neither step without a database', () => {
+      const names = build(createDiscovery()).map((s) => s.name);
+
+      expect(names).not.toContain('Database and roles');
+      expect(names).not.toContain('Migration URL');
+    });
+  });
+
+  describe('Database save step', () => {
+    it('should save the database right before the drop, after the app and the migration job', async () => {
+      const saveDatabase = rs.fn(async () => ({
+        success: true,
+        deleted: true,
+      }));
+
+      const steps = build(
+        createDiscovery({ containerApp: true, hasDatabase: true }),
+        saveDatabase,
+      );
+
+      const names = steps.map((step) => step.name);
+      const save = names.indexOf('Database save');
+      expect(save).toBeGreaterThan(names.indexOf('Container App'));
+      expect(save).toBeGreaterThan(names.indexOf('Migration job'));
+      expect(names[save + 1]).toBe('Database and roles');
+
+      const step = steps[save];
+      expect(step.label).toBe('Saving the database');
+      expect(step.doneText).toBe('Saved');
+      await step.execute();
+      expect(saveDatabase).toHaveBeenCalledTimes(1);
+    });
+
+    it('should not save without a database or with --skip-export', () => {
+      const withoutDatabase = build(createDiscovery(), async () => ({
+        success: true,
+        deleted: true,
+      }));
+      const skipExport = build(createDiscovery({ hasDatabase: true }));
+
+      for (const steps of [withoutDatabase, skipExport]) {
+        expect(steps.some((step) => step.name === 'Database save')).toBe(false);
+      }
+    });
+  });
+
   describe('Step order', () => {
-    it('should delete the database after the container app and before the state sync', () => {
+    it('should delete the database after the container app and before its secrets', () => {
       const steps = build(
         createDiscovery({ containerApp: true, hasDatabase: true }),
       );
@@ -128,7 +246,7 @@ describe('buildDeletionSteps (Azure)', () => {
         names.indexOf('PostgreSQL database'),
       );
       expect(names.indexOf('PostgreSQL database')).toBeLessThan(
-        names.indexOf('Terraform state sync'),
+        names.indexOf('Shared secrets for service'),
       );
     });
   });

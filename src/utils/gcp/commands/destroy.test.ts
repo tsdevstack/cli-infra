@@ -4,6 +4,10 @@ import type { MockContext } from '@tsdevstack/cli/test-utils';
 const mocks = (globalThis as unknown as { contextMocks: MockContext })
   .contextMocks;
 
+rs.mock('../naming/resolve-gcp-naming-scheme', () => ({
+  resolveGcpNamingScheme: rs.fn(async () => 'legacy'),
+}));
+
 rs.mock('../../../context', () => ({
   initContext: rs.fn(),
   getContext: rs.fn(
@@ -37,6 +41,8 @@ const mockBuildGcpTerraformEnv = rs.fn(
   },
 );
 rs.mock('@tsdevstack/infra-core', () => ({
+  buildGcpCloudRunName: (project: string, name: string, naming: string) =>
+    naming === 'unique' ? `${project}-${name}` : name,
   checkTerraformInstalled: (...args: unknown[]) =>
     mockCheckTerraformInstalled(...args),
   buildGcpTerraformEnv: (runtime: unknown, credentials: unknown) =>
@@ -135,6 +141,7 @@ describe('gcpDestroy', () => {
       expect(mockGetEnvironmentCloudRunNames).toHaveBeenCalledWith(
         services,
         'my-app',
+        'legacy',
       );
       expect(mockDeleteEnvironmentCloudRunResources).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -158,6 +165,7 @@ describe('gcpDestroy', () => {
       expect(mockGetEnvironmentCloudRunNames).toHaveBeenCalledWith(
         [],
         'my-app',
+        'legacy',
       );
     });
 

@@ -5,13 +5,21 @@
  * - A source or --all: print every line of the window, oldest first, as
  *   pages arrive. There is no cap; filters narrow the output.
  * - --newest <n> (MCP get_logs): only the newest n lines, and what was left out.
+ * - --follow: no window; new lines as they arrive, until Ctrl+C or the time
+ *   limit (followLogs).
  *
  * Lines go to standard output; the header and notices go to standard error,
  * so --json output stays clean.
  */
 
 import { getContext } from '../../context';
-import { DEFAULT_LOGS_SINCE, LOG_KINDS, LOG_LEVELS } from '../../constants';
+import {
+  DEFAULT_LOGS_SINCE,
+  LOG_KINDS,
+  LOG_LEVELS,
+  LOGS_FOLLOW_TIME_LIMIT_HOURS,
+} from '../../constants';
+import { followLogs } from './follow-logs';
 import { LogPrinter } from './log-printer';
 import { parseLogOption } from './parse-log-option';
 import { parseLogTime } from './parse-log-time';
@@ -20,6 +28,7 @@ import { selectLogSources } from './select-log-sources';
 import type {
   InfraLogsOptions,
   LogSource,
+  LogsFollowQuery,
   LogsQuery,
   LogsReader,
 } from './types';
@@ -35,6 +44,8 @@ interface RunLogsCommandParams {
   write?: (text: string) => void;
   /** Standard error (header and notices) */
   notice?: (text: string) => void;
+  /** For tests: --follow's Ctrl+C */
+  onInterrupt?: (stop: () => void) => () => void;
 }
 
 export async function runLogsCommand(
@@ -55,6 +66,33 @@ export async function runLogsCommand(
     );
   }
 
+  const follow = options.follow ?? false;
+  if (options.timeLimit === false && !follow) {
+    throw new CliError(
+      '--no-time-limit only works with --follow',
+      'infra:logs',
+    );
+  }
+  if (follow) {
+    if (!sourceName && !options.all) {
+      throw new CliError(
+        'Name a source or use --all with --follow',
+        'infra:logs',
+        `npx tsdevstack infra:logs <source> --env ${targetEnv} --follow`,
+      );
+    }
+    const pastOptions = (['since', 'until', 'newest'] as const)
+      .filter((name) => options[name] !== undefined)
+      .map((name) => `--${name}`);
+    if (pastOptions.length > 0) {
+      throw new CliError(
+        `--follow prints new lines only, so it can't take ${pastOptions.join(' or ')}`,
+        'infra:logs',
+        'Run the command without --follow to read past lines.',
+      );
+    }
+  }
+
   // Source list
   if (!sourceName && !options.all) {
     const results = await reader.lastLogged(sources, now);
@@ -63,19 +101,8 @@ export async function runLogsCommand(
   }
 
   const selected = selectLogSources(sources, sourceName);
-  const since = parseLogTime(options.since ?? DEFAULT_LOGS_SINCE, now);
-  const until = options.until ? parseLogTime(options.until, now) : now;
-  if (since >= until) {
-    throw new CliError(
-      'The time window is empty: --since must be before --until',
-      'infra:logs',
-    );
-  }
-
-  const query: LogsQuery = {
+  const filters: LogsFollowQuery = {
     sources: selected,
-    since,
-    until,
     ...(options.level && {
       level: parseLogOption('--level', options.level, LOG_LEVELS),
     }),
@@ -84,6 +111,52 @@ export async function runLogsCommand(
     }),
     ...(options.grep && { grep: options.grep }),
   };
+
+  const printer = new LogPrinter({
+    json,
+    raw: options.raw ?? true,
+    color: !json && process.stdout.isTTY === true && !process.env.NO_COLOR,
+    sourceWidth: Math.max(...selected.map((source) => source.name.length)),
+    filters,
+    write,
+  });
+  const what = sourceName ?? 'all sources';
+  const levelNotice = `--level leaves out lines without a level (Kong and other plain text).`;
+
+  if (follow) {
+    const hours = LOGS_FOLLOW_TIME_LIMIT_HOURS;
+    const timeLimit = options.timeLimit ?? true;
+    notice(
+      `${what} in ${targetEnv}, new lines as they arrive (times in UTC). ${
+        timeLimit
+          ? `Stops after ${hours} hour${hours === 1 ? '' : 's'}, or press Ctrl+C.`
+          : 'Press Ctrl+C to stop.'
+      }`,
+    );
+    if (filters.level) {
+      notice(levelNotice);
+    }
+    await followLogs({
+      follow: (followQuery, handlers, signal) =>
+        reader.follow(followQuery, handlers, signal),
+      query: filters,
+      printer,
+      notice,
+      timeLimit,
+      ...(params.onInterrupt && { onInterrupt: params.onInterrupt }),
+    });
+    return;
+  }
+
+  const since = parseLogTime(options.since ?? DEFAULT_LOGS_SINCE, now);
+  const until = options.until ? parseLogTime(options.until, now) : now;
+  if (since >= until) {
+    throw new CliError(
+      'The time window is empty: --since must be before --until',
+      'infra:logs',
+    );
+  }
+  const query: LogsQuery = { ...filters, since, until };
 
   let newest: number | undefined;
   if (options.newest !== undefined) {
@@ -97,28 +170,16 @@ export async function runLogsCommand(
     }
   }
 
-  const printer = new LogPrinter({
-    json,
-    raw: options.raw ?? true,
-    color: !json && process.stdout.isTTY === true && !process.env.NO_COLOR,
-    sourceWidth: Math.max(...selected.map((source) => source.name.length)),
-    filters: query,
-    write,
-  });
-
   const formatTime = (date: Date): string =>
     date
       .toISOString()
       .replace('T', ' ')
       .replace(/\.\d+Z$/, '');
-  const what = sourceName ?? 'all sources';
   notice(
     `${what} in ${targetEnv}, ${formatTime(since)} to ${formatTime(until)} (times in UTC)`,
   );
   if (query.level) {
-    notice(
-      `--level leaves out lines without a level (Kong, frontends, other plain text).`,
-    );
+    notice(levelNotice);
   }
 
   if (newest !== undefined) {

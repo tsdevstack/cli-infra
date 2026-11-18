@@ -37,6 +37,10 @@ rs.mock('node:fs', () => ({
   },
 }));
 
+rs.mock('../delete', () => ({
+  deleteCloudWatchLogGroup: rs.fn(),
+}));
+
 rs.mock('inquirer', () => ({
   default: {
     prompt: rs.fn(),
@@ -50,6 +54,7 @@ import { executeTerraform } from '../terraform';
 import { buildAwsTerraformEnv } from '@tsdevstack/infra-core';
 import { disableDeletionProtection } from '../disable-deletion-protection';
 import { disableAlbDeletionProtection } from '../disable-alb-deletion-protection';
+import { deleteCloudWatchLogGroup } from '../delete';
 
 describe('awsDestroy', () => {
   const mockCtx = {
@@ -67,6 +72,10 @@ describe('awsDestroy', () => {
 
   beforeEach(() => {
     rs.resetAllMocks();
+    rs.mocked(deleteCloudWatchLogGroup).mockResolvedValue({
+      success: true,
+      deleted: false,
+    });
     rs.mocked(fs.existsSync).mockReturnValue(true);
     rs.mocked(buildAwsTerraformEnv).mockReturnValue({
       AWS_REGION: 'us-east-1',
@@ -215,6 +224,50 @@ describe('awsDestroy', () => {
       rs.mocked(disableDeletionProtection).mockResolvedValue({
         success: true,
       });
+      rs.mocked(deleteCloudWatchLogGroup).mockResolvedValue({
+        success: true,
+        deleted: true,
+      });
+    });
+
+    it("should delete the migration runs' log groups Terraform leaves", async () => {
+      await awsDestroy(mockCtx, { autoApprove: true });
+
+      expect(deleteCloudWatchLogGroup).toHaveBeenCalledWith({
+        logGroupName: '/ecs/my-app/migrate-auth-service',
+        credentials: mockCtx.credentials,
+      });
+      // And the name before the project was in it, from earlier deploys
+      expect(deleteCloudWatchLogGroup).toHaveBeenCalledWith({
+        logGroupName: '/ecs/migrate-auth-service-migration',
+        credentials: mockCtx.credentials,
+      });
+    });
+
+    it("should delete the VPC flow log's group again, which late records can make anew", async () => {
+      await awsDestroy(mockCtx, { autoApprove: true });
+
+      expect(deleteCloudWatchLogGroup).toHaveBeenCalledWith({
+        logGroupName: '/aws/vpc/flowlogs/my-app',
+        credentials: mockCtx.credentials,
+      });
+    });
+
+    it('should only warn when a migration log group cannot be deleted', async () => {
+      rs.mocked(deleteCloudWatchLogGroup).mockResolvedValue({
+        success: false,
+        deleted: false,
+        error: 'AccessDenied',
+      });
+
+      await awsDestroy(mockCtx, { autoApprove: true });
+
+      expect(mocks.logger.warn).toHaveBeenCalledWith(
+        'Could not delete /ecs/migrate-auth-service-migration: AccessDenied',
+      );
+      expect(mocks.logger.success).toHaveBeenCalledWith(
+        'Infrastructure destroyed successfully!',
+      );
     });
 
     it('should disable RDS deletion protection before destroying', async () => {

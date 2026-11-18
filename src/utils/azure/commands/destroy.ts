@@ -15,7 +15,12 @@ import {
   checkTerraformInstalled,
 } from '@tsdevstack/infra-core';
 import { deleteEnvironmentContainerResources } from '../delete/delete-environment-container-resources';
+import { warnHandAddedDnsRecords } from '../dns/warn-hand-added-dns-records';
 import type { AzureCommandContext, DestroyOptions } from './types';
+import { resolveAzureNaming } from '../naming/resolve-azure-naming';
+import { resolvePostgresServerName } from '../resolve-postgres-server-name';
+import { liftDatabaseLock } from '../database-lock/lift-database-lock';
+import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
 
 /**
  * Check if any service in the project has a database
@@ -42,6 +47,13 @@ export async function azureDestroy(
 
   checkTerraformInstalled(runtime);
 
+  // Before anything is deleted: the check looks for the shared Key Vault
+  const naming = await resolveAzureNaming(
+    ctx.credentials,
+    ctx.projectName,
+    ctx.targetEnv,
+  );
+
   const outputDir = path.join(
     ctx.projectRoot,
     'infrastructure',
@@ -63,6 +75,14 @@ export async function azureDestroy(
   logger.newline();
 
   const hasDatabase = projectHasDatabase();
+
+  // The DNS zone goes too: say what was added to it by hand
+  await warnHandAddedDnsRecords({
+    credentials: ctx.credentials,
+    resourceGroupName: `${ctx.projectName}-${ctx.targetEnv}-rg`,
+    projectName: ctx.projectName,
+    environment: ctx.targetEnv,
+  });
 
   // Confirm
   if (!options.autoApprove && !ctx.runningInCI) {
@@ -96,8 +116,34 @@ export async function azureDestroy(
     }
   }
 
-  // Note: Azure PostgreSQL Flexible Server does not have a deletion_protection flag.
-  // Protection is handled via resource locks (out of scope for now).
+  // First, before anything is deleted: the database's delete lock. Azure
+  // refuses to delete a locked server and its resource group, so a teardown
+  // that can't lift it stops here with everything still in place. A rerun
+  // after a later failure finds no lock and goes on.
+  const serverName = resolvePostgresServerName(
+    ctx.projectName,
+    ctx.targetEnv,
+    loadInfrastructureConfig(),
+    naming,
+  ).name;
+  logger.info(
+    `Lifting the delete lock on the database server ${serverName}...`,
+  );
+  try {
+    const lifted = await liftDatabaseLock({
+      credentials: ctx.credentials,
+      resourceGroupName: `${ctx.projectName}-${ctx.targetEnv}-rg`,
+      serverName,
+    });
+    logger.success(lifted ? '  Lifted' : '  No lock on it');
+  } catch (error) {
+    throw new CliError(
+      `Could not lift the delete lock on the database server ${serverName}: ${error instanceof Error ? error.message : String(error)}`,
+      'infra:destroy',
+      'Nothing was deleted. Locks need the User Access Administrator role on the resource group (Azure account setup, step 5). Or delete the lock in the portal (the server > Locks), then run infra:destroy again.',
+    );
+  }
+  logger.newline();
 
   // Container Apps and migration jobs come from deploys (SDK), not Terraform,
   // and Azure will not delete their managed environment while they exist
@@ -157,7 +203,7 @@ export async function azureDestroy(
       await revokeKeyVaultSecretRead({
         credentials: ctx.credentials,
         resourceGroupName: `${ctx.projectName}-${ctx.targetEnv}-rg`,
-        keyVaultName: buildKeyVaultName(ctx.projectName, ctx.targetEnv),
+        keyVaultName: buildKeyVaultName(ctx.projectName, ctx.targetEnv, naming),
         secretNames: buildKongVaultSecretNames(ctx.projectName).map(
           ({ secretName }) => secretName,
         ),

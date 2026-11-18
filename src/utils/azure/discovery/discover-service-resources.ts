@@ -9,6 +9,7 @@
  */
 
 import type { AzureCredentials } from '@tsdevstack/cli/plugin';
+import { azure } from '@tsdevstack/infra-core';
 import { getContext } from '../../../context';
 import { getContainerApp } from './get-container-app';
 import { storageAccountExists } from './storage-account-exists';
@@ -16,6 +17,7 @@ import { listKeyVaultSecretsByPrefix } from './list-keyvault-secrets-by-prefix';
 import { databaseExists } from './database-exists';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
 import { resolvePostgresServerName } from '../resolve-postgres-server-name';
+import { resolveAzureNaming } from '../naming/resolve-azure-naming';
 
 export interface DiscoverServiceResourcesOptions {
   serviceName: string;
@@ -57,6 +59,12 @@ export interface DiscoveredResources {
 
   /** PostgreSQL Flexible Server checked for the database (default or database.serverName override) */
   postgresServerName: string;
+
+  /** The environment's shared Key Vault (its naming scheme's name) */
+  vaultName: string;
+
+  /** The service's own Key Vault */
+  serviceVaultName: string;
 }
 
 /**
@@ -70,20 +78,28 @@ export async function discoverServiceResources(
 
   const resourceGroupName = `${projectName}-${targetEnv}-rg`;
   const containerAppName = `${projectName}-${serviceName}`;
-  const vaultName = buildKeyVaultName(projectName, targetEnv);
+  const naming = await resolveAzureNaming(credentials, projectName, targetEnv);
+  const vaultName = buildKeyVaultName(projectName, targetEnv, naming);
   const serviceVaultName = buildKeyVaultName(
     projectName,
     targetEnv,
+    naming,
     serviceName,
   );
   const serverName = resolvePostgresServerName(
     projectName,
     targetEnv,
     loadInfrastructureConfig(),
+    naming,
   ).name;
-  // SPA storage: {project}{env}{name}spa (alphanumeric only)
-  const sanitizedProject = projectName.replace(/[^a-z0-9]/g, '');
-  const spaBucketName = `${sanitizedProject}${targetEnv}${serviceName.replace(/[^a-z0-9]/g, '')}spa`;
+  // SPA storage account, named exactly as Terraform names it
+  // ({project}{env}{name}spa trimmed, plus the end of the subscription ID)
+  const spaBucketName = azure.buildSpaStorageAccountName(
+    projectName,
+    targetEnv,
+    serviceName,
+    credentials.subscriptionId,
+  );
   const secretPrefix = `${projectName}-${serviceName}-`;
 
   // Run all discovery calls in parallel for performance
@@ -164,5 +180,7 @@ export async function discoverServiceResources(
     inferredType,
     hasDatabase,
     postgresServerName: serverName,
+    vaultName,
+    serviceVaultName,
   };
 }

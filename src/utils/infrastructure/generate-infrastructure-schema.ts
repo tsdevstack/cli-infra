@@ -10,7 +10,9 @@ import {
   VALID_LOG_LEVEL_VALUES,
   AZURE_POSTGRES_SERVER_NAME_CONSTRAINTS,
   REDIS_CONSTRAINTS,
+  VALID_SCHEDULED_JOB_METHODS,
 } from '../../constants';
+import { SCHEDULED_JOB_HTTP_TIMEOUT } from '@tsdevstack/infra-core';
 import {
   getProviderSchemaConfig,
   type SchemaProvider,
@@ -352,7 +354,7 @@ export function generateInfrastructureSchema(
                 maximum: 1,
                 default: 1,
                 description:
-                  'Share of new traces kept, 0 to 1. Kong decides per request and the services follow; scheduled jobs use the same rate.',
+                  'Share of new traces kept, 0 to 1. The first hop decides (the Next.js frontend for its calls, Kong for the others) and the rest follow; scheduled jobs use the same rate.',
               },
             },
             additionalProperties: false,
@@ -629,19 +631,28 @@ export function generateInfrastructureSchema(
           },
           method: {
             type: 'string',
-            enum: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+            enum: [...VALID_SCHEDULED_JOB_METHODS],
             description: 'HTTP method (default: POST)',
           },
           httpTimeout: {
             type: 'integer',
-            minimum: 1,
-            maximum: 1800,
-            description: 'HTTP timeout in seconds (default: 300)',
+            minimum: SCHEDULED_JOB_HTTP_TIMEOUT[provider].min,
+            maximum: SCHEDULED_JOB_HTTP_TIMEOUT[provider].max,
+            description: `Seconds to wait for the response (default: ${SCHEDULED_JOB_HTTP_TIMEOUT[provider].default})`,
           },
-          timezone: {
-            type: 'string',
-            description: 'Timezone (default: UTC)',
-          },
+          timezone:
+            provider === 'azure'
+              ? {
+                  type: 'string',
+                  enum: ['UTC', 'Etc/UTC'],
+                  description:
+                    'Azure Container Apps jobs run their schedule in UTC only',
+                }
+              : {
+                  type: 'string',
+                  description:
+                    'IANA time zone the schedule runs in, e.g. Europe/Budapest (default: UTC)',
+                },
         },
         additionalProperties: false,
       },

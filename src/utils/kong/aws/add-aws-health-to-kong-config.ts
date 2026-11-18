@@ -12,9 +12,13 @@
  */
 
 import type { KongTemplate } from '@tsdevstack/cli/plugin';
+import { getContext } from '../../../context';
 import { buildUntracedPlugins } from '../build-untraced-plugins';
+import { buildHealthRouteLimitPlugins } from '../build-health-route-limit-plugins';
 
 export function addAwsHealthToKongConfig(config: KongTemplate): KongTemplate {
+  const { KONG_AWS_PROBE_PATH } = getContext();
+
   return {
     ...config,
     services: [
@@ -25,7 +29,7 @@ export function addAwsHealthToKongConfig(config: KongTemplate): KongTemplate {
         routes: [
           {
             name: 'health-route',
-            paths: ['/health'],
+            paths: [KONG_AWS_PROBE_PATH],
             strip_path: false,
           },
         ],
@@ -40,6 +44,8 @@ export function addAwsHealthToKongConfig(config: KongTemplate): KongTemplate {
           },
           // Probes every few seconds: not traced
           ...buildUntracedPlugins(config),
+          // Probes never count against the global rate limit
+          ...buildHealthRouteLimitPlugins(config),
         ],
       },
     ],

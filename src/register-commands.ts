@@ -29,6 +29,7 @@ import { infraKongBuild } from './commands/infra-kong-build';
 import { infraKongDeploy } from './commands/infra-kong-deploy';
 import { infraLbDeploy } from './commands/infra-lb-deploy';
 import { infraRemoveService } from './commands/infra-remove-service';
+import { infraRestoreDatabase } from './commands/infra-restore-database';
 import { infraRemoveDetachedWorker } from './commands/infra-remove-detached-worker';
 import { infraServiceStatus } from './commands/infra-service-status';
 import { infraLogs } from './commands/infra-logs';
@@ -376,6 +377,29 @@ export function registerInfraPlugin(program: Command): void {
       }),
     );
 
+  // infra:restore-database - Replace a service's database with a saved file
+  program
+    .command('infra:restore-database [service-name]')
+    .description(
+      "Replace a service's database with a file infra:remove-service saved (saves the current contents first)",
+    )
+    .option('--env <environment>', 'Target environment')
+    .option(
+      '--file <name>',
+      'Saved file to restore (default: the newest from infra:remove-service)',
+    )
+    .option('--confirm', 'Skip the confirmation (required in CI)')
+    .action(
+      wrapCommand(
+        async (
+          serviceName: string | undefined,
+          options: { env?: string; file?: string; confirm?: boolean },
+        ) => {
+          await infraRestoreDatabase(serviceName, options);
+        },
+      ),
+    );
+
   // infra:remove-service - Remove a service from cloud (one environment at a time)
   program
     .command('infra:remove-service [service-name]')
@@ -385,11 +409,20 @@ export function registerInfraPlugin(program: Command): void {
     .option('--env <environment>', 'Target environment')
     .option('--confirm', 'Skip confirmation prompts (required in CI)')
     .option('--dry-run', 'Show what would be deleted without deleting')
+    .option(
+      '--skip-export',
+      'Drop the database without saving it first (infra:restore-database needs the saved file)',
+    )
     .action(
       wrapCommand(
         async (
           serviceName: string | undefined,
-          options: { env?: string; confirm?: boolean; dryRun?: boolean },
+          options: {
+            env?: string;
+            confirm?: boolean;
+            dryRun?: boolean;
+            skipExport?: boolean;
+          },
         ) => {
           await infraRemoveService(serviceName, options);
         },
@@ -449,7 +482,12 @@ export function registerInfraPlugin(program: Command): void {
     )
     .option('--kind <kind>', 'Only app, platform or edge lines')
     .option('--grep <text>', 'Lines that contain this text (any case)')
-    .option('--json', 'One JSON object per line');
+    .option('--json', 'One JSON object per line')
+    .option(
+      '--follow',
+      'Print new lines as they arrive, until Ctrl+C (stops after 1 hour)',
+    )
+    .option('--no-time-limit', 'With --follow: keep going until Ctrl+C');
   // For the MCP get_logs tool
   logsCommand
     .addOption(logsCommand.createOption('--newest <n>').hideHelp())

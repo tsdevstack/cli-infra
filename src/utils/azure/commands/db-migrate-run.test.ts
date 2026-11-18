@@ -25,8 +25,8 @@ rs.mock('./execute-container-job', () => ({
   executeContainerJob: rs.fn(),
 }));
 
-rs.mock('../../credentials/fetch-secret', () => ({
-  fetchSecret: rs.fn(),
+rs.mock('../resolve-azure-migration-job-access', () => ({
+  resolveAzureMigrationJobAccess: rs.fn(),
 }));
 
 rs.mock('@tsdevstack/infra-core', () => ({
@@ -44,7 +44,7 @@ rs.mock('../../infrastructure/merge-with-defaults', () => ({
 import { azureDbMigrateRun } from './db-migrate-run';
 import { getTerraformOutput, getAcrIdentityOutputs } from '../terraform';
 import { executeContainerJob } from './execute-container-job';
-import { fetchSecret } from '../../credentials/fetch-secret';
+import { resolveAzureMigrationJobAccess } from '../resolve-azure-migration-job-access';
 import { buildAzureTerraformEnv } from '@tsdevstack/infra-core';
 
 const testCredentials = {
@@ -54,6 +54,10 @@ const testCredentials = {
   clientSecret: 'secret-abc',
   location: 'eastus',
 };
+
+const OWNER_URL_SECRET =
+  'https://myapp-dev-dbjobs.vault.azure.net/secrets/myapp-auth-service-MIGRATION-DATABASE-URL';
+const DB_JOBS_IDENTITY = '/subscriptions/sub/identity/myapp-dev-db-jobs';
 
 const baseParams = {
   projectRoot: '/test/project',
@@ -88,7 +92,10 @@ describe('azureDbMigrateRun', () => {
       managedIdentityClientId: undefined,
     });
 
-    rs.mocked(fetchSecret).mockReturnValue('postgres://user:pass@host:5432/db');
+    rs.mocked(resolveAzureMigrationJobAccess).mockResolvedValue({
+      keyVaultSecretUrl: OWNER_URL_SECRET,
+      identityId: DB_JOBS_IDENTITY,
+    });
 
     rs.mocked(executeContainerJob).mockResolvedValue({
       success: true,
@@ -114,29 +121,28 @@ describe('azureDbMigrateRun', () => {
       );
     });
 
-    it('should pass DATABASE_URL env var', async () => {
+    it('should have Container Apps read DATABASE_URL from Key Vault, with no value in the job', async () => {
       await azureDbMigrateRun(baseParams);
 
-      expect(executeContainerJob).toHaveBeenCalledWith(
-        expect.objectContaining({
-          envVars: [
-            {
-              name: 'DATABASE_URL',
-              value: 'postgres://user:pass@host:5432/db',
-            },
-          ],
-        }),
-      );
+      const job = rs.mocked(executeContainerJob).mock.calls[0][0];
+      expect(job.keyVaultEnvVars).toEqual([
+        { name: 'DATABASE_URL', keyVaultUrl: OWNER_URL_SECRET },
+      ]);
+      expect(job.secretsIdentityId).toBe(DB_JOBS_IDENTITY);
+      expect(job.envVars).toBeUndefined();
     });
 
-    it('should fetch DATABASE_URL secret directly', async () => {
+    it('should connect as the owner role (MIGRATION_DATABASE_URL)', async () => {
       await azureDbMigrateRun(baseParams);
 
-      expect(fetchSecret).toHaveBeenCalledWith(
-        'DATABASE_URL',
-        'dev',
-        'auth-service',
-      );
+      expect(resolveAzureMigrationJobAccess).toHaveBeenCalledWith({
+        projectName: baseParams.projectName,
+        targetEnv: 'dev',
+        serviceName: 'auth-service',
+        credentials: baseParams.credentials,
+        terraformDir: '/test/project/infrastructure/terraform/dev',
+        tfEnv: { ARM_SUBSCRIPTION_ID: 'sub-123', ARM_TENANT_ID: 'tenant-456' },
+      });
     });
 
     it('should log success on completion', async () => {
@@ -211,8 +217,8 @@ describe('azureDbMigrateRun', () => {
       );
     });
 
-    it('should throw CliError when DATABASE_URL secret not found', async () => {
-      rs.mocked(fetchSecret).mockReturnValue(null);
+    it('should throw CliError when no database URL secret is found', async () => {
+      rs.mocked(resolveAzureMigrationJobAccess).mockResolvedValue(null);
 
       await expect(azureDbMigrateRun(baseParams)).rejects.toThrow(
         mocks.CliError,

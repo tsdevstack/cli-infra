@@ -11,6 +11,7 @@ import { getContext } from '../../../context';
 import {
   aws,
   calculatePoolSize,
+  generateDbInit,
   getTotalWorkerMaxInstances,
   type AWSInfraConfig,
 } from '@tsdevstack/infra-core';
@@ -77,6 +78,8 @@ export function generateTerraformFiles(
     ensureDirectory,
     writeTextFile,
     cleanupFolder,
+    readDbInitSql,
+    DATABASE_APP_ROLE_SUFFIX,
   } = getContext();
 
   const frameworkConfig = loadFrameworkConfig();
@@ -379,6 +382,9 @@ export function generateTerraformFiles(
       schedule: convertCronToEventBridge(job.schedule),
       targetService: job.targetService,
       endpoint: job.endpoint,
+      method: job.method,
+      httpTimeout: job.httpTimeout,
+      timezone: job.timezone,
     };
   });
 
@@ -600,7 +606,11 @@ export function generateTerraformFiles(
   // Generate db-init directory (Dockerfile, package.json, index.js)
   const dbInitDir = path.join(outputDir, 'db-init');
   ensureDirectory(dbInitDir);
-  const dbInitFiles = aws.generateDbInit();
+  const dbInitFiles = generateDbInit({
+    cloud: 'aws',
+    sql: readDbInitSql(),
+    appRoleSuffix: DATABASE_APP_ROLE_SUFFIX,
+  });
   writeTextFile(path.join(dbInitDir, 'Dockerfile'), dbInitFiles.dockerfile);
   logFile('db-init/Dockerfile');
   writeTextFile(path.join(dbInitDir, 'package.json'), dbInitFiles.packageJson);
@@ -611,7 +621,9 @@ export function generateTerraformFiles(
   // Generate db-delete directory (Dockerfile, package.json, index.js)
   const dbDeleteDir = path.join(outputDir, 'db-delete');
   ensureDirectory(dbDeleteDir);
-  const dbDeleteFiles = aws.generateDbDelete();
+  const dbDeleteFiles = aws.generateDbDelete({
+    appRoleSuffix: DATABASE_APP_ROLE_SUFFIX,
+  });
   writeTextFile(path.join(dbDeleteDir, 'Dockerfile'), dbDeleteFiles.dockerfile);
   logFile('db-delete/Dockerfile');
   writeTextFile(

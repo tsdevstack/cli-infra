@@ -9,6 +9,12 @@
  */
 
 import type { GCPCredentials } from '@tsdevstack/cli/plugin';
+import {
+  buildGcpCloudRunName,
+  type NamingScheme,
+} from '@tsdevstack/infra-core';
+import { buildGcpMigrationJobName } from '../build-gcp-migration-job-name';
+import { buildGcpSpaBucketName } from '../build-gcp-spa-bucket-name';
 import { cloudRunServiceExists } from './cloud-run-service-exists';
 import { bucketExists } from './bucket-exists';
 import { listSecretsByPrefix } from './list-secrets-by-prefix';
@@ -22,11 +28,17 @@ export interface DiscoverServiceResourcesOptions {
   region: string;
   sqlInstanceName: string;
   credentials: GCPCredentials;
+  /** The environment's naming scheme (Cloud Run and migration job names) */
+  naming: NamingScheme;
 }
 
 export interface DiscoveredResources {
   cloudRunService: boolean;
+  /** The service's Cloud Run name (buildGcpCloudRunName) */
+  cloudRunServiceName: string;
   cloudRunServiceUrl?: string;
+  /** The Cloud Run job that migrates its database (if it has one) */
+  migrationJobName: string;
   spaBucket: boolean;
   spaBucketName: string;
   database: boolean;
@@ -34,6 +46,9 @@ export interface DiscoveredResources {
   secrets: string[];
   serviceAccount: boolean;
   serviceAccountEmail: string;
+  /** The account its migration jobs run as (services with a database) */
+  migrationServiceAccount: boolean;
+  migrationServiceAccountEmail: string;
   /**
    * Inferred type based on discovered resources:
    * - 'backend': Cloud Run service exists (could be NestJS, Next.js, or other)
@@ -63,10 +78,22 @@ export async function discoverServiceResources(
     region,
     credentials,
     sqlInstanceName,
+    naming,
   } = options;
 
-  const spaBucketName = `${projectName}-${serviceName}-spa`;
+  const cloudRunServiceName = buildGcpCloudRunName(
+    projectName,
+    serviceName,
+    naming,
+  );
+
+  const spaBucketName = buildGcpSpaBucketName(
+    projectName,
+    serviceName,
+    projectId,
+  );
   const serviceAccountEmail = `${projectName}-${serviceName}-rt@${projectId}.iam.gserviceaccount.com`;
+  const migrationServiceAccountEmail = `${projectName}-${serviceName}-mg@${projectId}.iam.gserviceaccount.com`;
 
   // Run all discovery calls in parallel for performance
   const [
@@ -75,9 +102,10 @@ export async function discoverServiceResources(
     secretsResult,
     databaseResult,
     serviceAccountResult,
+    migrationServiceAccountResult,
   ] = await Promise.all([
     cloudRunServiceExists({
-      serviceName,
+      serviceName: cloudRunServiceName,
       projectId,
       region,
       credentials,
@@ -102,6 +130,11 @@ export async function discoverServiceResources(
       projectId,
       credentials,
     }),
+    serviceAccountExists({
+      serviceAccountEmail: migrationServiceAccountEmail,
+      projectId,
+      credentials,
+    }),
   ]);
 
   const hasCloudRun = cloudRunResult.exists;
@@ -121,7 +154,13 @@ export async function discoverServiceResources(
 
   return {
     cloudRunService: hasCloudRun,
+    cloudRunServiceName,
     cloudRunServiceUrl: cloudRunResult.serviceUrl,
+    migrationJobName: buildGcpMigrationJobName(
+      projectName,
+      serviceName,
+      naming,
+    ),
     spaBucket: hasBucket,
     spaBucketName,
     database: hasDatabase,
@@ -131,6 +170,8 @@ export async function discoverServiceResources(
       : [],
     serviceAccount: serviceAccountResult.exists,
     serviceAccountEmail,
+    migrationServiceAccount: migrationServiceAccountResult.exists,
+    migrationServiceAccountEmail,
     inferredType,
     hasDatabase,
   };

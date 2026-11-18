@@ -8,13 +8,14 @@
  * then keeps only lines with the text in the message or the app's fields.
  */
 
-import type { LogsQuery } from '../../logs/types';
+import type { AzureLogsQuery } from './types';
 import { buildAzureSourceLegs } from './build-azure-source-legs';
 import { escapeKqlString } from './escape-kql-string';
+import type { AzureNaming } from '@tsdevstack/cli/plugin';
 
 export function buildAzureLogsQuery(
-  query: LogsQuery,
-  names: { projectName: string; targetEnv: string },
+  query: AzureLogsQuery,
+  names: { projectName: string; targetEnv: string; naming: AzureNaming },
   window: { from: Date; to: Date; includeEnd: boolean },
   tail: string,
 ): string | undefined {
@@ -22,6 +23,7 @@ export function buildAzureLogsQuery(
     buildAzureSourceLegs(source, names, {
       kind: query.kind,
       level: query.level,
+      appServiceLive: query.appServiceLive,
     }),
   );
   if (legs.length === 0) {

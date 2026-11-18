@@ -7,8 +7,11 @@
 
 import path from 'node:path';
 import { getContext } from '../../../context';
+import type { AzureNaming } from '@tsdevstack/cli/plugin';
 import {
   azure,
+  buildAzureResourceName,
+  generateDbInit,
   type AzureInfraConfig,
   type AppServicePlanScaling,
   type WafConfig,
@@ -26,6 +29,7 @@ import {
   getKongConfig,
 } from '../../infrastructure/merge-with-defaults';
 import { resolveAppServiceScaling } from '../infrastructure/resolve-app-service-scaling';
+import { getFrontdoorPremium } from '../infrastructure/get-frontdoor-premium';
 import type {
   SecurityOverride,
   RedisOverride,
@@ -34,6 +38,8 @@ import { resolvePostgresServerName } from '../resolve-postgres-server-name';
 import type { AzureCommandContext } from './types';
 
 interface GenerateOptions {
+  /** The environment's naming (resolveAzureNaming) */
+  naming: AzureNaming;
   verbose?: boolean;
   /** Skip custom domain associations in routes and security policy (for two-phase deploy recovery) */
   skipCustomDomainAssociations?: boolean;
@@ -50,7 +56,7 @@ interface GenerateResult {
 export function generateTerraformFiles(
   ctx: AzureCommandContext,
   commandName: string,
-  options: GenerateOptions = {},
+  options: GenerateOptions,
 ): GenerateResult {
   const {
     logger,
@@ -60,8 +66,11 @@ export function generateTerraformFiles(
     executeCommand,
     cleanupFolder,
     buildKeyVaultName,
+    readDbInitSql,
+    DATABASE_APP_ROLE_SUFFIX,
+    AZURE_DB_JOBS_KEY_VAULT_SCOPE,
   } = getContext();
-  const { verbose } = options;
+  const { verbose, naming } = options;
 
   const config = loadFrameworkConfig();
   const projectName = config.project.name;
@@ -82,6 +91,7 @@ export function generateTerraformFiles(
     projectName,
     ctx.targetEnv,
     infraConfig,
+    naming,
   );
 
   const outputDir = path.join(
@@ -96,9 +106,13 @@ export function generateTerraformFiles(
   // Clean up old generated files (handles provider switching, stale subdirs)
   cleanupFolder(outputDir, ['.terraform', '.terraform.lock.hcl']);
 
-  // Build storage account name (must match bootstrap)
-  const sanitizedName = projectName.replace(/[^a-z0-9]/g, '');
-  const storageAccountName = `${sanitizedName}${ctx.targetEnv}tfstate`;
+  // The state's storage account (must match bootstrap's createStateBackend)
+  const storageAccountName = buildAzureResourceName('stateStorageAccount', {
+    projectName,
+    environment: ctx.targetEnv,
+    naming: naming.scheme,
+    subscriptionId: naming.subscriptionId,
+  });
 
   // Build services map from framework config
   const services: Record<
@@ -242,11 +256,12 @@ export function generateTerraformFiles(
     database: {
       tier: databaseConfig.tier,
       storageSizeGb: databaseConfig.diskSize,
-      deletionProtection: getDeleteProtection(infraConfig, ctx.targetEnv),
+      deletionProtection: databaseConfig.deletionProtection,
       backup: databaseConfig.backup,
       ha: databaseConfig.ha,
-      // Only pass an override: the default name stays a Terraform expression
-      ...(postgresServerName.isOverride
+      // An override or a unique name: a legacy environment's default name
+      // stays a Terraform expression, so its generated files don't change
+      ...(postgresServerName.isOverride || naming.scheme === 'unique'
         ? { serverName: postgresServerName.name }
         : {}),
     },
@@ -269,12 +284,29 @@ export function generateTerraformFiles(
     kongScaling,
     nextjsScaling,
     // Each backend service reads its own scope from its own vault
-    keyVaultName: buildKeyVaultName(projectName, ctx.targetEnv),
+    naming: naming.scheme,
+    keyVaultName: buildKeyVaultName(projectName, ctx.targetEnv, naming),
     serviceKeyVaults: Object.fromEntries(
       Object.keys(services).map((name) => [
         name,
-        buildKeyVaultName(projectName, ctx.targetEnv, name),
+        buildKeyVaultName(projectName, ctx.targetEnv, naming, name),
       ]),
+    ),
+    // db-init: the admin password and the owners' URLs in a vault no service
+    // reads; each database service's DATABASE_URL in its own vault
+    dbJobsKeyVault: buildKeyVaultName(
+      projectName,
+      ctx.targetEnv,
+      naming,
+      AZURE_DB_JOBS_KEY_VAULT_SCOPE,
+    ),
+    databaseServiceKeyVaults: Object.fromEntries(
+      servicesWithDatabase
+        .filter((service) => service.hasDatabase)
+        .map((service) => [
+          service.name,
+          buildKeyVaultName(projectName, ctx.targetEnv, naming, service.name),
+        ]),
     ),
   };
 
@@ -288,7 +320,7 @@ export function generateTerraformFiles(
     { name: 'terraform.tfvars', content: azure.generateTfvars(generateConfig) },
     { name: 'outputs.tf', content: azure.generateOutputsTf(generateConfig) },
     { name: 'network.tf', content: azure.generateNetworkTf() },
-    { name: 'acr.tf', content: azure.generateAcrTf() },
+    { name: 'acr.tf', content: azure.generateAcrTf(generateConfig) },
     {
       name: 'container-apps-env.tf',
       content: azure.generateContainerAppsEnvTf(),
@@ -360,6 +392,22 @@ export function generateTerraformFiles(
     });
   }
 
+  // db-init job (Dockerfile, package.json, index.js): infra:deploy builds it
+  // and runs it in the Container Apps environment
+  if (servicesWithDatabase.some((service) => service.hasDatabase)) {
+    const dbInitFiles = generateDbInit({
+      cloud: 'azure',
+      sql: readDbInitSql(),
+      appRoleSuffix: DATABASE_APP_ROLE_SUFFIX,
+    });
+    ensureDirectory(path.join(outputDir, 'db-init'));
+    files.push(
+      { name: 'db-init/Dockerfile', content: dbInitFiles.dockerfile },
+      { name: 'db-init/package.json', content: dbInitFiles.packageJson },
+      { name: 'db-init/index.js', content: dbInitFiles.indexJs },
+    );
+  }
+
   for (const file of files) {
     const filePath = path.join(outputDir, file.name);
     writeTextFile(filePath, file.content);
@@ -388,6 +436,8 @@ function buildScheduledJobsMap(
       schedule: job.schedule,
       targetService: job.targetService,
       endpoint: job.endpoint,
+      method: job.method,
+      httpTimeout: job.httpTimeout,
     };
   }
 
@@ -439,21 +489,6 @@ function reportPlanScaling(
 }
 
 /**
- * Get deletionProtection from raw infrastructure config
- */
-function getDeleteProtection(
-  config: { [env: string]: unknown } | null,
-  env: string,
-): boolean {
-  if (!config) return false;
-  const envConfig = config[env];
-  if (!envConfig || typeof envConfig !== 'object') return false;
-  const db = (envConfig as { database?: { deletionProtection?: boolean } })
-    .database;
-  return db?.deletionProtection ?? false;
-}
-
-/**
  * Get domain from service override in infrastructure config
  */
 function getServiceDomain(
@@ -483,21 +518,6 @@ function getNoIndex(
   const ac = (envConfig as { accessControl?: { noIndex?: boolean } })
     .accessControl;
   return ac?.noIndex ?? false;
-}
-
-/**
- * Get frontdoorPremium from raw infrastructure config
- */
-function getFrontdoorPremium(
-  config: { [env: string]: unknown } | null,
-  env: string,
-): boolean {
-  if (!config) return false;
-  const envConfig = config[env];
-  if (!envConfig || typeof envConfig !== 'object') return false;
-  return (
-    (envConfig as { frontdoorPremium?: boolean }).frontdoorPremium ?? false
-  );
 }
 
 /**

@@ -42,9 +42,15 @@ const reader = {
   lastLogged: rs.fn(),
   read: rs.fn(),
   readNewest: rs.fn(),
+  follow: rs.fn(),
 };
 const write = rs.fn();
 const notice = rs.fn();
+/** Ctrl+C: pressed at once, so a follow session stops when it starts */
+const pressCtrlC = (stop: () => void): (() => void) => {
+  queueMicrotask(stop);
+  return () => undefined;
+};
 
 function run(sourceName: string | undefined, options: Record<string, unknown>) {
   return runLogsCommand({
@@ -56,6 +62,7 @@ function run(sourceName: string | undefined, options: Record<string, unknown>) {
     now: NOW,
     write,
     notice,
+    onInterrupt: pressCtrlC,
   });
 }
 
@@ -127,7 +134,7 @@ describe('runLogsCommand', () => {
         grep: 'timeout',
       });
       expect(notices()).toContain(
-        '--level leaves out lines without a level (Kong, frontends, other plain text).',
+        '--level leaves out lines without a level (Kong and other plain text).',
       );
       expect(notices()).toContain('No lines in this window.');
     });
@@ -170,6 +177,65 @@ describe('runLogsCommand', () => {
     });
   });
 
+  describe('--follow', () => {
+    it('should follow one source with the filters and print what arrives', async () => {
+      reader.follow.mockImplementation(
+        (_query, handlers, signal: AbortSignal) =>
+          new Promise<void>((resolve) => {
+            handlers.onEntries([
+              line('2026-10-30T12:00:01.000Z', 'Payment failed', {
+                level: 'error',
+              }),
+              line('2026-10-30T12:00:02.000Z', 'Started'),
+            ]);
+            signal.addEventListener('abort', () => resolve());
+          }),
+      );
+
+      await run('auth-service', {
+        follow: true,
+        timeLimit: true,
+        level: 'error',
+        kind: 'app',
+        grep: 'payment',
+      });
+
+      expect(reader.follow).toHaveBeenCalledTimes(1);
+      const query = reader.follow.mock.calls[0][0];
+      expect(query).toEqual({
+        sources: [SOURCES[0]],
+        level: 'error',
+        kind: 'app',
+        grep: 'payment',
+      });
+      expect(query.since).toBeUndefined();
+      expect(written()).toContain('Payment failed');
+      expect(written()).not.toContain('Started');
+      expect(notices()).toEqual([
+        'auth-service in dev, new lines as they arrive (times in UTC). Stops after 1 hour, or press Ctrl+C.',
+        '--level leaves out lines without a level (Kong and other plain text).',
+      ]);
+      expect(reader.read).not.toHaveBeenCalled();
+    });
+
+    it('should follow every source with --all and say only Ctrl+C stops it with --no-time-limit', async () => {
+      reader.follow.mockImplementation(
+        (_query, _handlers, signal: AbortSignal) =>
+          new Promise<void>((resolve) => {
+            signal.addEventListener('abort', () => resolve());
+          }),
+      );
+
+      await run(undefined, { all: true, follow: true, timeLimit: false });
+
+      expect(reader.follow.mock.calls[0][0].sources).toEqual(SOURCES);
+      expect(notices()).toEqual([
+        'all sources in dev, new lines as they arrive (times in UTC). Press Ctrl+C to stop.',
+        'No new lines.',
+      ]);
+    });
+  });
+
   describe('Edge cases', () => {
     it('should refuse a source name together with --all', async () => {
       await expect(run('kong', { all: true })).rejects.toThrow(
@@ -189,6 +255,31 @@ describe('runLogsCommand', () => {
       );
       await expect(run('kong', { newest: 'ten' })).rejects.toThrow(
         'Invalid --newest: ten',
+      );
+    });
+
+    it('should refuse --follow without a source or --all', async () => {
+      await expect(run(undefined, { follow: true })).rejects.toThrow(
+        'Name a source or use --all with --follow',
+      );
+      expect(reader.lastLogged).not.toHaveBeenCalled();
+    });
+
+    it('should refuse --follow with options for past lines', async () => {
+      await expect(
+        run('kong', { follow: true, since: '2h', newest: '5' }),
+      ).rejects.toThrow(
+        "--follow prints new lines only, so it can't take --since or --newest",
+      );
+      await expect(run('kong', { follow: true, until: '1h' })).rejects.toThrow(
+        "so it can't take --until",
+      );
+      expect(reader.follow).not.toHaveBeenCalled();
+    });
+
+    it('should refuse --no-time-limit without --follow', async () => {
+      await expect(run('kong', { timeLimit: false })).rejects.toThrow(
+        '--no-time-limit only works with --follow',
       );
     });
 

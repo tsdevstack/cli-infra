@@ -102,6 +102,32 @@ describe('executeSteps', () => {
     expect(logger.error).toHaveBeenCalledWith('     Failed: Access denied');
   });
 
+  it("should use a step's own wording when it has one", async () => {
+    const logger = createMockLogger();
+    await executeSteps(logger, [
+      {
+        name: 'Database save',
+        resource: 'auth-service',
+        label: 'Saving the database',
+        doneText: 'Saved',
+        skippedText: 'Not saved',
+        execute: async () => ({ success: true, deleted: true }),
+      },
+      {
+        name: 'Database save',
+        resource: 'auth-service',
+        label: 'Saving the database',
+        doneText: 'Saved',
+        skippedText: 'Not saved',
+        execute: async () => ({ success: true, deleted: false }),
+      },
+    ]);
+
+    expect(logger.info).toHaveBeenCalledWith('  1. Saving the database...');
+    expect(logger.success).toHaveBeenCalledWith('     ✔ Saved');
+    expect(logger.info).toHaveBeenCalledWith('     ✔ Not saved');
+  });
+
   it('should log step numbers during execution', async () => {
     const logger = createMockLogger();
     const steps = [

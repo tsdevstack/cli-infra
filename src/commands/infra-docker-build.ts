@@ -37,6 +37,11 @@ interface InfraDockerBuildOptions {
   maxParallel?: number;
   /** Skip Docker auth — used when the caller already authenticated (e.g. parallel builds) */
   skipAuth?: boolean;
+  /**
+   * Print the commands to run next (default true). The deploy commands pass
+   * false: they run them themselves.
+   */
+  nextSteps?: boolean;
 }
 
 /**
@@ -410,7 +415,9 @@ export async function infraDockerBuild(
   logger.newline();
   logger.complete(`Built ${builtImages.length} image(s)!`);
   logger.newline();
-  logger.info('Next steps:');
-  logger.info('  npx tsdevstack infra:push-docker');
-  logger.newline();
+  if (options.nextSteps !== false) {
+    logger.info('Next steps:');
+    logger.info('  npx tsdevstack infra:push-docker');
+    logger.newline();
+  }
 }

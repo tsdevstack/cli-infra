@@ -11,18 +11,28 @@ export type LogLevel = (typeof LOG_LEVELS)[number];
 export type LogKind = (typeof LOG_KINDS)[number];
 
 export type LogSourceType =
-  'service' | 'worker' | 'frontend' | 'kong' | 'migration' | 'job' | 'edge';
+  | 'service'
+  | 'worker'
+  | 'frontend'
+  | 'kong'
+  | 'migration'
+  | 'db-init'
+  | 'job'
+  | 'bucket'
+  | 'edge';
 
 /**
  * One place logs come from. `name` is what the user types and what every
- * line shows: auth-service, auth-worker, kong, migrate-auth-service, a
- * scheduled job's name, edge.
+ * line shows: auth-service, auth-worker, kong, migrate-auth-service,
+ * db-init, a scheduled job's name, bucket-uploads, edge.
  */
 export interface LogSource {
   name: string;
   type: LogSourceType;
   /** Scheduled jobs: the service the job calls */
   service?: string;
+  /** Storage buckets: the bucket's name in config.json */
+  bucket?: string;
 }
 
 /**
@@ -34,7 +44,7 @@ export interface LogEntry {
   /** LogSource name */
   source: string;
   kind: LogKind;
-  /** Missing on lines without a level (Kong, frontends, other plain text) */
+  /** Missing on lines without a level (Kong and other plain text) */
   level?: LogLevel;
   message: string;
   /** The app's structured fields (context, correlationId, http, error, ...) */
@@ -57,6 +67,27 @@ export interface LogsQuery {
   /** Case-insensitive text anywhere in the line (message and fields) */
   grep?: string;
 }
+
+/**
+ * What --follow streams: the sources and filters, no window (new lines only)
+ */
+export type LogsFollowQuery = Omit<LogsQuery, 'since' | 'until'>;
+
+/**
+ * Where a follow session hands its output
+ */
+export interface LogsFollowHandlers {
+  /** New lines, as they arrive (not merged into time order across streams) */
+  onEntries: (entries: LogEntry[]) => void;
+  /** A notice for standard error (a reconnect, a source it can't follow) */
+  onNotice: (text: string) => void;
+}
+
+/**
+ * How a live stream ended without an error: `ended` when what it followed
+ * is gone (stop quietly), `dropped` when it should be opened again
+ */
+export type LogStreamEnd = 'ended' | 'dropped';
 
 /**
  * The newest entries of a window, for the MCP tool
@@ -89,6 +120,16 @@ export interface LogsReader {
   read(query: LogsQuery, onPage: (entries: LogEntry[]) => void): Promise<void>;
   /** The newest matching lines of the window (MCP get_logs) */
   readNewest(query: LogsQuery, limit: number): Promise<NewestLogsResult>;
+  /**
+   * New lines from now on, handed over as they arrive, until the signal
+   * aborts (then it resolves). Dropped streams are opened again
+   * (followLogStream).
+   */
+  follow(
+    query: LogsFollowQuery,
+    handlers: LogsFollowHandlers,
+    signal: AbortSignal,
+  ): Promise<void>;
 }
 
 /**
@@ -108,4 +149,8 @@ export interface InfraLogsOptions {
   raw?: boolean;
   /** --newest <n> (hidden, MCP get_logs): only the newest n lines */
   newest?: string;
+  /** Print new lines as they arrive, until Ctrl+C or the time limit */
+  follow?: boolean;
+  /** --no-time-limit sets it to false: --follow runs until Ctrl+C */
+  timeLimit?: boolean;
 }

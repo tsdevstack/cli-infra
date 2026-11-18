@@ -85,6 +85,7 @@ describe('listCloudRunServices', () => {
         serviceAccount: undefined,
         imageUri: undefined,
         status: 'UNKNOWN',
+        labels: {},
       });
       expect(result.services[1]).toEqual({
         name: 'bff-service',
@@ -94,6 +95,7 @@ describe('listCloudRunServices', () => {
         serviceAccount: undefined,
         imageUri: undefined,
         status: 'UNKNOWN',
+        labels: {},
       });
     });
 
@@ -111,6 +113,59 @@ describe('listCloudRunServices', () => {
 
       expect(result.success).toBe(true);
       expect(result.services[0].url).toBeUndefined();
+    });
+  });
+
+  describe('status', () => {
+    const name =
+      'projects/my-gcp-project/locations/us-central1/services/auth-service';
+
+    async function statusOf(service: object): Promise<string | undefined> {
+      mocks.listServicesAsync.mockReturnValue(
+        createAsyncIterable([{ name, ...service }]),
+      );
+      return (await listCloudRunServices(baseOptions)).services[0].status;
+    }
+
+    it('should be SERVING when the terminal condition succeeded', async () => {
+      expect(
+        await statusOf({
+          terminalCondition: { type: 'Ready', state: 'CONDITION_SUCCEEDED' },
+          // The sub-parts carry no "Ready" condition
+          conditions: [
+            { type: 'RoutesReady', state: 'CONDITION_SUCCEEDED' },
+            { type: 'ConfigurationsReady', state: 'CONDITION_SUCCEEDED' },
+          ],
+        }),
+      ).toBe('SERVING');
+    });
+
+    it('should read the state as an enum number too', async () => {
+      expect(await statusOf({ terminalCondition: { state: 4 } })).toBe(
+        'SERVING',
+      );
+      expect(await statusOf({ terminalCondition: { state: 3 } })).toBe(
+        'FAILED',
+      );
+    });
+
+    it('should be FAILED when the terminal condition failed', async () => {
+      expect(
+        await statusOf({ terminalCondition: { state: 'CONDITION_FAILED' } }),
+      ).toBe('FAILED');
+    });
+
+    it('should be DEPLOYING while the service reconciles', async () => {
+      expect(
+        await statusOf({
+          reconciling: true,
+          terminalCondition: { state: 'CONDITION_RECONCILING' },
+        }),
+      ).toBe('DEPLOYING');
+    });
+
+    it('should be UNKNOWN without a terminal condition', async () => {
+      expect(await statusOf({})).toBe('UNKNOWN');
     });
   });
 

@@ -2,11 +2,14 @@
  * Resolve PostgreSQL Server Name (Azure)
  *
  * Single source of truth for the Azure PostgreSQL Flexible Server name.
- * Default: {project}-{environment}-postgres. An optional database.serverName
- * in infrastructure.json overrides it (the name is a global DNS name in Azure,
- * so the default can already be taken).
+ * Default: {project}-{environment}-postgres, with the subscription's suffix in
+ * environments with unique names (buildAzureResourceName). An optional
+ * database.serverName in infrastructure.json overrides it (the name is a
+ * global DNS name in Azure, so the default can already be taken).
  */
 
+import type { AzureNaming } from '@tsdevstack/cli/plugin';
+import { buildAzureResourceName } from '@tsdevstack/infra-core';
 import { getDatabaseConfig } from '../infrastructure/get-database-config';
 import { validateDatabaseServerName } from '../infrastructure/validate-database-server-name';
 
@@ -30,11 +33,20 @@ export function resolvePostgresServerName(
   projectName: string,
   targetEnv: string,
   infraConfig: { [env: string]: unknown } | null,
+  naming: AzureNaming,
 ): ResolvedPostgresServerName {
   const { serverName } = getDatabaseConfig(infraConfig, targetEnv, 'azure');
 
   if (serverName === undefined) {
-    return { name: `${projectName}-${targetEnv}-postgres`, isOverride: false };
+    return {
+      name: buildAzureResourceName('postgresServer', {
+        projectName,
+        environment: targetEnv,
+        naming: naming.scheme,
+        subscriptionId: naming.subscriptionId,
+      }),
+      isOverride: false,
+    };
   }
 
   validateDatabaseServerName(targetEnv, serverName, 'azure');

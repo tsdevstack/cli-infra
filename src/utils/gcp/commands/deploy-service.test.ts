@@ -4,6 +4,10 @@ import type { MockContext } from '@tsdevstack/cli/test-utils';
 const mocks = (globalThis as unknown as { contextMocks: MockContext })
   .contextMocks;
 
+rs.mock('../naming/resolve-gcp-naming-scheme', () => ({
+  resolveGcpNamingScheme: rs.fn(async () => 'legacy'),
+}));
+
 rs.mock('../../../context', () => ({
   getContext: rs.fn(
     () => (globalThis as unknown as { contextMocks: MockContext }).contextMocks,
@@ -28,6 +32,8 @@ rs.mock('../../credentials/set-secret-via-cli', () => ({
 }));
 
 rs.mock('@tsdevstack/infra-core', () => ({
+  buildGcpCloudRunName: (project: string, name: string, naming: string) =>
+    naming === 'unique' ? `${project}-${name}` : name,
   buildBackendEnvVars: rs.fn(),
   buildBackendSecrets: rs.fn(),
   buildFrontendEnvVars: rs.fn(),
@@ -95,6 +101,7 @@ describe('gcpDeployService', () => {
     projectName: 'my-app',
     targetEnv: 'dev',
     credentials: mockCredentials,
+    naming: 'legacy' as const,
   };
 
   const backendEnvVars: Record<string, string> = {

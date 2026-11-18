@@ -10,6 +10,8 @@ export function hasAnyResources(discovered: DiscoveredResources): boolean {
   return (
     discovered.ecsService ||
     discovered.spaBucket ||
+    discovered.cloudFrontDistributions.length > 0 ||
+    discovered.spaOriginAccessControlId !== undefined ||
     discovered.secrets.length > 0
   );
 }

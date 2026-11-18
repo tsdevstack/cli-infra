@@ -18,6 +18,7 @@ import {
   deployCloudRunService,
   getTotalWorkerMaxInstances,
   waitForImage,
+  buildGcpCloudRunName,
 } from '@tsdevstack/infra-core';
 import { getTotalServiceMaxInstances } from '../../deploy/get-total-service-max-instances';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
@@ -26,6 +27,8 @@ import { getServiceConfig } from '../../infrastructure/get-service-config';
 import type { EnvironmentOverrides } from '../../infrastructure/types';
 import type { GCPCredentials, FrameworkService } from '@tsdevstack/cli/plugin';
 import { warnIfSmallDatabasePool } from '../../deploy/warn-if-small-database-pool';
+import { resolveGcpNamingScheme } from '../naming/resolve-gcp-naming-scheme';
+import { buildGcpServiceLabels } from '../build-gcp-service-labels';
 
 interface GcpDeployWorkerParams {
   projectRoot: string;
@@ -66,6 +69,12 @@ export async function gcpDeployWorker(
     baseService,
     imageTag,
   } = params;
+
+  // Cloud Run names follow the scheme the environment was first deployed with
+  const naming = await resolveGcpNamingScheme(
+    { projectName, targetEnv, credentials },
+    'infra:worker-deploy',
+  );
 
   const tfEnv = buildGcpTerraformEnv(runtime, credentials);
   const terraformDir = path.join(
@@ -191,7 +200,8 @@ export async function gcpDeployWorker(
   const result = await deployCloudRunService(runtime, {
     projectId: credentials.project_id,
     region: credentials.region,
-    serviceName: worker.name,
+    serviceName: buildGcpCloudRunName(projectName, worker.name, naming),
+    labels: buildGcpServiceLabels(projectName, naming),
     imageUri,
     vpcNetwork,
     vpcSubnet,

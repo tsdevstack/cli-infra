@@ -156,6 +156,11 @@ export async function deploySpaAws(
   if (uploadResult.filesDeleted > 0) {
     logger.info(`  ✓ ${uploadResult.filesDeleted} stale files deleted`);
   }
+  if (uploadResult.filesKept > 0) {
+    logger.info(
+      `  ✓ ${uploadResult.filesKept} files from earlier builds kept for open tabs (deleted by a deploy a day after their last upload)`,
+    );
+  }
   logger.newline();
 
   // Invalidate CloudFront cache

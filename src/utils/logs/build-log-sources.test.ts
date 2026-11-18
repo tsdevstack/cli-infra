@@ -29,6 +29,7 @@ describe('buildLogSources', () => {
         { name: 'frontend', type: 'frontend' },
         { name: 'kong', type: 'kong' },
         { name: 'migrate-auth-service', type: 'migration' },
+        { name: 'db-init', type: 'db-init' },
         {
           name: 'sync-api-key-usage',
           type: 'job',
@@ -37,9 +38,40 @@ describe('buildLogSources', () => {
         { name: 'edge', type: 'edge' },
       ]);
     });
+
+    it("should list each storage bucket's access log before the edge", () => {
+      const sources = buildLogSources([], [], ['uploads', 'media-assets']);
+
+      expect(sources.slice(-3)).toEqual([
+        { name: 'bucket-uploads', type: 'bucket', bucket: 'uploads' },
+        { name: 'bucket-media-assets', type: 'bucket', bucket: 'media-assets' },
+        { name: 'edge', type: 'edge' },
+      ]);
+    });
   });
 
   describe('Edge cases', () => {
+    it('should list the database setup job once, and only with a database', () => {
+      const twoDatabases: FrameworkService[] = [
+        { name: 'auth-service', type: 'nestjs', port: 3001, hasDatabase: true },
+        {
+          name: 'offers-service',
+          type: 'nestjs',
+          port: 3003,
+          hasDatabase: true,
+        },
+      ];
+      const names = buildLogSources(twoDatabases, []).map((s) => s.name);
+      expect(names.filter((name) => name === 'db-init')).toHaveLength(1);
+
+      const noDatabase: FrameworkService[] = [
+        { name: 'bff-service', type: 'nestjs', port: 3002, hasDatabase: false },
+      ];
+      expect(buildLogSources(noDatabase, []).map((s) => s.name)).not.toContain(
+        'db-init',
+      );
+    });
+
     it('should leave out SPAs, which log nothing of their own', () => {
       const names = buildLogSources(SERVICES, []).map((s) => s.name);
       expect(names).not.toContain('react-app');

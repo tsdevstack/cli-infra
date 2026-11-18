@@ -11,6 +11,12 @@ export interface DeletionStep {
   name: string;
   resource: string;
   execute: () => Promise<DeletionStepResult>;
+  /** The progress line (default "Deleting {name}") */
+  label?: string;
+  /** Shown when it did its work (default "Deleted") */
+  doneText?: string;
+  /** Shown when it had nothing to do (default "Already gone") */
+  skippedText?: string;
 }
 
 /**

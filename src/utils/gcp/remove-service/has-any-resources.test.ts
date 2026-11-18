@@ -5,6 +5,8 @@ import type { DiscoveredResources } from '../discovery';
 describe('hasAnyResources', () => {
   const createEmptyDiscovery = (): DiscoveredResources => ({
     cloudRunService: false,
+    cloudRunServiceName: 'test-service',
+    migrationJobName: 'migrate-test-service',
     spaBucket: false,
     spaBucketName: '',
     secrets: [],
@@ -12,6 +14,8 @@ describe('hasAnyResources', () => {
     databaseUser: false,
     serviceAccount: false,
     serviceAccountEmail: '',
+    migrationServiceAccount: false,
+    migrationServiceAccountEmail: '',
     inferredType: 'unknown',
     hasDatabase: false,
   });
@@ -50,6 +54,12 @@ describe('hasAnyResources', () => {
     const discovered = createEmptyDiscovery();
     discovered.serviceAccount = true;
     discovered.serviceAccountEmail = 'test@project.iam.gserviceaccount.com';
+    expect(hasAnyResources(discovered)).toBe(true);
+  });
+
+  it("should return true when only the migration jobs' account is left", () => {
+    const discovered = createEmptyDiscovery();
+    discovered.migrationServiceAccount = true;
     expect(hasAnyResources(discovered)).toBe(true);
   });
 

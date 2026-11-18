@@ -89,6 +89,9 @@ export async function awsDeploy(
   } else {
     logger.success(`  ✓ S3 bucket exists: ${backendResult.bucketName}`);
   }
+  if (backendResult.bucketPolicySet && !backendResult.bucketCreated) {
+    logger.success('  ✓ S3 bucket now refuses requests without HTTPS');
+  }
 
   if (backendResult.tableCreated) {
     logger.success(`  ✓ Created DynamoDB table: ${backendResult.tableName}`);
@@ -105,8 +108,9 @@ export async function awsDeploy(
   logger.newline();
 
   // Note: Database passwords are NOT passed to Terraform.
-  // The db-init ECS task creates per-service databases/users and stores
-  // DATABASE_URL directly in Secrets Manager after Terraform runs.
+  // The db-init ECS task creates per-service databases and their two roles
+  // (owner, app) and stores MIGRATION_DATABASE_URL and DATABASE_URL directly
+  // in Secrets Manager after Terraform runs.
 
   // Detect deployed SPA buckets for conditional CloudFront creation
   const { loadFrameworkConfig } = getContext();
@@ -121,7 +125,6 @@ export async function awsDeploy(
     const { spaBucketsReady } = await detectDeployedOrigins({
       credentials: ctx.credentials,
       projectName: ctx.projectName,
-      environment: ctx.targetEnv,
       spaServices,
     });
 

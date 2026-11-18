@@ -74,6 +74,23 @@ describe('gcpInit', () => {
       expect(mocks.logger.success).toHaveBeenCalledWith(
         expect.stringContaining('already exists'),
       );
+      expect(mocks.logger.success).not.toHaveBeenCalledWith(
+        expect.stringContaining('made public'),
+      );
+    });
+
+    it('should say when an existing bucket got the access settings', async () => {
+      mockCreateBucket.mockResolvedValue({
+        success: true,
+        isNew: false,
+        accessUpdated: true,
+      });
+
+      await gcpInit(mockContext);
+
+      expect(mocks.logger.success).toHaveBeenCalledWith(
+        '✓ Bucket now uses IAM only and can never be made public',
+      );
     });
 
     it('should throw when bucket creation fails', async () => {

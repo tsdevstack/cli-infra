@@ -2,6 +2,8 @@
  * Create GCS Bucket
  *
  * Generic function to create a GCS bucket with configurable options.
+ * Every bucket gets uniform bucket-level access and public access
+ * prevention; an existing bucket without them gets them too.
  */
 
 import { Storage } from '@google-cloud/storage';
@@ -25,6 +27,8 @@ export interface CreateBucketResult {
   success: boolean;
   bucketName: string;
   isNew: boolean;
+  /** An existing bucket got uniform access and public access prevention now */
+  accessUpdated: boolean;
   error?: string;
 }
 
@@ -50,15 +54,33 @@ export async function createBucket(
   // Create Storage client (supports ADC mode)
   const storage = new Storage(buildGCPClientOptions(credentials));
 
+  // Access by IAM only (no per-file ACLs), and nobody can make the bucket
+  // or a file public
+  const iamConfiguration = {
+    uniformBucketLevelAccess: { enabled: true },
+    publicAccessPrevention: 'enforced',
+  };
+
   try {
     // Check if bucket exists
-    const [exists] = await storage.bucket(bucketName).exists();
+    const bucket = storage.bucket(bucketName);
+    const [exists] = await bucket.exists();
 
     if (exists) {
+      // A bucket made by an older CLI: add the access settings it lacks
+      const [metadata] = await bucket.getMetadata();
+      const current = metadata.iamConfiguration;
+      const accessUpdated =
+        current?.uniformBucketLevelAccess?.enabled !== true ||
+        current?.publicAccessPrevention !== 'enforced';
+      if (accessUpdated) {
+        await bucket.setMetadata({ iamConfiguration });
+      }
       return {
         success: true,
         bucketName,
         isNew: false,
+        accessUpdated,
       };
     }
 
@@ -69,6 +91,7 @@ export async function createBucket(
       versioning: {
         enabled: versioning,
       },
+      iamConfiguration,
       labels: {
         'managed-by': 'tsdevstack',
         ...labels,
@@ -79,6 +102,7 @@ export async function createBucket(
       success: true,
       bucketName,
       isNew: true,
+      accessUpdated: false,
     };
   } catch (error: unknown) {
     const errorMessage =
@@ -87,6 +111,7 @@ export async function createBucket(
       success: false,
       bucketName,
       isNew: false,
+      accessUpdated: false,
       error: errorMessage,
     };
   }

@@ -9,6 +9,9 @@
  */
 
 import type { GCPCredentials } from '@tsdevstack/cli/plugin';
+import type { NamingScheme } from '@tsdevstack/infra-core';
+import { GCP_KONG_SERVICE_SUFFIX } from '../../../constants';
+import { getGcpProjectServiceName } from '../get-gcp-project-service-name';
 import type {
   DeployedServiceInfo,
   DiscoverDeployedServicesResult,
@@ -25,6 +28,8 @@ export interface DiscoverDeployedServicesOptions {
   region: string;
   sqlInstanceName: string;
   credentials: GCPCredentials;
+  /** The environment's naming scheme (which Cloud Run services are this project's) */
+  naming: NamingScheme;
 }
 
 /**
@@ -38,8 +43,14 @@ export interface DiscoverDeployedServicesOptions {
 export async function discoverDeployedServices(
   options: DiscoverDeployedServicesOptions,
 ): Promise<DiscoverDeployedServicesResult> {
-  const { projectName, projectId, region, sqlInstanceName, credentials } =
-    options;
+  const {
+    projectName,
+    projectId,
+    region,
+    sqlInstanceName,
+    credentials,
+    naming,
+  } = options;
 
   // Step 1: List Cloud Run services and SPA buckets in parallel
   const [cloudRunResult, spaBucketsResult] = await Promise.all([
@@ -77,10 +88,15 @@ export async function discoverDeployedServices(
   // Add Cloud Run services (these are typically nestjs/nextjs)
   for (const service of cloudRunResult.services) {
     // Skip Kong gateway
-    if (service.name === `${projectName}-kong`) {
+    if (service.name === `${projectName}${GCP_KONG_SERVICE_SUFFIX}`) {
       continue;
     }
-    serviceNames.add(service.name);
+    // In the unique scheme, services of other projects in this GCP project
+    // don't carry this project's label: they are left out
+    const name = getGcpProjectServiceName(projectName, service, naming);
+    if (name !== undefined) {
+      serviceNames.add(name);
+    }
   }
 
   // Add SPA services (bucket-based)
@@ -97,11 +113,12 @@ export async function discoverDeployedServices(
       region,
       sqlInstanceName,
       credentials,
+      naming,
     });
 
     // Find URL from Cloud Run results
     const cloudRunService = cloudRunResult.services.find(
-      (s) => s.name === serviceName,
+      (s) => s.name === discovered.cloudRunServiceName,
     );
 
     // SPA services don't have Cloud Run status/image

@@ -23,7 +23,7 @@ export async function executeSteps(
 
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
-    logger.info(`  ${i + 1}. Deleting ${step.name}...`);
+    logger.info(`  ${i + 1}. ${step.label ?? `Deleting ${step.name}`}...`);
 
     try {
       const result = await step.execute();
@@ -38,15 +38,15 @@ export async function executeSteps(
       }
 
       if (result.deleted) {
-        logger.success(`     Deleted`);
+        logger.success(`     ✔ ${step.doneText ?? 'Deleted'}`);
       } else {
-        logger.info(`     Already gone`);
+        logger.info(`     ✔ ${step.skippedText ?? 'Already gone'}`);
       }
 
       completed.push(step);
     } catch (error) {
       logger.error(
-        `     Error: ${error instanceof Error ? error.message : 'Unknown'}`,
+        `     ✗ Error: ${error instanceof Error ? error.message : 'Unknown'}`,
       );
       return {
         completed,

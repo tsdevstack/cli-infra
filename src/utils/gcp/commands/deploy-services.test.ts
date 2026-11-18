@@ -4,6 +4,10 @@ import type { MockContext } from '@tsdevstack/cli/test-utils';
 const mocks = (globalThis as unknown as { contextMocks: MockContext })
   .contextMocks;
 
+rs.mock('../naming/resolve-gcp-naming-scheme', () => ({
+  resolveGcpNamingScheme: rs.fn(async () => 'legacy'),
+}));
+
 rs.mock('../../../context', () => ({
   getContext: rs.fn(
     () => (globalThis as unknown as { contextMocks: MockContext }).contextMocks,

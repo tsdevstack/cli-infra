@@ -15,6 +15,9 @@ import { buildRuntime } from '../../build-runtime';
 import { disableDeletionProtection } from '../disable-deletion-protection';
 import { disableAlbDeletionProtection } from '../disable-alb-deletion-protection';
 import type { AWSCommandContext, DestroyOptions } from './types';
+import { deleteCloudWatchLogGroup } from '../delete';
+import { buildAwsMigrationNames } from '../build-aws-migration-names';
+import { AWS_VPC_FLOW_LOG_GROUP_PREFIX } from '../../../constants';
 
 /**
  * Check if any service in the project has a database
@@ -182,6 +185,46 @@ export async function awsDestroy(
       'infra:destroy',
       destroyResult.error || 'Check the output above for details',
     );
+  }
+
+  // The migration runs' log groups: the CLI creates them, not Terraform, so
+  // the destroy above leaves them. One that won't delete only warns.
+  let databaseServices: string[] = [];
+  try {
+    databaseServices = getContext()
+      .loadFrameworkConfig()
+      .services.filter((s) => s.hasDatabase)
+      .map((s) => s.name);
+  } catch {
+    // No readable config.json: nothing to name the groups by
+  }
+  for (const serviceName of databaseServices) {
+    // Today's name and the one without the project, from earlier deploys
+    const { logGroupName, legacyLogGroupName } = buildAwsMigrationNames(
+      ctx.projectName,
+      serviceName,
+    );
+    for (const name of [logGroupName, legacyLogGroupName]) {
+      const result = await deleteCloudWatchLogGroup({
+        logGroupName: name,
+        credentials: ctx.credentials,
+      });
+      if (!result.success) {
+        logger.warn(`Could not delete ${name}: ${result.error}`);
+      }
+    }
+  }
+
+  // The VPC flow log's group again: records still on their way after the
+  // destroy deleted it can make it anew (its role may create log groups, as
+  // AWS asks), and the next deploy then fails on a group that exists
+  const flowLogGroup = `${AWS_VPC_FLOW_LOG_GROUP_PREFIX}${ctx.projectName}`;
+  const flowLogResult = await deleteCloudWatchLogGroup({
+    logGroupName: flowLogGroup,
+    credentials: ctx.credentials,
+  });
+  if (!flowLogResult.success) {
+    logger.warn(`Could not delete ${flowLogGroup}: ${flowLogResult.error}`);
   }
 
   logger.newline();

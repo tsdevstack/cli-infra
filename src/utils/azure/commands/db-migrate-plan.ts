@@ -7,11 +7,11 @@
 import path from 'node:path';
 import { getContext } from '../../../context';
 import { AZURE_MIGRATION_JOB_PREFIX } from '../../../constants';
+import { resolveAzureMigrationJobAccess } from '../resolve-azure-migration-job-access';
 import { getTerraformOutput } from '../terraform';
 import { buildAzureTerraformEnv } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
 import { executeContainerJob } from './execute-container-job';
-import { fetchSecret } from '../../credentials/fetch-secret';
 import type {
   AzureCredentials,
   FrameworkService,
@@ -68,11 +68,20 @@ export async function azureDbMigratePlan(
     );
   }
 
-  const databaseUrl = fetchSecret('DATABASE_URL', targetEnv, service.name);
+  // Migrations connect as the owner role (MIGRATION_DATABASE_URL), read
+  // from Key Vault by Container Apps
+  const access = await resolveAzureMigrationJobAccess({
+    projectName: params.projectName,
+    targetEnv,
+    serviceName: service.name,
+    credentials,
+    terraformDir,
+    tfEnv,
+  });
 
-  if (!databaseUrl) {
+  if (!access) {
     throw new CliError(
-      'DATABASE_URL secret not found',
+      'No database URL secret found (MIGRATION_DATABASE_URL or DATABASE_URL)',
       'infra:plan-db-migrate',
       `Push secrets first: npx tsdevstack cloud-secrets:push --env ${targetEnv}`,
     );
@@ -97,7 +106,10 @@ export async function azureDbMigratePlan(
       'migrate',
       'status',
     ],
-    envVars: [{ name: 'DATABASE_URL', value: databaseUrl }],
+    keyVaultEnvVars: [
+      { name: 'DATABASE_URL', keyVaultUrl: access.keyVaultSecretUrl },
+    ],
+    secretsIdentityId: access.identityId,
     acrLoginServer,
   });
 

@@ -7,11 +7,11 @@
 import path from 'node:path';
 import { getContext } from '../../../context';
 import { AZURE_MIGRATION_JOB_PREFIX } from '../../../constants';
+import { resolveAzureMigrationJobAccess } from '../resolve-azure-migration-job-access';
 import { getAcrIdentityOutputs, getTerraformOutput } from '../terraform';
 import { buildAzureTerraformEnv } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
 import { executeContainerJob } from './execute-container-job';
-import { fetchSecret } from '../../credentials/fetch-secret';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
 import { getMigrationJobConfig } from '../../infrastructure/merge-with-defaults';
 import type {
@@ -74,11 +74,20 @@ export async function azureDbMigrateRun(
   // Managed identity for ACR pull (falls back to password if not provisioned)
   const { acrManagedIdentityId } = getAcrIdentityOutputs(terraformDir, tfEnv);
 
-  const databaseUrl = fetchSecret('DATABASE_URL', targetEnv, service.name);
+  // Migrations connect as the owner role (MIGRATION_DATABASE_URL), read
+  // from Key Vault by Container Apps
+  const access = await resolveAzureMigrationJobAccess({
+    projectName: params.projectName,
+    targetEnv,
+    serviceName: service.name,
+    credentials,
+    terraformDir,
+    tfEnv,
+  });
 
-  if (!databaseUrl) {
+  if (!access) {
     throw new CliError(
-      'DATABASE_URL secret not found',
+      'No database URL secret found (MIGRATION_DATABASE_URL or DATABASE_URL)',
       'infra:run-db-migrate',
       `Push secrets first: npx tsdevstack cloud-secrets:push --env ${targetEnv}`,
     );
@@ -107,7 +116,10 @@ export async function azureDbMigrateRun(
       'migrate',
       'deploy',
     ],
-    envVars: [{ name: 'DATABASE_URL', value: databaseUrl }],
+    keyVaultEnvVars: [
+      { name: 'DATABASE_URL', keyVaultUrl: access.keyVaultSecretUrl },
+    ],
+    secretsIdentityId: access.identityId,
     acrLoginServer,
     acrManagedIdentityId,
     cpu: parseFloat(migrationJob.cpu),
@@ -121,10 +133,11 @@ export async function azureDbMigrateRun(
       logger.info(result.logs);
     }
   } else {
+    // The reason goes in the message: infra:deploy repeats only the message
     throw new CliError(
-      'Database migration failed',
+      `Database migration failed: ${result.error || 'unknown error'}`,
       'infra:run-db-migrate',
-      result.error || 'Check container logs for details',
+      `See the job's log: npx tsdevstack infra:logs ${AZURE_MIGRATION_JOB_PREFIX}${service.name} --env ${targetEnv}`,
     );
   }
   logger.newline();

@@ -23,6 +23,11 @@ const mockCreateOrUpdateSiteContainer = rs.fn();
 
 rs.mock('../../build-runtime', () => ({ buildRuntime: () => ({}) }));
 
+const { mockTurnOffSsh } = rs.hoisted(() => ({ mockTurnOffSsh: rs.fn() }));
+rs.mock('./turn-off-app-service-ssh', () => ({
+  turnOffAppServiceSsh: mockTurnOffSsh,
+}));
+
 rs.mock('@tsdevstack/infra-core', () => ({
   createAzureCredential: rs.fn(() => ({})),
 }));
@@ -76,9 +81,30 @@ describe('deployAppService', () => {
     mockRestart.mockResolvedValue({});
     mockGet.mockResolvedValue({ state: 'Running' });
     mockCreateOrUpdateSiteContainer.mockResolvedValue({});
+    mockTurnOffSsh.mockResolvedValue(undefined);
   });
 
   describe('Standard use cases', () => {
+    it('should turn SSH off on every deploy, before the restart', async () => {
+      const order: string[] = [];
+      mockTurnOffSsh.mockImplementation(async () => {
+        order.push('ssh off');
+      });
+      mockRestart.mockImplementation(async () => {
+        order.push('restart');
+      });
+
+      await deployAppService(baseParams);
+
+      expect(mockTurnOffSsh).toHaveBeenCalledWith(
+        expect.anything(),
+        'sub-123',
+        'my-app-dev-rg',
+        'my-app-frontend',
+      );
+      expect(order).toEqual(['ssh off', 'restart']);
+    });
+
     it('should update container image via SDK', async () => {
       await deployAppService(baseParams);
 
@@ -197,6 +223,15 @@ describe('deployAppService', () => {
   });
 
   describe('Error cases', () => {
+    it('should stop with a clear error when SSH cannot be turned off', async () => {
+      mockTurnOffSsh.mockRejectedValueOnce(new Error('AuthorizationFailed'));
+
+      await expect(deployAppService(baseParams)).rejects.toThrow(
+        'Failed to turn off SSH on App Service "my-app-frontend"',
+      );
+      expect(mockRestart).not.toHaveBeenCalled();
+    });
+
     it('should throw CliError when container config update fails', async () => {
       mockUpdateConfiguration.mockRejectedValue(new Error('Permission denied'));
 

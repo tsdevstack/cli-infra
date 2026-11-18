@@ -19,6 +19,7 @@ import { executeTerraform } from '../terraform';
 import { buildRuntime } from '../../build-runtime';
 import { toTerraformId } from '../../terraform';
 import type { GCPCommandContext } from './types';
+import { resolveGcpNamingScheme } from '../naming/resolve-gcp-naming-scheme';
 
 export interface DeploySchedulerOptions {
   job?: string;
@@ -107,7 +108,14 @@ export async function gcpDeployScheduler(
   // Generate cloud-scheduler.tf (self-contained — no need for infra:generate first)
   const schedulerTfPath = path.join(terraformDir, 'cloud-scheduler.tf');
   const { writeTextFile } = getContext();
-  writeTextFile(schedulerTfPath, gcp.generateCloudSchedulerTf(scheduledJobs));
+  const naming = await resolveGcpNamingScheme(ctx, 'infra:deploy-scheduler');
+  writeTextFile(
+    schedulerTfPath,
+    gcp.generateCloudSchedulerTf(scheduledJobs, {
+      projectName: ctx.projectName,
+      naming,
+    }),
+  );
 
   // Log deployment info
   logger.info(`Environment: ${targetEnv}`);

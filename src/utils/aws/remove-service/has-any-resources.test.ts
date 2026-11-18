@@ -14,11 +14,40 @@ describe('hasAnyResources', () => {
 
         spaBucket: false,
         spaBucketName: '',
+        cloudFrontDistributions: [],
         secrets: [],
         inferredType: 'unknown',
       };
 
       expect(hasAnyResources(discovered)).toBe(false);
+    });
+
+    it('should return true when only a CloudFront distribution is left', () => {
+      // A rerun after the bucket was deleted: the distribution still needs deleting
+      const discovered: DiscoveredResources = {
+        ecsService: false,
+        spaBucket: false,
+        spaBucketName: '',
+        cloudFrontDistributions: [{ id: 'E2SPA123', kind: 'spa' }],
+        secrets: [],
+        inferredType: 'unknown',
+      };
+
+      expect(hasAnyResources(discovered)).toBe(true);
+    });
+
+    it('should return true when only the origin access control is left', () => {
+      const discovered: DiscoveredResources = {
+        ecsService: false,
+        spaBucket: false,
+        spaBucketName: '',
+        cloudFrontDistributions: [],
+        spaOriginAccessControlId: 'OAC123',
+        secrets: [],
+        inferredType: 'unknown',
+      };
+
+      expect(hasAnyResources(discovered)).toBe(true);
     });
 
     it('should return true when ECS service exists', () => {
@@ -27,6 +56,7 @@ describe('hasAnyResources', () => {
 
         spaBucket: false,
         spaBucketName: '',
+        cloudFrontDistributions: [],
         secrets: [],
         inferredType: 'backend',
       };
@@ -40,6 +70,7 @@ describe('hasAnyResources', () => {
 
         spaBucket: true,
         spaBucketName: 'my-spa-bucket',
+        cloudFrontDistributions: [],
         secrets: [],
         inferredType: 'spa',
       };
@@ -53,6 +84,7 @@ describe('hasAnyResources', () => {
 
         spaBucket: false,
         spaBucketName: '',
+        cloudFrontDistributions: [],
         secrets: ['secret1', 'secret2'],
         inferredType: 'unknown',
       };
@@ -66,6 +98,7 @@ describe('hasAnyResources', () => {
 
         spaBucket: true,
         spaBucketName: 'my-spa-bucket',
+        cloudFrontDistributions: [],
         secrets: ['secret1'],
         inferredType: 'backend',
       };

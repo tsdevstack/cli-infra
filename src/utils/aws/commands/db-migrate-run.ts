@@ -9,6 +9,8 @@ import { getContext } from '../../../context';
 import { getTerraformOutput } from '../../terraform';
 import { buildAwsTerraformEnv, executeEcsTask } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
+import { buildAwsMigrationNames } from '../build-aws-migration-names';
+import { resolveAwsMigrationSecretName } from '../resolve-aws-migration-secret-name';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
 import { getMigrationJobConfig } from '../../infrastructure/merge-with-defaults';
 import type { AWSCredentials, FrameworkService } from '@tsdevstack/cli/plugin';
@@ -28,7 +30,7 @@ interface AwsDbMigrateRunParams {
 export async function awsDbMigrateRun(
   params: AwsDbMigrateRunParams,
 ): Promise<void> {
-  const { logger, buildSecretName, CliError } = getContext();
+  const { logger, CliError } = getContext();
   const { projectRoot, targetEnv, projectName, credentials, service } = params;
 
   const runtime = buildRuntime();
@@ -87,7 +89,12 @@ export async function awsDbMigrateRun(
     );
   }
 
-  const secretName = buildSecretName(projectName, service.name, 'DATABASE_URL');
+  // Migrations connect as the owner role (MIGRATION_DATABASE_URL)
+  const secretName = await resolveAwsMigrationSecretName({
+    projectName,
+    serviceName: service.name,
+    credentials,
+  });
   const secretArn = `arn:aws:secretsmanager:${credentials.region}:${credentials.accountId}:secret:${secretName}`;
   const tag = params.imageTag ?? 'latest';
   const imageUri = `${ecrUrl}/${service.name}:${tag}`;
@@ -100,10 +107,16 @@ export async function awsDbMigrateRun(
   const infraConfig = loadInfrastructureConfig();
   const migrationJob = getMigrationJobConfig(infraConfig, targetEnv, 'aws');
 
+  const { taskFamily, logGroupName } = buildAwsMigrationNames(
+    projectName,
+    service.name,
+  );
   const result = await executeEcsTask(runtime, {
     region: credentials.region,
     clusterName,
     taskName: `migrate-${service.name}`,
+    taskFamily,
+    logGroupName,
     imageUri,
     command: [
       'node',

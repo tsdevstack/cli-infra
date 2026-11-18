@@ -4,6 +4,13 @@ import type { MockContext } from '@tsdevstack/cli/test-utils';
 const mocks = (globalThis as unknown as { contextMocks: MockContext })
   .contextMocks;
 
+rs.mock('../naming/resolve-azure-naming', () => ({
+  resolveAzureNaming: async () => ({
+    scheme: 'legacy',
+    subscriptionId: 'sub-123',
+  }),
+}));
+
 rs.mock('../../../context', () => ({
   getContext: rs.fn(
     () => (globalThis as unknown as { contextMocks: MockContext }).contextMocks,
@@ -39,6 +46,7 @@ describe('azureGenerate', () => {
       outputDir: '/test/project/infrastructure/terraform/dev',
       generateConfig: {
         provider: 'azure',
+        naming: 'legacy',
         projectName: 'my-app',
         environment: 'dev',
         subscriptionId: 'sub-123',
@@ -46,6 +54,8 @@ describe('azureGenerate', () => {
         storageAccountName: 'myappdevtfstate',
         keyVaultName: 'myproject-dev-kv',
         serviceKeyVaults: {},
+        dbJobsKeyVault: 'test-dev-dbjobs',
+        databaseServiceKeyVaults: {},
         database: {
           tier: 'B_Standard_B1ms',
           storageSizeGb: 32,
@@ -78,7 +88,10 @@ describe('azureGenerate', () => {
     expect(generateTerraformFiles).toHaveBeenCalledWith(
       mockCtx,
       'infra:generate',
-      { verbose: true },
+      {
+        naming: { scheme: 'legacy', subscriptionId: 'sub-123' },
+        verbose: true,
+      },
     );
   });
 

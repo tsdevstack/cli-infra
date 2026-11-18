@@ -18,8 +18,10 @@ import { setSecretViaCli } from '../../credentials/set-secret-via-cli';
 import { createStateBackend } from '../bootstrap/create-state-backend';
 import { generateTerraformFiles } from './generate-terraform-files';
 import { applyWithCapacityRetry } from '../../deploy/apply-with-capacity-retry';
+import { findAzureApplyHint } from './find-azure-apply-hint';
 import { buildFrontdoorRouteTargets } from './build-frontdoor-route-targets';
 import {
+  buildAzureResourceName,
   buildAzureTerraformEnv,
   checkTerraformInstalled,
   extractLockId,
@@ -38,6 +40,11 @@ import { upgradeFrontdoorSku } from './upgrade-frontdoor-sku';
 import { setSecretWithRetry } from '../set-secret-with-retry';
 import { buildAzureDashboardUrl } from '../build-azure-dashboard-url';
 import type { AzureCommandContext, DeployOptions } from './types';
+import { resolveAzureNaming } from '../naming/resolve-azure-naming';
+import { resolvePostgresServerName } from '../resolve-postgres-server-name';
+import { putDatabaseLock } from '../database-lock/put-database-lock';
+import { liftDatabaseLock } from '../database-lock/lift-database-lock';
+import { setUpAzureDatabaseUsers } from '../set-up-azure-database-users';
 
 /**
  * Deploy Azure infrastructure
@@ -46,8 +53,13 @@ export async function azureDeploy(
   ctx: AzureCommandContext,
   options: DeployOptions,
 ): Promise<void> {
-  const { logger, CliError, loadFrameworkConfig, ensureKeyVaultExists } =
-    getContext();
+  const {
+    logger,
+    CliError,
+    loadFrameworkConfig,
+    ensureKeyVaultExists,
+    AZURE_DB_JOBS_KEY_VAULT_SCOPE,
+  } = getContext();
   const runtime = buildRuntime();
 
   checkTerraformInstalled(runtime);
@@ -61,11 +73,8 @@ export async function azureDeploy(
   // Pre-flight: check PostgreSQL availability in target region
   // (and zone-redundant HA when database.ha is on)
   logger.info('Checking resource availability...');
-  const databaseConfig = getDatabaseConfig(
-    loadInfrastructureConfig(),
-    ctx.targetEnv,
-    'azure',
-  );
+  const infraConfig = loadInfrastructureConfig();
+  const databaseConfig = getDatabaseConfig(infraConfig, ctx.targetEnv, 'azure');
   const pgCheck = await checkPostgresAvailability(ctx.credentials, {
     zoneRedundantHa: databaseConfig.ha,
   });
@@ -96,9 +105,16 @@ export async function azureDeploy(
   logger.newline();
 
   // Generate all Terraform files
+  // Names follow the scheme the environment was set up with
+  const naming = await resolveAzureNaming(
+    ctx.credentials,
+    ctx.projectName,
+    ctx.targetEnv,
+  );
   const { outputDir, generateConfig } = generateTerraformFiles(
     ctx,
     'infra:deploy',
+    { naming },
   );
 
   logger.complete('Configuration generated');
@@ -130,6 +146,22 @@ export async function azureDeploy(
     logger.newline();
   }
 
+  // The database jobs' vault (the server admin's password, each owner's
+  // MIGRATION_DATABASE_URL): Terraform grants db-init access to it
+  const dbJobsVault = await ensureKeyVaultExists(
+    ctx.projectName,
+    ctx.targetEnv,
+    ctx.credentials,
+    AZURE_DB_JOBS_KEY_VAULT_SCOPE,
+  );
+  if (!dbJobsVault.exists) {
+    throw new CliError(
+      `Failed to create the database jobs' Key Vault: ${dbJobsVault.error}`,
+      'infra:deploy',
+      'Check that the deploy credentials can create Key Vaults in the resource group',
+    );
+  }
+
   // Build Terraform environment
   const tfEnv = buildAzureTerraformEnv(runtime, ctx.credentials);
 
@@ -158,6 +190,38 @@ export async function azureDeploy(
     targetEnv: ctx.targetEnv,
     frontdoorPremium: generateConfig.frontdoorPremium,
   });
+
+  // The database's delete lock (database.deletionProtection). The CLI keeps
+  // it, not Terraform: it covers the server's databases too, so
+  // infra:remove-service and infra:destroy lift it while they delete. Turned
+  // off, it comes off before the apply, so this apply can delete a database.
+  const lockTarget = {
+    credentials: ctx.credentials,
+    resourceGroupName: `${ctx.projectName}-${ctx.targetEnv}-rg`,
+    serverName: resolvePostgresServerName(
+      ctx.projectName,
+      ctx.targetEnv,
+      infraConfig,
+      naming,
+    ).name,
+  };
+  if (!databaseConfig.deletionProtection) {
+    let lifted: boolean;
+    try {
+      lifted = await liftDatabaseLock(lockTarget);
+    } catch (error) {
+      throw new CliError(
+        `Could not lift the delete lock on the database server ${lockTarget.serverName}: ${error instanceof Error ? error.message : String(error)}`,
+        'infra:deploy',
+        'Terraform has not applied anything. Locks need the User Access Administrator role on the resource group (Azure account setup, step 5).',
+      );
+    }
+    if (lifted) {
+      logger.info(
+        `Delete lock lifted from the database server ${lockTarget.serverName} (database.deletionProtection is false)`,
+      );
+    }
+  }
 
   // Apply infrastructure
   logger.newline();
@@ -231,6 +295,7 @@ export async function azureDeploy(
     // on routes + security policy ONLY — these are the resources that reference custom domains.
     logger.info('Phase 1a: Updating routes and security policy (targeted)...');
     generateTerraformFiles(ctx, 'infra:deploy', {
+      naming,
       skipCustomDomainAssociations: true,
     });
 
@@ -279,7 +344,7 @@ export async function azureDeploy(
 
     // Phase 2: Regenerate with full config (re-adds associations with new domains)
     logger.info('Phase 2: Re-associating routes with new domains...');
-    generateTerraformFiles(ctx, 'infra:deploy');
+    generateTerraformFiles(ctx, 'infra:deploy', { naming });
 
     applyResult = await executeTerraform('apply', {
       workDir: outputDir,
@@ -333,13 +398,33 @@ export async function azureDeploy(
     throw new CliError(
       'Apply failed',
       'infra:deploy',
-      applyResult.error || 'Check the output above for details',
+      findAzureApplyHint(applyResult.output) ||
+        applyResult.error ||
+        'Check the output above for details',
     );
   }
 
   logger.newline();
   logger.success('Infrastructure deployed successfully!');
   logger.newline();
+
+  // The database's delete lock goes on after the apply: a first deploy
+  // creates the server
+  if (databaseConfig.deletionProtection) {
+    try {
+      await putDatabaseLock(lockTarget);
+    } catch (error) {
+      throw new CliError(
+        `Could not put the delete lock on the database server ${lockTarget.serverName}: ${error instanceof Error ? error.message : String(error)}`,
+        'infra:deploy',
+        'Locks need the User Access Administrator role on the resource group (Azure account setup, step 5). The infrastructure itself is deployed: run infra:deploy again once the role is there.',
+      );
+    }
+    logger.success(
+      `Delete lock on the database server ${lockTarget.serverName}`,
+    );
+    logger.newline();
+  }
 
   // ============================================
   // Approve Private Endpoint connections (Premium)
@@ -353,11 +438,17 @@ export async function azureDeploy(
     );
 
     const appServiceNames = [
-      `${ctx.projectName}-${ctx.targetEnv}-kong`,
-      ...Object.keys(generateConfig.frontends).map(
-        (name) => `${ctx.projectName}-${ctx.targetEnv}-${name}`,
-      ),
-    ];
+      'kong',
+      ...Object.keys(generateConfig.frontends),
+    ].map((app) =>
+      buildAzureResourceName('appService', {
+        projectName: ctx.projectName,
+        environment: ctx.targetEnv,
+        naming: naming.scheme,
+        subscriptionId: naming.subscriptionId,
+        app,
+      }),
+    );
 
     // Unified Private Link lifecycle: wait for PE → approve → wait for Approved → disable public access
     await lockDownPublicAccess({
@@ -459,47 +550,22 @@ export async function azureDeploy(
     logger.newline();
   }
 
-  // Sync DATABASE_URL per service
+  // Database users: db-init (in the Container Apps environment) sets up each
+  // service's owner and app role and writes both URLs
   const servicesWithDb = generateConfig.servicesWithDatabase.filter(
     (s) => s.hasDatabase,
   );
-
   if (servicesWithDb.length > 0) {
-    logger.info('Syncing DATABASE_URL secrets to Key Vault...');
-
-    try {
-      const dbHost = getTerraformOutput(outputDir, 'database_host', tfEnv);
-      const dbPassword = getTerraformOutput(
-        outputDir,
-        'database_admin_password',
-        tfEnv,
-      );
-      const encodedPassword = encodeURIComponent(dbPassword);
-
-      for (const service of servicesWithDb) {
-        const databaseUrl = `postgresql://tsdevstack:${encodedPassword}@${dbHost}:5432/${service.name}?sslmode=require`;
-        setSecretViaCli(
-          'DATABASE_URL',
-          databaseUrl,
-          ctx.targetEnv,
-          service.name,
-        );
-        logger.success(`  ✓ DATABASE_URL for ${service.name}`);
-      }
-
-      logger.newline();
-      logger.complete('DATABASE_URL secrets synced to Key Vault');
-    } catch (error) {
-      logger.newline();
-      logger.warn('Failed to sync DATABASE_URL secrets automatically');
-      logger.error(
-        `Error: ${error instanceof Error ? error.message : String(error)}`,
-      );
-      logger.info('Run manually:');
-      logger.info(
-        `  npx tsdevstack cloud-secrets:set DATABASE_URL --env ${ctx.targetEnv} --service <service> --overwrite`,
-      );
-    }
+    await setUpAzureDatabaseUsers({
+      terraformDir: outputDir,
+      tfEnv,
+      projectName: ctx.projectName,
+      targetEnv: ctx.targetEnv,
+      credentials: ctx.credentials,
+      serviceNames: servicesWithDb.map((service) => service.name),
+      dbJobsKeyVault: generateConfig.dbJobsKeyVault,
+      serviceKeyVaults: generateConfig.databaseServiceKeyVaults,
+    });
     logger.newline();
   }
 

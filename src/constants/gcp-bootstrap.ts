@@ -52,5 +52,6 @@ export const GCP_DEPLOY_SA_ROLES = [
   'roles/dns.admin', // Private DNS zones for internal Cloud Run routing
   'roles/cloudscheduler.admin', // For scheduled jobs
   'roles/logging.viewer', // infra:logs
+  'roles/logging.configWriter', // The storage buckets' access log exclusion
   'roles/monitoring.dashboardEditor', // The environment's dashboard
 ] as const;

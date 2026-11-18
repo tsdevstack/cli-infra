@@ -28,6 +28,7 @@ import type {
   AWSCredentials,
   AzureCredentials,
 } from '@tsdevstack/cli/plugin';
+import { resolveGcpNamingScheme } from '../utils/gcp/naming/resolve-gcp-naming-scheme';
 
 interface InfraServiceStatusOptions {
   env?: string;
@@ -63,6 +64,10 @@ export async function infraServiceStatus(
 
   if (provider === 'gcp') {
     const credentials = ctx.credentials as GCPCredentials;
+    const naming = await resolveGcpNamingScheme(
+      { projectName, targetEnv, credentials },
+      'infra:service-status',
+    );
 
     // If no service name provided, do interactive selection
     let resolvedServiceName = serviceName;
@@ -70,6 +75,7 @@ export async function infraServiceStatus(
       resolvedServiceName = await selectServiceInteractiveGcp({
         projectName,
         credentials,
+        naming,
       });
     }
 
@@ -78,6 +84,7 @@ export async function infraServiceStatus(
       projectName,
       targetEnv,
       credentials,
+      naming,
     });
   } else if (provider === 'aws') {
     const credentials = ctx.credentials as AWSCredentials;

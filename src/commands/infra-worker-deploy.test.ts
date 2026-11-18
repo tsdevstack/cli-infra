@@ -6,6 +6,10 @@ const mocks = (globalThis as unknown as { contextMocks: MockContext })
 
 const mockBuildSecretName = rs.fn();
 
+rs.mock('../utils/gcp/naming/resolve-gcp-naming-scheme', () => ({
+  resolveGcpNamingScheme: rs.fn(async () => 'legacy'),
+}));
+
 rs.mock('../context', () => ({
   initContext: rs.fn(),
   getContext: rs.fn(() => ({
@@ -79,6 +83,8 @@ const mockDeployCloudRunService = rs.fn();
 const mockGetTotalWorkerMaxInstances = rs.fn();
 const mockWaitForImage = rs.fn();
 rs.mock('@tsdevstack/infra-core', () => ({
+  buildGcpCloudRunName: (project: string, name: string, naming: string) =>
+    naming === 'unique' ? `${project}-${name}` : name,
   buildBackendEnvVars: (...args: unknown[]) => mockBuildBackendEnvVars(...args),
   buildBackendSecrets: (...args: unknown[]) => mockBuildBackendSecrets(...args),
   buildGcpTerraformEnv: (...args: unknown[]) =>

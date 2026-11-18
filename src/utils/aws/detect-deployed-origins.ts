@@ -8,6 +8,7 @@
 import { S3Client, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import type { AWSCredentials } from '@tsdevstack/cli/plugin';
 import { getContext } from '../../context';
+import { buildAwsSpaBucketName } from './build-aws-spa-bucket-name';
 
 export interface DeployedOrigins {
   /** serviceName -> has content */
@@ -17,7 +18,6 @@ export interface DeployedOrigins {
 export interface DetectDeployedOriginsOptions {
   credentials: AWSCredentials;
   projectName: string;
-  environment: string;
   spaServices: string[];
 }
 
@@ -28,7 +28,7 @@ export async function detectDeployedOrigins(
   options: DetectDeployedOriginsOptions,
 ): Promise<DeployedOrigins> {
   const { logger, isCIEnv } = getContext();
-  const { credentials, projectName, environment, spaServices } = options;
+  const { credentials, projectName, spaServices } = options;
 
   // Build client config
   const clientConfig: {
@@ -53,7 +53,11 @@ export async function detectDeployedOrigins(
     logger.info('Detecting SPA bucket content...');
 
     for (const serviceName of spaServices) {
-      const bucketName = `${projectName}-${environment}-${serviceName}-spa`;
+      const bucketName = buildAwsSpaBucketName(
+        projectName,
+        serviceName,
+        credentials.accountId,
+      );
 
       try {
         const response = await s3.send(

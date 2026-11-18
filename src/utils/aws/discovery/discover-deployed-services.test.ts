@@ -124,6 +124,43 @@ describe('discoverDeployedServices', () => {
       expect(admin?.type).toBe('spa');
     });
 
+    it("should type the project's Next.js apps as nextjs", async () => {
+      rs.mocked(listEcsModule.listEcsServices).mockResolvedValueOnce({
+        success: true,
+        services: [
+          {
+            name: 'myproject-frontend',
+            serviceName: 'frontend',
+            status: 'ACTIVE',
+            runningCount: 1,
+            desiredCount: 1,
+            pendingCount: 0,
+          },
+          {
+            name: 'myproject-auth-service',
+            serviceName: 'auth-service',
+            status: 'ACTIVE',
+            runningCount: 1,
+            desiredCount: 1,
+            pendingCount: 0,
+          },
+        ],
+      });
+      rs.mocked(listSpaBucketsModule.listSpaBuckets).mockResolvedValueOnce({
+        success: true,
+        buckets: [],
+      });
+
+      const result = await discoverDeployedServices({
+        ...baseOptions,
+        nextjsServices: ['frontend'],
+      });
+
+      expect(
+        result.services.map((service) => `${service.name} ${service.type}`),
+      ).toEqual(['auth-service backend', 'frontend nextjs']);
+    });
+
     it('should sort services by name', async () => {
       rs.mocked(listEcsModule.listEcsServices).mockResolvedValueOnce({
         success: true,

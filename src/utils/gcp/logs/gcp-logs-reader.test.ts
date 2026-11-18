@@ -12,11 +12,22 @@ class MockCliError extends Error {
 rs.mock('../../../context', () => ({
   getContext: () => ({ CliError: MockCliError }),
 }));
+// --follow: the tests open the stream themselves (reconnects are
+// followLogStream's, tested there)
+rs.mock('../../logs/follow-log-stream', () => ({ followLogStream: rs.fn() }));
 
+import { PassThrough } from 'stream';
 import type { logging_v2 } from 'googleapis';
 import type { GCPCredentials } from '@tsdevstack/cli/plugin';
+import { followLogStream } from '../../logs/follow-log-stream';
 import { GcpLogsReader } from './gcp-logs-reader';
-import type { LogEntry, LogsQuery } from '../../logs/types';
+import type {
+  LogEntry,
+  LogsFollowQuery,
+  LogsQuery,
+  LogStreamEnd,
+} from '../../logs/types';
+import type { GcpTailEntry, GcpTailRequest } from './types';
 
 const list = rs.fn();
 const logging = { entries: { list } } as unknown as logging_v2.Logging;
@@ -30,6 +41,7 @@ function reader(): GcpLogsReader {
     projectName: 'shop',
     targetEnv: 'dev',
     credentials,
+    naming: 'legacy',
     logging,
   });
 }
@@ -239,6 +251,148 @@ describe('GcpLogsReader', () => {
 
       expect(result.entries.map((e) => e.message)).toEqual(['needle here']);
       expect(result.more).toBe(false);
+    });
+  });
+
+  describe('follow', () => {
+    const FOLLOW: LogsFollowQuery = {
+      sources: [{ name: 'auth-service', type: 'service' }],
+    };
+
+    function tailLine(service: string, msg: string): GcpTailEntry {
+      return {
+        metadata: {
+          logName: 'projects/shop-dev/logs/run.googleapis.com%2Fstdout',
+          resource: {
+            type: 'cloud_run_revision',
+            labels: { service_name: service },
+          },
+          timestamp: new Date('2026-11-10T12:00:01.000Z'),
+          spanId: '',
+          payload: 'jsonPayload',
+        },
+        data: { level: 'error', msg },
+      };
+    }
+
+    /** Start follow and hand back the stream opener it gives followLogStream */
+    async function startFollow(query: LogsFollowQuery = FOLLOW) {
+      const stream = new PassThrough({ objectMode: true });
+      const tail = rs.fn((_request: GcpTailRequest) => stream);
+      const handlers = { onEntries: rs.fn(), onNotice: rs.fn() };
+      let open:
+        | ((onOpen: () => void, signal: AbortSignal) => Promise<LogStreamEnd>)
+        | undefined;
+      let name: string | undefined;
+      rs.mocked(followLogStream).mockImplementation(async (params) => {
+        open = params.open;
+        name = params.name;
+      });
+
+      await new GcpLogsReader({
+        projectName: 'shop',
+        targetEnv: 'dev',
+        credentials,
+        naming: 'legacy',
+        logging,
+        tail,
+      }).follow(query, handlers, new AbortController().signal);
+
+      return { stream, tail, handlers, open, name };
+    }
+
+    it('should stream the sources without a time window and hand over lines', async () => {
+      const { stream, tail, handlers, open, name } = await startFollow();
+      expect(name).toBe('auth-service');
+
+      const onOpen = rs.fn();
+      const done = open!(onOpen, new AbortController().signal);
+      stream.write({
+        entries: [tailLine('auth-service', 'Payment failed')],
+        suppressionInfo: [{ reason: 'RATE_LIMIT', suppressedCount: 5 }],
+      });
+      stream.end();
+
+      await expect(done).resolves.toBe('dropped');
+      const request = tail.mock.calls[0][0];
+      expect(request.filter).not.toContain('timestamp');
+      expect(request.filter).toContain('auth-service');
+      expect(onOpen).toHaveBeenCalledTimes(1);
+      const [entries] = handlers.onEntries.mock.calls[0] as [LogEntry[]];
+      expect(entries).toMatchObject([
+        {
+          time: '2026-11-10T12:00:01.000Z',
+          source: 'auth-service',
+          kind: 'app',
+          level: 'error',
+          message: 'Payment failed',
+        },
+      ]);
+      expect(handlers.onNotice).toHaveBeenCalledWith(
+        "Cloud Logging left out at least 5 lines (over Google's live limit of 60,000 lines a minute).",
+      );
+    });
+
+    it('should close the stream and stop when the signal aborts', async () => {
+      const { stream, open } = await startFollow();
+      const controller = new AbortController();
+
+      const done = open!(rs.fn(), controller.signal);
+      controller.abort();
+
+      await expect(done).resolves.toBe('dropped');
+      expect(stream.destroyed).toBe(true);
+    });
+
+    it('should name the missing role when following is denied', async () => {
+      const { stream, open } = await startFollow();
+
+      const done = open!(rs.fn(), new AbortController().signal);
+      stream.destroy(
+        Object.assign(new Error('7 PERMISSION_DENIED: Permission denied'), {
+          code: 7,
+        }),
+      );
+
+      await expect(done).rejects.toMatchObject({
+        message:
+          'Cannot follow Cloud Logging: 7 PERMISSION_DENIED: Permission denied',
+        hint: 'The deploy account needs the Logs Viewer role (roles/logging.viewer). Run npx tsdevstack infra:bootstrap --env dev to add it.',
+      });
+    });
+
+    it("should explain Google's limit of 10 live streams", async () => {
+      const { stream, open } = await startFollow();
+
+      const done = open!(rs.fn(), new AbortController().signal);
+      stream.destroy(
+        Object.assign(new Error('8 RESOURCE_EXHAUSTED: quota'), { code: 8 }),
+      );
+
+      await expect(done).rejects.toMatchObject({
+        hint: "Google allows 10 live log streams at once per project, the Logs Explorer's live mode included. Close one and run the command again.",
+      });
+    });
+
+    it('should name the stream after Cloud Logging when it follows several sources', async () => {
+      const { name } = await startFollow({
+        sources: [
+          { name: 'auth-service', type: 'service' },
+          { name: 'kong', type: 'kong' },
+        ],
+      });
+
+      expect(name).toBe('Cloud Logging');
+    });
+
+    it('should not open a stream when no source has lines of the kind', async () => {
+      const { tail, handlers } = await startFollow({ ...FOLLOW, kind: 'edge' });
+
+      expect(followLogStream).not.toHaveBeenCalled();
+      expect(tail).not.toHaveBeenCalled();
+      expect(handlers.onNotice).toHaveBeenCalledWith(
+        'No selected source has edge lines.',
+      );
     });
   });
 });

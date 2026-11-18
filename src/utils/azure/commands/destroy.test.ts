@@ -36,6 +36,22 @@ rs.mock('../delete/delete-environment-container-resources', () => ({
   deleteEnvironmentContainerResources: rs.fn(),
 }));
 
+rs.mock('../dns/warn-hand-added-dns-records', () => ({
+  warnHandAddedDnsRecords: rs.fn(),
+}));
+
+rs.mock('../resolve-postgres-server-name', () => ({
+  resolvePostgresServerName: rs.fn(),
+}));
+
+rs.mock('../database-lock/lift-database-lock', () => ({
+  liftDatabaseLock: rs.fn(),
+}));
+
+rs.mock('../../infrastructure/load-infrastructure-config', () => ({
+  loadInfrastructureConfig: rs.fn(),
+}));
+
 rs.mock('node:fs', () => ({
   default: {
     existsSync: rs.fn(),
@@ -49,6 +65,9 @@ import { executeTerraform, getTerraformOutput } from '../terraform';
 import { revokeKeyVaultSecretRead } from '../key-vault/revoke-key-vault-secret-read';
 import { buildAzureTerraformEnv } from '@tsdevstack/infra-core';
 import { deleteEnvironmentContainerResources } from '../delete/delete-environment-container-resources';
+import { warnHandAddedDnsRecords } from '../dns/warn-hand-added-dns-records';
+import { resolvePostgresServerName } from '../resolve-postgres-server-name';
+import { liftDatabaseLock } from '../database-lock/lift-database-lock';
 
 describe('azureDestroy', () => {
   const mockCtx = {
@@ -85,6 +104,88 @@ describe('azureDestroy', () => {
     rs.mocked(deleteEnvironmentContainerResources).mockResolvedValue({
       deleted: [],
       failed: [],
+    });
+
+    rs.mocked(resolvePostgresServerName).mockReturnValue({
+      name: 'my-app-dev-postgres',
+      isOverride: false,
+    });
+    rs.mocked(liftDatabaseLock).mockResolvedValue(true);
+  });
+
+  describe('database delete lock', () => {
+    it('should lift it before anything is deleted', async () => {
+      await azureDestroy(mockCtx, { autoApprove: true });
+
+      expect(liftDatabaseLock).toHaveBeenCalledWith({
+        credentials: mockCtx.credentials,
+        resourceGroupName: 'my-app-dev-rg',
+        serverName: 'my-app-dev-postgres',
+      });
+      const liftOrder = rs.mocked(liftDatabaseLock).mock.invocationCallOrder[0];
+      expect(liftOrder).toBeLessThan(
+        rs.mocked(deleteEnvironmentContainerResources).mock
+          .invocationCallOrder[0],
+      );
+      expect(liftOrder).toBeLessThan(
+        rs.mocked(executeTerraform).mock.invocationCallOrder[0],
+      );
+    });
+
+    it('should stop with nothing deleted when it cannot be lifted', async () => {
+      rs.mocked(liftDatabaseLock).mockRejectedValue(
+        new Error('AuthorizationFailed'),
+      );
+
+      await expect(
+        azureDestroy(mockCtx, { autoApprove: true }),
+      ).rejects.toMatchObject({
+        name: 'CliError',
+        message: expect.stringContaining('AuthorizationFailed'),
+        context: 'infra:destroy',
+        hint: expect.stringContaining('Nothing was deleted'),
+      });
+      expect(deleteEnvironmentContainerResources).not.toHaveBeenCalled();
+      expect(executeTerraform).not.toHaveBeenCalled();
+    });
+
+    it('should go on when there is no lock (a rerun)', async () => {
+      rs.mocked(liftDatabaseLock).mockResolvedValue(false);
+
+      await azureDestroy(mockCtx, { autoApprove: true });
+
+      expect(mocks.logger.success).toHaveBeenCalledWith('  No lock on it');
+      expect(executeTerraform).toHaveBeenCalledWith(
+        'destroy',
+        expect.anything(),
+      );
+    });
+
+    it('should keep it when the destroy is cancelled', async () => {
+      rs.mocked(inquirer.prompt).mockResolvedValue({ confirm: false });
+
+      await azureDestroy({ ...mockCtx, runningInCI: false }, {});
+
+      expect(liftDatabaseLock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('DNS zone', () => {
+    it('should list the hand-added records before asking to go ahead', async () => {
+      rs.mocked(inquirer.prompt).mockResolvedValue({ confirm: false });
+
+      await azureDestroy({ ...mockCtx, runningInCI: false }, {});
+
+      expect(warnHandAddedDnsRecords).toHaveBeenCalledWith({
+        credentials: mockCtx.credentials,
+        resourceGroupName: 'my-app-dev-rg',
+        projectName: 'my-app',
+        environment: 'dev',
+      });
+      expect(
+        rs.mocked(warnHandAddedDnsRecords).mock.invocationCallOrder[0],
+      ).toBeLessThan(rs.mocked(inquirer.prompt).mock.invocationCallOrder[0]);
+      expect(executeTerraform).not.toHaveBeenCalled();
     });
   });
 

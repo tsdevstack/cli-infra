@@ -13,7 +13,10 @@ import { ContainerAppsAPIClient } from '@azure/arm-appcontainers';
 import { createAzureCredential } from '@tsdevstack/infra-core';
 import type { AzureCredentials } from '@tsdevstack/cli/plugin';
 import { buildRuntime } from '../../build-runtime';
-import { AZURE_MIGRATION_JOB_PREFIX } from '../../../constants';
+import {
+  AZURE_DB_INIT_JOB_NAME,
+  AZURE_MIGRATION_JOB_PREFIX,
+} from '../../../constants';
 
 export interface DeleteEnvironmentContainerResourcesOptions {
   credentials: AzureCredentials;
@@ -63,7 +66,8 @@ export async function deleteEnvironmentContainerResources(
     )) {
       const name = job.name;
       if (
-        name?.startsWith(AZURE_MIGRATION_JOB_PREFIX) &&
+        (name?.startsWith(AZURE_MIGRATION_JOB_PREFIX) ||
+          name === AZURE_DB_INIT_JOB_NAME) &&
         inEnvironment(job.environmentId)
       ) {
         targets.push({

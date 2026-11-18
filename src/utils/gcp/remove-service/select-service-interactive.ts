@@ -10,6 +10,7 @@ import inquirer from 'inquirer';
 import { getContext } from '../../../context';
 import { discoverDeployedServices } from '../discovery';
 import type { GCPCredentials } from '@tsdevstack/cli/plugin';
+import type { NamingScheme } from '@tsdevstack/infra-core';
 
 export interface SelectServiceInteractiveOptions {
   projectName: string;
@@ -17,6 +18,8 @@ export interface SelectServiceInteractiveOptions {
   region: string;
   sqlInstanceName: string;
   credentials: GCPCredentials;
+  /** The environment's naming scheme */
+  naming: NamingScheme;
 }
 
 /**
@@ -54,6 +57,7 @@ export async function selectServiceInteractive(
     region: options.region,
     sqlInstanceName: options.sqlInstanceName,
     credentials: options.credentials,
+    naming: options.naming,
   });
 
   if (discoveryResult.success) {

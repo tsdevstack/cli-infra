@@ -11,6 +11,10 @@ const mockDeleteFile = rs.fn();
 const mockCleanupFolder = rs.fn();
 const mockExistsSync = rs.fn((_path: string) => false);
 
+rs.mock('../naming/resolve-gcp-naming-scheme', () => ({
+  resolveGcpNamingScheme: rs.fn(async () => 'legacy'),
+}));
+
 rs.mock('node:fs', () => ({
   existsSync: (path: string) => mockExistsSync(path),
 }));
@@ -29,6 +33,11 @@ rs.mock('../../../context', () => ({
 }));
 
 rs.mock('@tsdevstack/infra-core', () => ({
+  generateDbInit: rs.fn(() => ({
+    dockerfile: 'FROM node',
+    packageJson: '{}',
+    indexJs: '// init',
+  })),
   gcp: {
     generateMainTf: rs.fn(() => '# main.tf'),
     generateVariablesTf: rs.fn(() => '# variables.tf'),
@@ -142,7 +151,8 @@ describe('gcpGenerate', () => {
       await gcpGenerate(mockContext);
 
       // 11 files: main, variables, network, database, redis, iam, artifact-registry, spa-buckets, outputs, tfvars, dashboard
-      expect(mockWriteTextFile).toHaveBeenCalledTimes(11);
+      // + db-init's Dockerfile, package.json, index.js (a service has a database)
+      expect(mockWriteTextFile).toHaveBeenCalledTimes(14);
     });
 
     it('should write the dashboard for the environment', async () => {
@@ -266,7 +276,8 @@ describe('gcpGenerate', () => {
       await gcpGenerate(mockContext);
 
       // 10 base files + 1 loadbalancer.tf = 11
-      expect(mockWriteTextFile).toHaveBeenCalledTimes(12);
+      // + db-init's Dockerfile, package.json, index.js (a service has a database)
+      expect(mockWriteTextFile).toHaveBeenCalledTimes(15);
       expect(mockWriteTextFile).toHaveBeenCalledWith(
         '/test/project/infrastructure/terraform/dev/loadbalancer.tf',
         '# loadbalancer.tf',
@@ -279,7 +290,8 @@ describe('gcpGenerate', () => {
 
       await gcpGenerate(mockContext);
 
-      expect(mockWriteTextFile).toHaveBeenCalledTimes(11);
+      // + db-init's Dockerfile, package.json, index.js (a service has a database)
+      expect(mockWriteTextFile).toHaveBeenCalledTimes(14);
       expect(mockWriteTextFile).not.toHaveBeenCalledWith(
         expect.stringContaining('loadbalancer.tf'),
         expect.any(String),
@@ -310,7 +322,8 @@ describe('gcpGenerate', () => {
       await gcpGenerate(mockContext);
 
       // 10 base files + 1 cloud-scheduler.tf = 11
-      expect(mockWriteTextFile).toHaveBeenCalledTimes(12);
+      // + db-init's Dockerfile, package.json, index.js (a service has a database)
+      expect(mockWriteTextFile).toHaveBeenCalledTimes(15);
       expect(mockWriteTextFile).toHaveBeenCalledWith(
         '/test/project/infrastructure/terraform/dev/cloud-scheduler.tf',
         '# cloud-scheduler.tf',

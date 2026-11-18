@@ -17,6 +17,9 @@ import { extractPlaceholders } from '../utils/kong/extract-placeholders';
 import { resolveEnvVarsStrict } from '../utils/kong/resolve-env-vars-strict';
 import { loadInfrastructureConfig } from '../utils/infrastructure/load-infrastructure-config';
 import { getKongConfig } from '../utils/infrastructure/get-kong-config';
+import { getFrontendServicesWithDomains } from '../utils/infrastructure/get-frontend-services-with-domains';
+import type { EnvironmentOverrides } from '../utils/infrastructure/types';
+import { addDomainCorsOrigins } from '../utils/kong/add-domain-cors-origins';
 import { buildKongCollectorImage } from '../utils/kong/build-kong-collector-image';
 import { buildKongCollectorConfig } from '../utils/kong/build-kong-collector-config';
 import { buildGcpCollectorDestination } from '../utils/kong/gcp/build-gcp-collector-destination';
@@ -66,6 +69,7 @@ export async function infraKongBuild(
     writeKongBuildContext,
     validateKongTrustTokenUse,
     buildKongRuntimeSecretReferences,
+    loadFrameworkConfig,
   } = getContext();
 
   logger.newline();
@@ -207,6 +211,21 @@ export async function infraKongBuild(
   // Step 4b: Post-process CORS origins (convert comma-separated string to array)
   processCorsOrigins(resolvedConfig);
 
+  // Step 4b2: Add the environment's domains: the secret is derived once, at
+  // its first push, and doesn't follow later changes to infrastructure.json
+  const infraConfig = loadInfrastructureConfig();
+  const envOverrides = infraConfig?.[targetEnv] as
+    EnvironmentOverrides | undefined;
+  const domains = envOverrides
+    ? getFrontendServicesWithDomains(
+        envOverrides,
+        loadFrameworkConfig().services,
+      ).map((service) => service.domain)
+    : [];
+  for (const origin of addDomainCorsOrigins(resolvedConfig, domains)) {
+    logger.info(`  CORS origin added from infrastructure.json: ${origin}`);
+  }
+
   // Step 4c: Validate no unresolved placeholders remain
   // Only checks single-brace ${...} syntax (double braces ${{...}} are ignored)
   logger.generating('Validating resolved configuration...');
@@ -228,8 +247,7 @@ export async function infraKongBuild(
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kong-build-'));
 
   try {
-    // Load infrastructure config for Kong settings (maxUploadSize)
-    const infraConfig = loadInfrastructureConfig();
+    // Kong settings from infrastructure.json (maxUploadSize)
     const kongConfig = getKongConfig(infraConfig, targetEnv, provider);
 
     // Write Dockerfile, plugins and the resolved config (baked into the image)

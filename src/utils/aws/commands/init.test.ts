@@ -39,6 +39,7 @@ describe('awsInit', () => {
       bucketName: 'my-app-terraform-state-123456789012',
       tableName: 'my-app-terraform-locks',
       bucketCreated: true,
+      bucketPolicySet: false,
       tableCreated: true,
     });
   });
@@ -60,6 +61,7 @@ describe('awsInit', () => {
       bucketName: '',
       tableName: '',
       bucketCreated: false,
+      bucketPolicySet: false,
       tableCreated: false,
     });
 
@@ -80,6 +82,7 @@ describe('awsInit', () => {
       bucketName: 'my-app-terraform-state-123456789012',
       tableName: 'my-app-terraform-locks',
       bucketCreated: false,
+      bucketPolicySet: false,
       tableCreated: false,
     });
 
@@ -87,6 +90,26 @@ describe('awsInit', () => {
 
     expect(mocks.logger.success).toHaveBeenCalledWith(
       expect.stringContaining('already exists'),
+    );
+    expect(mocks.logger.success).not.toHaveBeenCalledWith(
+      expect.stringContaining('HTTPS'),
+    );
+  });
+
+  it('should say when an existing bucket now refuses requests without HTTPS', async () => {
+    rs.mocked(createStateBackend).mockResolvedValue({
+      success: true,
+      bucketName: 'my-app-terraform-state-123456789012',
+      tableName: 'my-app-terraform-locks',
+      bucketCreated: false,
+      bucketPolicySet: true,
+      tableCreated: false,
+    });
+
+    await awsInit(mockCtx);
+
+    expect(mocks.logger.success).toHaveBeenCalledWith(
+      'S3 bucket now refuses requests without HTTPS',
     );
   });
 

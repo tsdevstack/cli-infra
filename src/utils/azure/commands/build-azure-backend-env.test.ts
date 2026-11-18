@@ -16,6 +16,17 @@ rs.mock('../../../context', () => ({
 
 const mockBuildBackendEnvVars = rs.fn();
 rs.mock('@tsdevstack/infra-core', () => ({
+  // Legacy names (the builder has its own tests in infra-core)
+  buildAzureResourceName: (
+    resource: string,
+    o: { projectName: string; environment: string; app?: string },
+  ) =>
+    ({
+      stateStorageAccount: `${o.projectName.replace(/[^a-z0-9]/g, '')}${o.environment}tfstate`,
+      blobStorageAccount: `${o.projectName.replace(/[^a-z0-9]/g, '')}${o.environment}storage`,
+      appService: `${o.projectName}-${o.environment}-${o.app}`,
+      postgresServer: `${o.projectName}-${o.environment}-postgres`,
+    })[resource],
   buildBackendEnvVars: (...args: unknown[]) => mockBuildBackendEnvVars(...args),
 }));
 
@@ -28,6 +39,7 @@ import { buildAzureBackendEnv } from './build-azure-backend-env';
 
 describe('buildAzureBackendEnv', () => {
   const baseConfig = {
+    naming: { scheme: 'legacy' as const, subscriptionId: 'sub-123' },
     projectName: 'my-app',
     targetEnv: 'dev',
     credentials: {

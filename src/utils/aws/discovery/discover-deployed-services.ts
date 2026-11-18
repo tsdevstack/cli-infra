@@ -22,6 +22,11 @@ export type { DeployedServiceInfo, DiscoverDeployedServicesResult };
 export interface DiscoverDeployedServicesOptions {
   projectName: string;
   credentials: AWSCredentials;
+  /**
+   * The project's Next.js apps (config.json). An ECS service doesn't say
+   * what runs in it; without the list, a Next.js app shows as a backend.
+   */
+  nextjsServices?: string[];
 }
 
 /**
@@ -67,6 +72,8 @@ export async function discoverDeployedServices(
       type = 'kong';
     } else if (service.serviceName.endsWith('-worker')) {
       type = 'worker';
+    } else if (options.nextjsServices?.includes(service.serviceName)) {
+      type = 'nextjs';
     }
 
     services.push({

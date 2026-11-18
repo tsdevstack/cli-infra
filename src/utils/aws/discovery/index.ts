@@ -27,6 +27,9 @@ export type {
 } from './discover-deployed-services';
 
 export { discoverServiceResources } from './discover-service-resources';
+export { findServiceDistributions } from './find-service-distributions';
+export type { ServiceDistribution } from './find-service-distributions';
+export { findSpaOriginAccessControl } from './find-spa-origin-access-control';
 export type {
   DiscoverServiceResourcesOptions,
   DiscoveredResources,

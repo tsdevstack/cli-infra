@@ -4,6 +4,13 @@ import type { MockContext } from '@tsdevstack/cli/test-utils';
 const mocks = (globalThis as unknown as { contextMocks: MockContext })
   .contextMocks;
 
+rs.mock('../naming/resolve-azure-naming', () => ({
+  resolveAzureNaming: async () => ({
+    scheme: 'legacy',
+    subscriptionId: 'sub-123',
+  }),
+}));
+
 rs.mock('../../../context', () => ({
   getContext: rs.fn(
     () => (globalThis as unknown as { contextMocks: MockContext }).contextMocks,
@@ -11,6 +18,18 @@ rs.mock('../../../context', () => ({
 }));
 
 rs.mock('../../build-runtime', () => ({ buildRuntime: () => ({}) }));
+
+rs.mock('../resolve-postgres-server-name', () => ({
+  resolvePostgresServerName: rs.fn(),
+}));
+
+rs.mock('../database-lock/put-database-lock', () => ({
+  putDatabaseLock: rs.fn(),
+}));
+
+rs.mock('../database-lock/lift-database-lock', () => ({
+  liftDatabaseLock: rs.fn(),
+}));
 
 rs.mock('../terraform', () => ({
   executeTerraform: rs.fn(),
@@ -34,7 +53,27 @@ rs.mock('./generate-terraform-files', () => ({
   generateTerraformFiles: rs.fn(),
 }));
 
+rs.mock('../set-up-azure-database-users', () => ({
+  setUpAzureDatabaseUsers: rs.fn(),
+}));
+
 rs.mock('@tsdevstack/infra-core', () => ({
+  generateDbInit: rs.fn(() => ({
+    dockerfile: 'FROM node',
+    packageJson: '{}',
+    indexJs: '// init',
+  })),
+  // Legacy names (the builder has its own tests in infra-core)
+  buildAzureResourceName: (
+    resource: string,
+    o: { projectName: string; environment: string; app?: string },
+  ) =>
+    ({
+      stateStorageAccount: `${o.projectName.replace(/[^a-z0-9]/g, '')}${o.environment}tfstate`,
+      blobStorageAccount: `${o.projectName.replace(/[^a-z0-9]/g, '')}${o.environment}storage`,
+      appService: `${o.projectName}-${o.environment}-${o.app}`,
+      postgresServer: `${o.projectName}-${o.environment}-postgres`,
+    })[resource],
   extractLockId: rs.fn(),
   extractImportTargets: rs.fn(() => []),
   detectRouteAssociationError: rs.fn(() => null),
@@ -90,9 +129,13 @@ import { extractLockId, buildAzureTerraformEnv } from '@tsdevstack/infra-core';
 import { checkPostgresAvailability } from '../preflight/check-postgres-availability';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
 import { setSecretViaCli } from '../../credentials/set-secret-via-cli';
+import { setUpAzureDatabaseUsers } from '../set-up-azure-database-users';
 import { setSecretWithRetry } from '../set-secret-with-retry';
 import { upgradeFrontdoorSku } from './upgrade-frontdoor-sku';
 import { lockDownPublicAccess } from './lock-down-public-access';
+import { resolvePostgresServerName } from '../resolve-postgres-server-name';
+import { putDatabaseLock } from '../database-lock/put-database-lock';
+import { liftDatabaseLock } from '../database-lock/lift-database-lock';
 
 // Pass-through: the retry itself is covered by apply-with-capacity-retry.test.ts
 const mockApplyWithCapacityRetry = rs.fn();
@@ -121,6 +164,18 @@ describe('azureDeploy', () => {
   beforeEach(() => {
     rs.resetAllMocks();
 
+    rs.mocked(resolvePostgresServerName).mockReturnValue({
+      name: 'my-app-dev-postgres',
+      isOverride: false,
+    });
+    rs.mocked(putDatabaseLock).mockResolvedValue(undefined);
+    rs.mocked(liftDatabaseLock).mockResolvedValue(false);
+    rs.mocked(setUpAzureDatabaseUsers).mockResolvedValue(undefined);
+    mocks.ensureKeyVaultExists.mockResolvedValue({
+      exists: true,
+      created: false,
+    });
+
     rs.mocked(createStateBackend).mockResolvedValue({
       success: true,
       storageAccountName: 'myappdevtfstate',
@@ -133,6 +188,7 @@ describe('azureDeploy', () => {
       outputDir: '/test/project/infrastructure/terraform/dev',
       generateConfig: {
         provider: 'azure',
+        naming: 'legacy',
         projectName: 'my-app',
         environment: 'dev',
         subscriptionId: 'sub-123',
@@ -140,6 +196,8 @@ describe('azureDeploy', () => {
         storageAccountName: 'myappdevtfstate',
         keyVaultName: 'myproject-dev-kv',
         serviceKeyVaults: {},
+        dbJobsKeyVault: 'test-dev-dbjobs',
+        databaseServiceKeyVaults: {},
         database: {
           tier: 'B_Standard_B1ms',
           storageSizeGb: 32,
@@ -248,6 +306,7 @@ describe('azureDeploy', () => {
     expect(generateTerraformFiles).toHaveBeenCalledWith(
       mockCtx,
       'infra:deploy',
+      { naming: { scheme: 'legacy', subscriptionId: 'sub-123' } },
     );
   });
 
@@ -255,8 +314,12 @@ describe('azureDeploy', () => {
     const withServiceVaults = (): void => {
       const current = rs.mocked(generateTerraformFiles).getMockImplementation();
       const base = current
-        ? current(mockCtx, 'infra:deploy')
-        : rs.mocked(generateTerraformFiles)(mockCtx, 'infra:deploy');
+        ? current(mockCtx, 'infra:deploy', {
+            naming: { scheme: 'legacy', subscriptionId: 'sub-123' },
+          })
+        : rs.mocked(generateTerraformFiles)(mockCtx, 'infra:deploy', {
+            naming: { scheme: 'legacy', subscriptionId: 'sub-123' },
+          });
       rs.mocked(generateTerraformFiles).mockReturnValue({
         ...base,
         generateConfig: {
@@ -294,6 +357,17 @@ describe('azureDeploy', () => {
         mocks.ensureKeyVaultExists.mock.invocationCallOrder[1];
       const initOrder = rs.mocked(executeTerraform).mock.invocationCallOrder[0];
       expect(ensureOrder).toBeLessThan(initOrder);
+    });
+
+    it("should create the database jobs' vault before Terraform runs", async () => {
+      await azureDeploy(mockCtx, { autoApprove: true });
+
+      expect(mocks.ensureKeyVaultExists).toHaveBeenCalledWith(
+        'my-app',
+        'dev',
+        mockCtx.credentials,
+        'dbjobs',
+      );
     });
 
     it('should stop when a vault cannot be created', async () => {
@@ -438,6 +512,7 @@ describe('azureDeploy', () => {
       outputDir: '/test/project/infrastructure/terraform/dev',
       generateConfig: {
         provider: 'azure',
+        naming: 'legacy',
         projectName: 'my-app',
         environment: 'dev',
         subscriptionId: 'sub-123',
@@ -445,6 +520,8 @@ describe('azureDeploy', () => {
         storageAccountName: 'myappdevtfstate',
         keyVaultName: 'myproject-dev-kv',
         serviceKeyVaults: {},
+        dbJobsKeyVault: 'test-dev-dbjobs',
+        databaseServiceKeyVaults: {},
         database: {
           tier: 'B_Standard_B1ms',
           storageSizeGb: 32,
@@ -533,11 +610,12 @@ describe('azureDeploy', () => {
       expect(setSecretViaCli).toHaveBeenCalledWith('REDIS_TLS', 'true', 'dev');
     });
 
-    it('should sync DATABASE_URL per service with database', async () => {
+    it('should set up the database users of the services with a database', async () => {
       rs.mocked(generateTerraformFiles).mockReturnValue({
         outputDir: '/test/project/infrastructure/terraform/dev',
         generateConfig: {
           provider: 'azure',
+          naming: 'legacy',
           projectName: 'my-app',
           environment: 'dev',
           subscriptionId: 'sub-123',
@@ -545,6 +623,11 @@ describe('azureDeploy', () => {
           storageAccountName: 'myappdevtfstate',
           keyVaultName: 'myproject-dev-kv',
           serviceKeyVaults: {},
+          dbJobsKeyVault: 'test-dev-dbjobs',
+          databaseServiceKeyVaults: {
+            'auth-service': 'my-app-dev-auth-service',
+            'offers-service': 'my-app-dev-offers-service',
+          },
           database: {
             tier: 'B_Standard_B1ms',
             storageSizeGb: 32,
@@ -576,24 +659,44 @@ describe('azureDeploy', () => {
 
       await azureDeploy(mockCtx, { autoApprove: true });
 
-      expect(setSecretViaCli).toHaveBeenCalledWith(
-        'DATABASE_URL',
-        expect.stringContaining('postgresql://tsdevstack:'),
-        'dev',
-        'auth-service',
-      );
-      expect(setSecretViaCli).toHaveBeenCalledWith(
-        'DATABASE_URL',
-        expect.stringContaining('postgresql://tsdevstack:'),
-        'dev',
-        'offers-service',
-      );
-      // bff-service has hasDatabase: false, should NOT get DATABASE_URL
+      expect(setUpAzureDatabaseUsers).toHaveBeenCalledWith({
+        terraformDir: '/test/project/infrastructure/terraform/dev',
+        tfEnv: expect.any(Object),
+        projectName: 'my-app',
+        targetEnv: 'dev',
+        credentials: mockCtx.credentials,
+        serviceNames: ['auth-service', 'offers-service'],
+        dbJobsKeyVault: 'test-dev-dbjobs',
+        serviceKeyVaults: {
+          'auth-service': 'my-app-dev-auth-service',
+          'offers-service': 'my-app-dev-offers-service',
+        },
+      });
+      // The server admin's URL is no longer written anywhere
       expect(setSecretViaCli).not.toHaveBeenCalledWith(
         'DATABASE_URL',
         expect.anything(),
-        'dev',
-        'bff-service',
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+
+    it('should fail the deploy when the database users cannot be set up', async () => {
+      rs.mocked(generateTerraformFiles).mockReturnValue({
+        outputDir: '/test/project/infrastructure/terraform/dev',
+        generateConfig: {
+          ...rs.mocked(generateTerraformFiles)(mockCtx, 'infra:deploy', {
+            naming: { scheme: 'legacy', subscriptionId: 'sub-123' },
+          }).generateConfig,
+          servicesWithDatabase: [{ name: 'auth-service', hasDatabase: true }],
+        },
+      });
+      rs.mocked(setUpAzureDatabaseUsers).mockRejectedValue(
+        new Error('db-init (init) failed'),
+      );
+
+      await expect(azureDeploy(mockCtx, { autoApprove: true })).rejects.toThrow(
+        'db-init (init) failed',
       );
     });
 
@@ -785,6 +888,114 @@ describe('azureDeploy', () => {
       expect(
         mocks.logger.info.mock.invocationCallOrder[dnsIndex],
       ).toBeGreaterThan(bannerOrder);
+    });
+  });
+
+  describe('database delete lock', () => {
+    const target = {
+      credentials: mockCtx.credentials,
+      resourceGroupName: 'my-app-dev-rg',
+      serverName: 'my-app-dev-postgres',
+    };
+
+    it('should put the lock on after the apply by default', async () => {
+      rs.mocked(loadInfrastructureConfig).mockReturnValue(null);
+
+      await azureDeploy(mockCtx, { autoApprove: true });
+
+      expect(resolvePostgresServerName).toHaveBeenCalledWith(
+        'my-app',
+        'dev',
+        null,
+        { scheme: 'legacy', subscriptionId: 'sub-123' },
+      );
+      expect(putDatabaseLock).toHaveBeenCalledWith(target);
+      expect(liftDatabaseLock).not.toHaveBeenCalled();
+      expect(
+        rs.mocked(putDatabaseLock).mock.invocationCallOrder[0],
+      ).toBeGreaterThan(
+        Math.max(...rs.mocked(executeTerraform).mock.invocationCallOrder),
+      );
+    });
+
+    it('should lift it before the apply when database.deletionProtection is false', async () => {
+      rs.mocked(loadInfrastructureConfig).mockReturnValue({
+        version: '1.0.0',
+        dev: { database: { deletionProtection: false } },
+      } as ReturnType<typeof loadInfrastructureConfig>);
+      rs.mocked(liftDatabaseLock).mockResolvedValue(true);
+
+      await azureDeploy(mockCtx, { autoApprove: true });
+
+      expect(liftDatabaseLock).toHaveBeenCalledWith(target);
+      expect(putDatabaseLock).not.toHaveBeenCalled();
+      const applyIndex = rs
+        .mocked(executeTerraform)
+        .mock.calls.findIndex((call) => call[0] === 'apply');
+      expect(
+        rs.mocked(liftDatabaseLock).mock.invocationCallOrder[0],
+      ).toBeLessThan(
+        rs.mocked(executeTerraform).mock.invocationCallOrder[applyIndex],
+      );
+      expect(mocks.logger.info).toHaveBeenCalledWith(
+        expect.stringContaining('Delete lock lifted'),
+      );
+    });
+
+    it('should not apply when the lock cannot be lifted', async () => {
+      rs.mocked(loadInfrastructureConfig).mockReturnValue({
+        version: '1.0.0',
+        dev: { database: { deletionProtection: false } },
+      } as ReturnType<typeof loadInfrastructureConfig>);
+      rs.mocked(liftDatabaseLock).mockRejectedValue(
+        new Error('AuthorizationFailed'),
+      );
+
+      await expect(
+        azureDeploy(mockCtx, { autoApprove: true }),
+      ).rejects.toMatchObject({
+        name: 'CliError',
+        context: 'infra:deploy',
+        hint: expect.stringContaining('Terraform has not applied anything'),
+      });
+
+      expect(executeTerraform).not.toHaveBeenCalledWith(
+        'apply',
+        expect.anything(),
+      );
+    });
+
+    it('should not put the lock on when the apply fails', async () => {
+      rs.mocked(executeTerraform)
+        .mockResolvedValueOnce({ success: true, output: '' }) // init
+        .mockResolvedValueOnce({
+          success: false,
+          output: '',
+          error: 'apply failed',
+        }); // apply
+
+      await expect(azureDeploy(mockCtx, { autoApprove: true })).rejects.toThrow(
+        mocks.CliError,
+      );
+
+      expect(putDatabaseLock).not.toHaveBeenCalled();
+    });
+
+    it('should stop before the services when Azure refuses the lock', async () => {
+      rs.mocked(loadInfrastructureConfig).mockReturnValue(null);
+      rs.mocked(putDatabaseLock).mockRejectedValue(
+        new Error('AuthorizationFailed'),
+      );
+
+      await expect(
+        azureDeploy(mockCtx, { autoApprove: true }),
+      ).rejects.toMatchObject({
+        name: 'CliError',
+        message: expect.stringContaining('AuthorizationFailed'),
+        context: 'infra:deploy',
+        hint: expect.stringContaining('User Access Administrator'),
+      });
+      expect(mockInfraDeployServices).not.toHaveBeenCalled();
     });
   });
 });

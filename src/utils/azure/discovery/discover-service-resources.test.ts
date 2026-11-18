@@ -329,7 +329,8 @@ describe('discoverServiceResources', () => {
       expect(storageAccountExists).toHaveBeenCalledWith({
         credentials: testCredentials,
         resourceGroupName: 'myproject-dev-rg',
-        storageAccountName: 'myprojectdevauthservicespa',
+        // As Terraform names it: trimmed, plus the end of the subscription ID
+        storageAccountName: 'myprojectdevauthiptionid',
       });
 
       expect(listKeyVaultSecretsByPrefix).toHaveBeenCalledWith({
@@ -346,7 +347,7 @@ describe('discoverServiceResources', () => {
       });
     });
 
-    it('should sanitize SPA bucket name to alphanumeric only', async () => {
+    it('should name the SPA storage account as Terraform does', async () => {
       await discoverServiceResources({
         projectName: 'my-project',
         targetEnv: 'dev',
@@ -356,7 +357,7 @@ describe('discoverServiceResources', () => {
 
       expect(storageAccountExists).toHaveBeenCalledWith(
         expect.objectContaining({
-          storageAccountName: 'myprojectdevmydashboardspa',
+          storageAccountName: 'myprojectdevmydaiptionid',
         }),
       );
     });

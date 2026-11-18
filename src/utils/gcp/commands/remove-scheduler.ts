@@ -10,6 +10,13 @@ import { CloudSchedulerClient } from '@google-cloud/scheduler';
 import { getContext } from '../../../context';
 import { deleteSchedulerJob } from '../delete';
 import type { GCPCommandContext } from './types';
+import {
+  buildGcpCloudRunName,
+  GCP_SCHEDULER_PROJECT_DESCRIPTION_PREFIX,
+  type NamingScheme,
+} from '@tsdevstack/infra-core';
+import { resolveGcpNamingScheme } from '../naming/resolve-gcp-naming-scheme';
+import { parseGcpCloudRunName } from '../parse-gcp-cloud-run-name';
 
 export interface RemoveSchedulerOptions {
   job?: string;
@@ -18,6 +25,8 @@ export interface RemoveSchedulerOptions {
 
 interface DeployedJob {
   name: string;
+  /** In the unique scheme, names the project (GCP_SCHEDULER_PROJECT_DESCRIPTION_PREFIX) */
+  description?: string;
   schedule: string;
   state: string;
   targetUri?: string;
@@ -34,12 +43,15 @@ export async function gcpRemoveScheduler(
 
   const { targetEnv, credentials } = ctx;
 
-  // Resolve job name
+  // Cloud Scheduler names follow the scheme the environment was first deployed with
+  const naming = await resolveGcpNamingScheme(ctx, 'infra:remove-scheduler');
+
+  // Resolve job name (as in infrastructure.json)
   let jobName: string;
   if (options.job) {
     jobName = options.job;
   } else {
-    jobName = await selectJobInteractive(ctx);
+    jobName = await selectJobInteractive(ctx, naming);
   }
 
   logger.info(`Job: ${jobName}`);
@@ -72,7 +84,7 @@ export async function gcpRemoveScheduler(
   logger.info('Deleting Cloud Scheduler job...');
 
   const result = await deleteSchedulerJob({
-    jobName,
+    jobName: buildGcpCloudRunName(ctx.projectName, jobName, naming),
     projectId: credentials.project_id,
     region: credentials.region,
     credentials,
@@ -131,6 +143,7 @@ async function discoverDeployedJobs(
 
       return {
         name,
+        description: job.description ?? undefined,
         schedule,
         state,
         targetUri,
@@ -150,14 +163,29 @@ async function discoverDeployedJobs(
 /**
  * Interactively select a job from deployed jobs in Cloud Scheduler
  */
-async function selectJobInteractive(ctx: GCPCommandContext): Promise<string> {
+async function selectJobInteractive(
+  ctx: GCPCommandContext,
+  naming: NamingScheme,
+): Promise<string> {
   const { logger, CliError } = getContext();
 
   logger.info('Discovering deployed scheduled jobs...');
   logger.newline();
 
-  // Query Cloud Scheduler for deployed jobs
-  const deployedJobs = await discoverDeployedJobs(ctx.credentials);
+  // Query Cloud Scheduler for deployed jobs; in the unique scheme only this
+  // project's (by the description its Terraform sets: a name prefix alone
+  // also matches a project whose name starts the same way), by their names
+  // in infrastructure.json
+  const projectDescription = `${GCP_SCHEDULER_PROJECT_DESCRIPTION_PREFIX}${ctx.projectName}`;
+  const deployedJobs = (await discoverDeployedJobs(ctx.credentials)).flatMap(
+    (job) => {
+      if (naming === 'unique' && job.description !== projectDescription) {
+        return [];
+      }
+      const name = parseGcpCloudRunName(ctx.projectName, job.name, naming);
+      return name === undefined ? [] : [{ ...job, name }];
+    },
+  );
 
   if (deployedJobs.length === 0) {
     throw new CliError(

@@ -7,14 +7,19 @@
  */
 
 import { getContext } from '../../../context';
-import { buildBackendEnvVars } from '@tsdevstack/infra-core';
+import {
+  buildAzureResourceName,
+  buildBackendEnvVars,
+} from '@tsdevstack/infra-core';
 import { fetchSecret } from '../../credentials/fetch-secret';
-import type { AzureCredentials } from '@tsdevstack/cli/plugin';
+import type { AzureCredentials, AzureNaming } from '@tsdevstack/cli/plugin';
 
 interface BuildAzureBackendEnvConfig {
   projectName: string;
   targetEnv: string;
   credentials: AzureCredentials;
+  /** The environment's naming (resolveAzureNaming): vault and storage names */
+  naming: AzureNaming;
   serviceName: string;
   hasDatabase: boolean;
   hasStorage: boolean;
@@ -53,6 +58,7 @@ export function buildAzureBackendEnv(
     projectName,
     targetEnv,
     credentials,
+    naming,
     serviceName,
     hasDatabase,
     poolMax,
@@ -93,11 +99,11 @@ export function buildAzureBackendEnv(
     { name: 'AZURE_SECRETS_CLIENT_ID', value: config.secretsIdentityClientId },
     {
       name: AZURE_KEYVAULT_NAME_ENV,
-      value: buildKeyVaultName(projectName, targetEnv),
+      value: buildKeyVaultName(projectName, targetEnv, naming),
     },
     {
       name: AZURE_SERVICE_KEYVAULT_NAME_ENV,
-      value: buildKeyVaultName(projectName, targetEnv, serviceName),
+      value: buildKeyVaultName(projectName, targetEnv, naming, serviceName),
     },
   );
   logger.info('  Injecting managed identities and Key Vault names');
@@ -113,7 +119,12 @@ export function buildAzureBackendEnv(
 
   // Azure Storage Account name for StorageModule
   if (config.hasStorage) {
-    const storageAccountName = `${projectName.replace(/[^a-z0-9]/g, '')}${targetEnv}storage`;
+    const storageAccountName = buildAzureResourceName('blobStorageAccount', {
+      projectName,
+      environment: targetEnv,
+      naming: naming.scheme,
+      subscriptionId: naming.subscriptionId,
+    });
     envVars.push({
       name: 'AZURE_STORAGE_ACCOUNT_NAME',
       value: storageAccountName,

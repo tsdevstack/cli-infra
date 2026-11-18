@@ -70,6 +70,25 @@ describe('awsListDeployed', () => {
     );
   });
 
+  it("should pass the project's Next.js apps to the discovery", async () => {
+    mocks.loadFrameworkConfig.mockReturnValue({
+      services: [
+        { name: 'frontend', type: 'nextjs' },
+        { name: 'auth-service', type: 'nestjs' },
+      ],
+    });
+    rs.mocked(discoverDeployedServices).mockResolvedValue({
+      success: true,
+      services: [],
+    });
+
+    await awsListDeployed(mockParams);
+
+    expect(discoverDeployedServices).toHaveBeenCalledWith(
+      expect.objectContaining({ nextjsServices: ['frontend'] }),
+    );
+  });
+
   it('should show warning when no services found', async () => {
     rs.mocked(discoverDeployedServices).mockResolvedValue({
       success: true,

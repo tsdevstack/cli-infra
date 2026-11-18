@@ -34,6 +34,11 @@ interface InfraDockerPushOptions {
   parallel?: boolean;
   /** Skip Docker auth — used when the caller already authenticated (e.g. parallel pushes) */
   skipAuth?: boolean;
+  /**
+   * Print the commands to run next (default true). The deploy commands pass
+   * false: they run them themselves.
+   */
+  nextSteps?: boolean;
 }
 
 /**
@@ -339,9 +344,11 @@ export async function infraDockerPush(
   logger.newline();
   logger.complete(`Pushed ${pushedImages.length} image(s)!`);
   logger.newline();
-  logger.info('Next steps:');
-  logger.info(
-    '  npx tsdevstack infra:deploy-services --env <env> --service <service>',
-  );
-  logger.newline();
+  if (options.nextSteps !== false) {
+    logger.info('Next steps:');
+    logger.info(
+      '  npx tsdevstack infra:deploy-services --env <env> --service <service>',
+    );
+    logger.newline();
+  }
 }

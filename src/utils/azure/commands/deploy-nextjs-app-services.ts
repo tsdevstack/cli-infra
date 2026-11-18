@@ -122,6 +122,7 @@ export async function deployNextjsAppServices(
     services,
     async (service) => {
       await infraDockerBuild({
+        nextSteps: false,
         env: targetEnv,
         service: service.name,
         tag: imageTag,
@@ -147,6 +148,7 @@ export async function deployNextjsAppServices(
           `  ⏳ Pushing ${service.name}... (${pushCompleted}/${pushTotal} done)`,
         );
         await infraDockerPush({
+          nextSteps: false,
           env: targetEnv,
           service: service.name,
           tag: imageTag,

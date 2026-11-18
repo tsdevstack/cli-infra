@@ -19,6 +19,9 @@ rs.mock('@tsdevstack/infra-core', () => ({
   executeEcsTask: rs.fn(),
 }));
 
+rs.mock('../resolve-aws-migration-secret-name', () => ({
+  resolveAwsMigrationSecretName: rs.fn(),
+}));
 rs.mock('../../build-runtime', () => ({
   buildRuntime: () => ({}),
 }));
@@ -34,6 +37,7 @@ rs.mock('../../infrastructure/merge-with-defaults', () => ({
 import { awsDbMigrateRun } from './db-migrate-run';
 import { getTerraformOutput } from '../../terraform';
 import { buildAwsTerraformEnv, executeEcsTask } from '@tsdevstack/infra-core';
+import { resolveAwsMigrationSecretName } from '../resolve-aws-migration-secret-name';
 
 describe('awsDbMigrateRun', () => {
   const mockParams = {
@@ -58,6 +62,9 @@ describe('awsDbMigrateRun', () => {
     (mocks as Record<string, unknown>).buildSecretName = rs.fn(
       (project: string, scope: string, key: string) =>
         `${project}-${scope}-${key}`,
+    );
+    rs.mocked(resolveAwsMigrationSecretName).mockResolvedValue(
+      'my-app-auth-service-MIGRATION_DATABASE_URL',
     );
 
     rs.mocked(buildAwsTerraformEnv).mockReturnValue({
@@ -98,6 +105,35 @@ describe('awsDbMigrateRun', () => {
           'migrate',
           'deploy',
         ],
+      }),
+    );
+  });
+
+  it('should connect as the owner role (MIGRATION_DATABASE_URL)', async () => {
+    await awsDbMigrateRun(mockParams);
+
+    expect(resolveAwsMigrationSecretName).toHaveBeenCalledWith({
+      projectName: 'my-app',
+      serviceName: 'auth-service',
+      credentials: mockParams.credentials,
+    });
+    expect(executeEcsTask).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        secretArn:
+          'arn:aws:secretsmanager:us-east-1:123456789012:secret:my-app-auth-service-MIGRATION_DATABASE_URL',
+      }),
+    );
+  });
+
+  it('should name the task and its log group with the project', async () => {
+    await awsDbMigrateRun(mockParams);
+
+    expect(executeEcsTask).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        taskFamily: 'my-app-migrate-auth-service',
+        logGroupName: '/ecs/my-app/migrate-auth-service',
       }),
     );
   });

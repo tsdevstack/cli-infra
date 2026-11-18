@@ -26,7 +26,7 @@ describe('normalizeGcpLogEntry', () => {
         },
       };
 
-      expect(normalizeGcpLogEntry(entry, 'shop')).toEqual({
+      expect(normalizeGcpLogEntry(entry, 'shop', 'legacy')).toEqual({
         time: '2026-10-30T12:00:01.123Z',
         source: 'auth-service',
         kind: 'app',
@@ -46,7 +46,7 @@ describe('normalizeGcpLogEntry', () => {
         textPayload: '2026/10/30 12:00:01 [notice] 1#0: start worker processes',
       };
 
-      const line = normalizeGcpLogEntry(entry, 'shop');
+      const line = normalizeGcpLogEntry(entry, 'shop', 'legacy');
       expect(line.source).toBe('kong');
       expect(line.kind).toBe('app');
       expect(line.level).toBeUndefined();
@@ -70,6 +70,7 @@ describe('normalizeGcpLogEntry', () => {
           },
         },
         'shop',
+        'legacy',
       );
       expect(line).toMatchObject({
         source: 'frontend',
@@ -92,6 +93,7 @@ describe('normalizeGcpLogEntry', () => {
           textPayload: 'Container called exit(1).',
         },
         'shop',
+        'legacy',
       );
       expect(line).toMatchObject({
         source: 'migrate-auth-service',
@@ -99,6 +101,29 @@ describe('normalizeGcpLogEntry', () => {
         level: 'error',
         message: 'Container called exit(1).',
       });
+    });
+
+    it('should name the database setup job db-init, as the user types it, in both naming schemes', () => {
+      for (const naming of ['legacy', 'unique'] as const) {
+        const line = normalizeGcpLogEntry(
+          {
+            logName: 'projects/p/logs/run.googleapis.com%2Fstdout',
+            resource: {
+              type: 'cloud_run_job',
+              labels: { job_name: 'shop-db-init' },
+            },
+            timestamp: '2026-10-30T12:00:01Z',
+            textPayload: 'db-init completed successfully',
+          },
+          'shop',
+          naming,
+        );
+        expect(line).toMatchObject({
+          source: 'db-init',
+          kind: 'app',
+          message: 'db-init completed successfully',
+        });
+      }
     });
 
     it('should read load balancer lines as edge, with the reason it answered itself', () => {
@@ -127,6 +152,7 @@ describe('normalizeGcpLogEntry', () => {
           },
         },
         'shop',
+        'legacy',
       );
       expect(line).toMatchObject({
         source: 'edge',
@@ -155,6 +181,7 @@ describe('normalizeGcpLogEntry', () => {
           jsonPayload: { statusDetails: 'failed_to_connect_to_backend' },
         },
         'shop',
+        'legacy',
       );
       expect(line.message).toBe(
         'GET api.example.com/auth/v1/me 502 (failed_to_connect_to_backend)',
@@ -179,6 +206,7 @@ describe('normalizeGcpLogEntry', () => {
           },
         },
         'shop',
+        'legacy',
       );
       expect(started).toMatchObject({
         source: 'sync-api-key-usage',
@@ -207,6 +235,7 @@ describe('normalizeGcpLogEntry', () => {
           },
         },
         'shop',
+        'legacy',
       );
       expect(finished.message).toBe(
         'Run finished: 500 (URL_ERROR-ERROR_INTERNAL. Original HTTP response code number = 500)',
@@ -230,6 +259,7 @@ describe('normalizeGcpLogEntry', () => {
           },
         },
         'shop',
+        'legacy',
       );
       expect(succeeded.message).toBe('Run finished: 201');
     });
@@ -246,6 +276,7 @@ describe('normalizeGcpLogEntry', () => {
           jsonPayload: { message: 'hello' },
         },
         'shop',
+        'legacy',
       );
       expect(line).toMatchObject({
         kind: 'app',
@@ -266,6 +297,7 @@ describe('normalizeGcpLogEntry', () => {
           },
         },
         'shop',
+        'legacy',
       );
       expect(line).toMatchObject({
         kind: 'platform',
@@ -283,6 +315,7 @@ describe('normalizeGcpLogEntry', () => {
           jsonPayload: { a: 1 },
         },
         'shop',
+        'legacy',
       );
       expect(line).toMatchObject({
         source: 'gce_instance',
@@ -290,6 +323,91 @@ describe('normalizeGcpLogEntry', () => {
         message: '{"a":1}',
       });
       expect(line.level).toBeUndefined();
+    });
+  });
+
+  describe('Unique naming scheme', () => {
+    it('should show the source by its name in config.json', () => {
+      const line = normalizeGcpLogEntry(
+        {
+          logName: 'projects/p/logs/run.googleapis.com%2Fstdout',
+          resource: RUN('shop-auth-service'),
+          timestamp: '2026-10-30T12:00:01Z',
+          textPayload: 'hello',
+        },
+        'shop',
+        'unique',
+      );
+      expect(line.source).toBe('auth-service');
+
+      const job = normalizeGcpLogEntry(
+        {
+          logName: 'projects/p/logs/cloudscheduler.googleapis.com%2Fexecutions',
+          resource: {
+            type: 'cloud_scheduler_job',
+            labels: { job_id: 'shop-cleanup-tokens' },
+          },
+          timestamp: '2026-10-30T12:00:01Z',
+        },
+        'shop',
+        'unique',
+      );
+      expect(job.source).toBe('cleanup-tokens');
+
+      const kong = normalizeGcpLogEntry(
+        {
+          logName: 'projects/p/logs/run.googleapis.com%2Fstdout',
+          resource: RUN('shop-kong'),
+          timestamp: '2026-10-30T12:00:01Z',
+        },
+        'shop',
+        'unique',
+      );
+      expect(kong.source).toBe('kong');
+    });
+  });
+
+  describe('Storage buckets', () => {
+    const entry = {
+      logName: 'projects/p/logs/cloudaudit.googleapis.com%2Fdata_access',
+      resource: {
+        type: 'gcs_bucket',
+        labels: { bucket_name: 'shop-uploads-dev', project_id: 'p' },
+      },
+      timestamp: '2026-11-09T12:00:00Z',
+      severity: 'INFO',
+      protoPayload: {
+        methodName: 'storage.objects.get',
+        resourceName:
+          'projects/_/buckets/shop-uploads-dev/objects/avatars/u1.png',
+        authenticationInfo: {
+          principalEmail: 'shop-auth-service-rt@p.iam.gserviceaccount.com',
+        },
+        requestMetadata: { callerIp: '203.0.113.5' },
+        status: {},
+      },
+    };
+
+    it('should show an access under its bucket source, as a platform line', () => {
+      expect(
+        normalizeGcpLogEntry(entry, 'shop', 'legacy', {
+          'shop-uploads-dev': 'bucket-uploads',
+        }),
+      ).toEqual({
+        time: '2026-11-09T12:00:00.000Z',
+        source: 'bucket-uploads',
+        kind: 'platform',
+        level: 'info',
+        message:
+          'storage.objects.get avatars/u1.png by shop-auth-service-rt@p.iam.gserviceaccount.com from 203.0.113.5',
+        raw: entry,
+      });
+    });
+
+    it('should name an unknown bucket by its GCS name', () => {
+      expect(normalizeGcpLogEntry(entry, 'shop', 'legacy').source).toBe(
+        'shop-uploads-dev',
+      );
     });
   });
 });

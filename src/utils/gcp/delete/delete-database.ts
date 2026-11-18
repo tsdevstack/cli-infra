@@ -2,7 +2,7 @@
  * Delete Cloud SQL Database
  *
  * Uses googleapis SQL Admin API to delete a database.
- * Idempotent: NOT_FOUND is treated as success.
+ * Idempotent: a database that isn't listed, or NOT_FOUND, is success.
  */
 
 import { google } from 'googleapis';
@@ -48,6 +48,19 @@ export async function deleteDatabase(
   const sql = google.sqladmin({ version: 'v1beta4', auth });
 
   try {
+    // After db-init's remove mode the database is gone from Postgres; look
+    // first instead of relying on the answer to a delete of a missing one
+    const listed = await sql.databases.list({
+      project: options.projectId,
+      instance: options.instanceName,
+    });
+    const exists = (listed.data.items ?? []).some(
+      (database) => database.name === options.databaseName,
+    );
+    if (!exists) {
+      return { success: true, deleted: false, alreadyGone: true };
+    }
+
     await sql.databases.delete({
       project: options.projectId,
       instance: options.instanceName,

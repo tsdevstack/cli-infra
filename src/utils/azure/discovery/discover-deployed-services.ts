@@ -7,6 +7,7 @@
  */
 
 import type { AzureCredentials } from '@tsdevstack/cli/plugin';
+import { azure, buildAccountSuffix } from '@tsdevstack/infra-core';
 import type {
   DeployedServiceInfo,
   DeployedServiceType,
@@ -20,13 +21,19 @@ export type { DeployedServiceInfo, DiscoverDeployedServicesResult };
 
 /**
  * Discover all deployed services in an Azure environment
+ *
+ * @param options.spaServices - The project's SPAs (config.json): a storage
+ *   account name is cut to 24 characters, so an SPA's name is found by
+ *   building each one's account name. Without it (or for an SPA no longer
+ *   in config) the name is read from the account's, possibly cut short.
  */
 export async function discoverDeployedServices(options: {
   projectName: string;
   targetEnv: string;
   credentials: AzureCredentials;
+  spaServices?: string[];
 }): Promise<DiscoverDeployedServicesResult> {
-  const { projectName, targetEnv, credentials } = options;
+  const { projectName, targetEnv, credentials, spaServices = [] } = options;
 
   const resourceGroupName = `${projectName}-${targetEnv}-rg`;
 
@@ -61,6 +68,9 @@ export async function discoverDeployedServices(options: {
   const services: DeployedServiceInfo[] = [];
   const prefix = `${projectName}-`;
   const envPrefix = `${projectName}-${targetEnv}-`;
+  // Environments with unique names end App Service names with the
+  // subscription's account suffix: tsdevstack-dev-kong-{suffix}
+  const accountSuffix = `-${buildAccountSuffix(credentials.subscriptionId)}`;
 
   // Add Container Apps as services
   for (const app of appsResult.apps) {
@@ -95,11 +105,14 @@ export async function discoverDeployedServices(options: {
   if (appServiceResult.success) {
     for (const app of appServiceResult.apps) {
       // App Service names use env prefix: tsdevstack-dev-kong, tsdevstack-dev-frontend
-      const serviceName = app.name.startsWith(envPrefix)
+      const unprefixed = app.name.startsWith(envPrefix)
         ? app.name.slice(envPrefix.length)
         : app.name.startsWith(prefix)
           ? app.name.slice(prefix.length)
           : app.name;
+      const serviceName = unprefixed.endsWith(accountSuffix)
+        ? unprefixed.slice(0, -accountSuffix.length)
+        : unprefixed;
 
       // Skip if already discovered as Container App (shouldn't happen after migration)
       const existing = services.find((s) => s.name === serviceName);
@@ -107,15 +120,9 @@ export async function discoverDeployedServices(options: {
         continue;
       }
 
-      let type: DeployedServiceType = 'backend';
-      if (serviceName === 'kong') {
-        type = 'kong';
-      } else if (
-        serviceName.includes('frontend') ||
-        serviceName.includes('nextjs')
-      ) {
-        type = 'nextjs';
-      }
+      // App Service runs only Kong and the Next.js apps
+      const type: DeployedServiceType =
+        serviceName === 'kong' ? 'kong' : 'nextjs';
 
       services.push({
         name: serviceName,
@@ -136,12 +143,22 @@ export async function discoverDeployedServices(options: {
   // Add SPAs (only if not already represented)
   if (spaResult.success) {
     for (const account of spaResult.accounts) {
-      const existingService = services.find((s) => s.name === account.spaName);
+      const spaName =
+        spaServices.find(
+          (name) =>
+            azure.buildSpaStorageAccountName(
+              projectName,
+              targetEnv,
+              name,
+              credentials.subscriptionId,
+            ) === account.name,
+        ) ?? account.spaName;
+      const existingService = services.find((s) => s.name === spaName);
       if (existingService) {
         existingService.resources.spaBucket = true;
       } else {
         services.push({
-          name: account.spaName,
+          name: spaName,
           type: 'spa',
           status: 'Active',
           imageUri: '-',

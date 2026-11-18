@@ -30,10 +30,14 @@ export async function selectServiceInteractive(
 
   // Get services from config.json
   const configServices: string[] = [];
+  const spaServices: string[] = [];
   try {
     const config = loadFrameworkConfig();
     for (const service of config.services) {
       configServices.push(service.name);
+      if (service.type === 'spa') {
+        spaServices.push(service.name);
+      }
     }
   } catch {
     // Config might not have services, continue with cloud discovery
@@ -45,6 +49,7 @@ export async function selectServiceInteractive(
     projectName,
     targetEnv,
     credentials,
+    spaServices,
   });
 
   if (discoveryResult.success) {

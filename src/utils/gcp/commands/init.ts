@@ -42,6 +42,9 @@ export async function gcpInit(ctx: GCPCommandContext): Promise<void> {
   } else {
     logger.success(`✓ Bucket already exists: ${bucketName}`);
   }
+  if (result.accessUpdated) {
+    logger.success('✓ Bucket now uses IAM only and can never be made public');
+  }
 
   logger.newline();
   logger.info('Infrastructure initialized successfully!');

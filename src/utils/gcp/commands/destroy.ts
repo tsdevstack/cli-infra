@@ -24,6 +24,7 @@ import {
 } from '../delete';
 import type { FrameworkService } from '@tsdevstack/cli/plugin';
 import type { GCPCommandContext, DestroyOptions } from './types';
+import { resolveGcpNamingScheme } from '../naming/resolve-gcp-naming-scheme';
 
 /**
  * Check if any service in the project has a database
@@ -149,7 +150,12 @@ export async function gcpDestroy(
     credentials: ctx.credentials,
     projectId: ctx.credentials.project_id,
     region: ctx.credentials.region,
-    names: getEnvironmentCloudRunNames(services, ctx.projectName),
+    // Read before Terraform empties the state: the names it was deployed with
+    names: getEnvironmentCloudRunNames(
+      services,
+      ctx.projectName,
+      await resolveGcpNamingScheme(ctx, 'infra:destroy'),
+    ),
   });
   for (const name of cloudRun.deleted) {
     logger.success(`  Deleted ${name}`);

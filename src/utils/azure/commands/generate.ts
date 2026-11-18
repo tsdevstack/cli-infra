@@ -5,6 +5,7 @@
 import { getContext } from '../../../context';
 import { generateTerraformFiles } from './generate-terraform-files';
 import type { AzureCommandContext } from './types';
+import { resolveAzureNaming } from '../naming/resolve-azure-naming';
 
 /**
  * Generate Azure infrastructure configuration files
@@ -18,7 +19,13 @@ export async function azureGenerate(ctx: AzureCommandContext): Promise<void> {
   logger.info(`Location: ${ctx.credentials.location}`);
   logger.newline();
 
+  const naming = await resolveAzureNaming(
+    ctx.credentials,
+    ctx.projectName,
+    ctx.targetEnv,
+  );
   const { outputDir } = generateTerraformFiles(ctx, 'infra:generate', {
+    naming,
     verbose: true,
   });
 

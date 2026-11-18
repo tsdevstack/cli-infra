@@ -28,6 +28,7 @@ import {
 } from '../terraform';
 import type { AzureCommandContext } from './types';
 import { warnIfSmallDatabasePool } from '../../deploy/warn-if-small-database-pool';
+import { resolveAzureNaming } from '../naming/resolve-azure-naming';
 
 export async function deployCoupledWorkers(
   ctx: AzureCommandContext,
@@ -126,6 +127,11 @@ export async function deployCoupledWorkers(
       projectName: ctx.projectName,
       targetEnv: ctx.targetEnv,
       credentials: ctx.credentials,
+      naming: await resolveAzureNaming(
+        ctx.credentials,
+        ctx.projectName,
+        ctx.targetEnv,
+      ),
       serviceName: baseService.name,
       hasDatabase: baseService.hasDatabase ?? false,
       hasStorage: (config.storage?.buckets?.length ?? 0) > 0,

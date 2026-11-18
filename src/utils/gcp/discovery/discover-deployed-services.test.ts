@@ -27,6 +27,7 @@ describe('discoverDeployedServices', () => {
     projectId: 'my-gcp-project',
     region: 'us-central1',
     sqlInstanceName: 'myproject-postgres',
+    naming: 'legacy' as const,
     credentials: {
       project_id: 'my-gcp-project',
       region: 'us-central1',
@@ -37,6 +38,8 @@ describe('discoverDeployedServices', () => {
 
   const createDiscoveredResources = (overrides = {}) => ({
     cloudRunService: false,
+    cloudRunServiceName: 'auth-service',
+    migrationJobName: 'migrate-auth-service',
     spaBucket: false,
     database: false,
     databaseUser: false,
@@ -46,6 +49,8 @@ describe('discoverDeployedServices', () => {
     hasDatabase: false,
     spaBucketName: '',
     serviceAccountEmail: '',
+    migrationServiceAccount: false,
+    migrationServiceAccountEmail: '',
     ...overrides,
   });
 
@@ -366,6 +371,56 @@ describe('discoverDeployedServices', () => {
         secretCount: 3,
         hasServiceAccount: true,
       });
+    });
+  });
+
+  describe('unique naming scheme', () => {
+    it("should list this project's services by their config names and leave out other projects'", async () => {
+      mockListCloudRunServices.mockResolvedValue({
+        success: true,
+        services: [
+          {
+            name: 'myproject-auth-service',
+            fullName: 'x',
+            url: 'https://myproject-auth.run.app',
+            labels: { 'tsdevstack-project': 'myproject' },
+          },
+          { name: 'myproject-kong', fullName: 'x', url: 'https://k.run.app' },
+          // Project "myproject-admin": same prefix, its own label
+          {
+            name: 'myproject-admin-auth-service',
+            fullName: 'x',
+            url: 'https://a.run.app',
+            labels: { 'tsdevstack-project': 'myproject-admin' },
+          },
+          {
+            name: 'other-auth-service',
+            fullName: 'x',
+            url: 'https://o.run.app',
+          },
+        ],
+      });
+      mockDiscoverServiceResources.mockResolvedValue(
+        createDiscoveredResources({
+          cloudRunService: true,
+          cloudRunServiceName: 'myproject-auth-service',
+          inferredType: 'backend',
+        }),
+      );
+
+      const result = await discoverDeployedServices({
+        ...baseOptions,
+        naming: 'unique',
+      });
+
+      expect(result.services.map((s) => s.name)).toEqual(['auth-service']);
+      expect(result.services[0].url).toBe('https://myproject-auth.run.app');
+      expect(mockDiscoverServiceResources).toHaveBeenCalledWith(
+        expect.objectContaining({
+          serviceName: 'auth-service',
+          naming: 'unique',
+        }),
+      );
     });
   });
 });

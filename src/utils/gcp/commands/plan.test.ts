@@ -4,6 +4,10 @@ import type { MockContext } from '@tsdevstack/cli/test-utils';
 const mocks = (globalThis as unknown as { contextMocks: MockContext })
   .contextMocks;
 
+rs.mock('../naming/resolve-gcp-naming-scheme', () => ({
+  resolveGcpNamingScheme: rs.fn(async () => 'legacy'),
+}));
+
 rs.mock('../../../context', () => ({
   initContext: rs.fn(),
   getContext: rs.fn(
@@ -46,6 +50,11 @@ const mockBuildGcpTerraformEnv = rs.fn(
   },
 );
 rs.mock('@tsdevstack/infra-core', () => ({
+  generateDbInit: rs.fn(() => ({
+    dockerfile: 'FROM node',
+    packageJson: '{}',
+    indexJs: '// init',
+  })),
   checkTerraformInstalled: (...args: unknown[]) =>
     mockCheckTerraformInstalled(...args),
   buildGcpTerraformEnv: (runtime: unknown, credentials: unknown) =>
@@ -152,7 +161,7 @@ describe('gcpPlan', () => {
       services: [{ name: 'auth-service', hasDatabase: true }],
     });
     mockCreateBucket.mockResolvedValue({ success: true, isNew: false });
-    mockExecuteTerraform.mockResolvedValue({ success: true });
+    mockExecuteTerraform.mockResolvedValue({ success: true, output: '' });
     mockFetchDbPasswordsFromSecretManager.mockResolvedValue({
       'auth-service': 'test-password',
     });
@@ -215,7 +224,7 @@ describe('gcpPlan', () => {
 
     it('should throw when plan fails', async () => {
       mockExecuteTerraform
-        .mockResolvedValueOnce({ success: true })
+        .mockResolvedValueOnce({ success: true, output: '' })
         .mockResolvedValueOnce({ success: false, error: 'Plan failed' });
 
       await expect(gcpPlan(mockContext)).rejects.toThrow(mocks.CliError);

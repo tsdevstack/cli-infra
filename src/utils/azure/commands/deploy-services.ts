@@ -54,6 +54,9 @@ export async function azureDeployServices(
         projectName: ctx.projectName,
         targetEnv,
         credentials: ctx.credentials,
+        spaServices: config.services
+          .filter((s) => s.type === 'spa')
+          .map((s) => s.name),
       });
 
       if (!discoveryResult.success) {

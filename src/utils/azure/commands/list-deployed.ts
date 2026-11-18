@@ -23,16 +23,27 @@ interface AzureListDeployedParams {
 export async function azureListDeployed(
   params: AzureListDeployedParams,
 ): Promise<void> {
-  const { logger, CliError } = getContext();
+  const { logger, CliError, loadFrameworkConfig } = getContext();
   const { projectName, targetEnv, credentials } = params;
 
   logger.info('Discovering deployed services...');
   logger.newline();
 
+  // The SPAs, so each storage account shows under its SPA's name
+  let spaServices: string[] = [];
+  try {
+    spaServices = loadFrameworkConfig()
+      .services.filter((service) => service.type === 'spa')
+      .map((service) => service.name);
+  } catch {
+    // No readable config.json: the cloud's list alone
+  }
+
   const result = await discoverDeployedServices({
     projectName,
     targetEnv,
     credentials,
+    spaServices,
   });
 
   if (!result.success) {

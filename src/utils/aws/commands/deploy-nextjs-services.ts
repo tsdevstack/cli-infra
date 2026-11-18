@@ -29,6 +29,7 @@ import {
 import { buildRuntime } from '../../build-runtime';
 import { getServiceSecretKeys } from '../../deploy/get-service-secret-keys';
 import type { AWSCommandContext } from './types';
+import { clearNextjsCloudfrontCache } from '../deploy/clear-nextjs-cloudfront-cache';
 
 export interface DeployNextjsServicesOptions {
   /** Specific service to deploy (optional, deploys all Next.js services if not specified) */
@@ -157,6 +158,7 @@ export async function deployNextjsServices(
     services,
     async (service) => {
       await infraDockerBuild({
+        nextSteps: false,
         env: targetEnv,
         service: service.name,
         tag: imageTag,
@@ -174,6 +176,7 @@ export async function deployNextjsServices(
     services,
     async (service) => {
       await infraDockerPush({
+        nextSteps: false,
         env: targetEnv,
         service: service.name,
         tag: imageTag,
@@ -278,6 +281,20 @@ export async function deployNextjsServices(
     );
   } else {
     logger.info('Step 5/5: Skipping wait');
+  }
+
+  // CloudFront keeps Next.js's prebuilt pages for a year: clear it once the
+  // old tasks are gone, so no page asks for the old version's script files
+  logger.newline();
+  logger.info('Clearing the CloudFront cache...');
+  for (const service of services) {
+    await clearNextjsCloudfrontCache({
+      runtime,
+      projectName,
+      targetEnv,
+      serviceName: service.name,
+      credentials,
+    });
   }
 
   logger.newline();

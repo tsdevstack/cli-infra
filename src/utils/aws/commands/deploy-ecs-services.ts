@@ -159,6 +159,7 @@ export async function deployEcsServices(
     services,
     async (service) => {
       await infraDockerBuild({
+        nextSteps: false,
         env: targetEnv,
         service: service.name,
         tag: imageTag,
@@ -176,6 +177,7 @@ export async function deployEcsServices(
     services,
     async (service) => {
       await infraDockerPush({
+        nextSteps: false,
         env: targetEnv,
         service: service.name,
         tag: imageTag,

@@ -9,11 +9,17 @@ import {
 } from '@tsdevstack/infra-core';
 import { executeTerraform } from '../terraform';
 import { buildRuntime } from '../../build-runtime';
-import { logProviderUpgradeNextSteps, toTfVarSuffix } from '../../terraform';
+import {
+  logPlanNextSteps,
+  logProviderUpgradeNextSteps,
+  toTfVarSuffix,
+} from '../../terraform';
 import { createBucket } from '../create-bucket';
 import { getGcsLocationFromRegion } from '../get-gcs-location-from-region';
 import { fetchDbPasswordsFromSecretManager } from '../../credentials/fetch-db-passwords-from-secret-manager';
 import { generateTerraformFiles } from './generate-terraform-files';
+import { resolveGcpNamingScheme } from '../naming/resolve-gcp-naming-scheme';
+import { buildGcpStateBucketName } from '../build-gcp-state-bucket-name';
 import type { GCPCommandContext, PlanOptions } from './types';
 
 /**
@@ -35,7 +41,10 @@ export async function gcpPlan(
   logger.newline();
 
   // Ensure state bucket exists
-  const stateBucket = `${ctx.projectName}-tf-state-${ctx.credentials.project_id}`;
+  const stateBucket = buildGcpStateBucketName(
+    ctx.projectName,
+    ctx.credentials.project_id,
+  );
   logger.info(`Ensuring state bucket exists: ${stateBucket}`);
 
   const bucketResult = await createBucket({
@@ -62,12 +71,18 @@ export async function gcpPlan(
   } else {
     logger.success(`  ✓ Bucket exists: ${stateBucket}`);
   }
+  if (bucketResult.accessUpdated) {
+    logger.success('  ✓ Bucket now uses IAM only and can never be made public');
+  }
   logger.newline();
 
   // Generate all Terraform files using shared function
+  // Names follow the scheme the environment was first deployed with
+  const naming = await resolveGcpNamingScheme(ctx, 'infra:plan');
   const { outputDir, servicesWithDatabase } = generateTerraformFiles(
     ctx,
     'infra:plan',
+    { naming },
   );
 
   logger.complete('Configuration generated');
@@ -142,8 +157,5 @@ export async function gcpPlan(
     return;
   }
 
-  logger.newline();
-  logger.info('To apply these changes, run:');
-  logger.info(`  npx tsdevstack infra:deploy --env ${ctx.targetEnv}`);
-  logger.newline();
+  logPlanNextSteps(planResult.output, ctx.targetEnv);
 }

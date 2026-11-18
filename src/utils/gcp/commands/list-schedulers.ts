@@ -10,6 +10,8 @@ import { getContext } from '../../../context';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
 import { getScheduledJobs } from '../../infrastructure/merge-with-defaults';
 import type { GCPCommandContext } from './types';
+import { buildGcpCloudRunName } from '@tsdevstack/infra-core';
+import { resolveGcpNamingScheme } from '../naming/resolve-gcp-naming-scheme';
 
 interface JobStatus {
   name: string;
@@ -80,9 +82,12 @@ export async function gcpListSchedulers(ctx: GCPCommandContext): Promise<void> {
     );
   }
 
-  // Build status for each configured job
+  // Build status for each configured job (by its Cloud Scheduler name)
+  const naming = await resolveGcpNamingScheme(ctx, 'infra:list-schedulers');
   const jobStatuses: JobStatus[] = scheduledJobs.map((job) => {
-    const deployed = deployedJobs.get(job.name);
+    const deployed = deployedJobs.get(
+      buildGcpCloudRunName(ctx.projectName, job.name, naming),
+    );
 
     if (deployed) {
       return {

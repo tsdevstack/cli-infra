@@ -45,15 +45,26 @@ function formatAwsResources(resources: {
 export async function awsListDeployed(
   params: AwsListDeployedParams,
 ): Promise<void> {
-  const { logger, CliError } = getContext();
+  const { logger, CliError, loadFrameworkConfig } = getContext();
   const { projectName, targetEnv, credentials } = params;
 
   logger.info('Discovering deployed services...');
   logger.newline();
 
+  // The Next.js apps, so they don't show as backends
+  let nextjsServices: string[] = [];
+  try {
+    nextjsServices = loadFrameworkConfig()
+      .services.filter((service) => service.type === 'nextjs')
+      .map((service) => service.name);
+  } catch {
+    // No readable config.json: the cloud's list alone
+  }
+
   const result = await discoverDeployedServices({
     projectName,
     credentials,
+    nextjsServices,
   });
 
   if (!result.success) {

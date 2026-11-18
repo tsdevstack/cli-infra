@@ -4,6 +4,7 @@
  * Display warning about resources that will be deleted.
  */
 
+import { DB_EXPORT_RETENTION_DAYS } from '@tsdevstack/infra-core';
 import type { DiscoveredResources } from '../discovery';
 
 export interface ShowResourceWarningOptions {
@@ -12,6 +13,10 @@ export interface ShowResourceWarningOptions {
   coupledWorkers: string[]; // AWS just needs worker names
   targetEnv: string;
   dryRun?: boolean;
+  /** The database is saved before it is dropped */
+  databaseSaved?: boolean;
+  /** --skip-export: the database is dropped without being saved */
+  skipExport?: boolean;
   logger: {
     newline: () => void;
     warn: (msg: string) => void;
@@ -23,8 +28,16 @@ export interface ShowResourceWarningOptions {
  * Show warning about resources to be deleted
  */
 export function showResourceWarning(options: ShowResourceWarningOptions): void {
-  const { serviceName, discovered, coupledWorkers, targetEnv, dryRun, logger } =
-    options;
+  const {
+    serviceName,
+    discovered,
+    coupledWorkers,
+    targetEnv,
+    dryRun,
+    databaseSaved,
+    skipExport,
+    logger,
+  } = options;
   const action = dryRun ? 'WOULD DELETE' : 'will PERMANENTLY DELETE';
 
   logger.newline();
@@ -40,10 +53,20 @@ export function showResourceWarning(options: ShowResourceWarningOptions): void {
   if (discovered.spaBucket) {
     logger.info(`   S3 Bucket:       ${discovered.spaBucketName}`);
   }
+
+  for (const distribution of discovered.cloudFrontDistributions) {
+    logger.info(
+      `   CloudFront:      ${distribution.id} (takes several minutes: disabled, then deleted)`,
+    );
+  }
   if (discovered.secrets.length > 0) {
     logger.info(`   Secrets:         ${discovered.secrets.length} found`);
   }
-  logger.info(`   Database:        ${serviceName} (if exists) ← DATA LOST`);
+  logger.info(
+    databaseSaved
+      ? `   Database:        ${serviceName} (PostgreSQL) ← saved first, the file kept ${DB_EXPORT_RETENTION_DAYS} days`
+      : `   Database:        ${serviceName} (if exists) ← DATA LOST${skipExport ? ' (--skip-export)' : ''}`,
+  );
 
   logger.newline();
   logger.warn('Make sure no other services depend on this one!');

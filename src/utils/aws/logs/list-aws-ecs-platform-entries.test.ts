@@ -42,9 +42,12 @@ describe('listAwsEcsPlatformEntries', () => {
           };
         }
         if (command instanceof ListTasksCommand) {
-          return command.input.serviceName === 'auth-service'
-            ? { taskArns: ['arn:aws:ecs:r:1:task/c/aaaaaaaa1111'] }
-            : { taskArns: ['arn:aws:ecs:r:1:task/c/bbbbbbbb2222'] };
+          if (command.input.serviceName === 'auth-service') {
+            return { taskArns: ['arn:aws:ecs:r:1:task/c/aaaaaaaa1111'] };
+          }
+          return command.input.family === 'shop-migrate-auth-service'
+            ? { taskArns: ['arn:aws:ecs:r:1:task/c/bbbbbbbb2222'] }
+            : { taskArns: [] };
         }
         if (command instanceof DescribeTasksCommand) {
           const arn = command.input.tasks?.[0] ?? '';
@@ -77,6 +80,7 @@ describe('listAwsEcsPlatformEntries', () => {
 
       const entries = await listAwsEcsPlatformEntries({
         ecs,
+        projectName: 'shop',
         clusterName: 'shop-cluster',
         sources: [
           { name: 'auth-service', type: 'service' },
@@ -128,6 +132,12 @@ describe('listAwsEcsPlatformEntries', () => {
         {
           cluster: 'shop-cluster',
           desiredStatus: 'STOPPED',
+          family: 'shop-migrate-auth-service',
+        },
+        // The family without the project, from deploys before it was added
+        {
+          cluster: 'shop-cluster',
+          desiredStatus: 'STOPPED',
           family: 'migrate-auth-service-migration',
         },
       ]);
@@ -158,6 +168,7 @@ describe('listAwsEcsPlatformEntries', () => {
 
       const entries = await listAwsEcsPlatformEntries({
         ecs,
+        projectName: 'shop',
         clusterName: 'shop-cluster',
         sources: [{ name: 'kong', type: 'kong' }],
         since: SINCE,
@@ -168,9 +179,62 @@ describe('listAwsEcsPlatformEntries', () => {
       expect(entries[0].level).toBe('warn');
     });
 
+    it("should list the database setup job's stopped tasks by its family", async () => {
+      send.mockImplementation(async (command: unknown) => {
+        if (command instanceof ListTasksCommand) {
+          return command.input.family === 'shop-db-init'
+            ? { taskArns: ['arn:task/cccccccc'] }
+            : { taskArns: [] };
+        }
+        if (command instanceof DescribeTasksCommand) {
+          return {
+            tasks: [
+              {
+                taskArn: 'arn:aws:ecs:eu-west-1:1:task/shop-cluster/cccccccc',
+                stoppedAt: new Date('2026-10-30T11:40:00.000Z'),
+                stoppedReason: 'Essential container in task exited',
+                containers: [{ name: 'db-init', exitCode: 0 }],
+              },
+            ],
+          };
+        }
+        return {};
+      });
+
+      const entries = await listAwsEcsPlatformEntries({
+        ecs,
+        projectName: 'shop',
+        clusterName: 'shop-cluster',
+        sources: [{ name: 'db-init', type: 'db-init' }],
+        since: SINCE,
+        until: UNTIL,
+      });
+
+      expect(entries.map((entry) => [entry.source, entry.kind])).toEqual([
+        ['db-init', 'platform'],
+      ]);
+      const listed = send.mock.calls
+        .map(([command]) => command)
+        .filter((command) => command instanceof ListTasksCommand)
+        .map((command) => (command as ListTasksCommand).input);
+      expect(listed).toEqual([
+        {
+          cluster: 'shop-cluster',
+          desiredStatus: 'STOPPED',
+          family: 'shop-db-init',
+        },
+      ]);
+      expect(
+        send.mock.calls.some(
+          ([command]) => command instanceof DescribeServicesCommand,
+        ),
+      ).toBe(false);
+    });
+
     it('should call nothing without ECS sources', async () => {
       const entries = await listAwsEcsPlatformEntries({
         ecs,
+        projectName: 'shop',
         clusterName: 'shop-cluster',
         sources: [{ name: 'edge', type: 'edge' }],
         since: SINCE,

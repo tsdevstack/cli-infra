@@ -155,6 +155,11 @@ export async function deploySpaServices(
       if (result.filesDeleted > 0) {
         logger.info(`  Deleted ${result.filesDeleted} stale files`);
       }
+      if (result.filesKept > 0) {
+        logger.info(
+          `  Kept ${result.filesKept} files from earlier builds for open tabs (deleted by a deploy a day after their last upload)`,
+        );
+      }
     } catch (error) {
       if (error instanceof CliError) throw error;
       const msg = error instanceof Error ? error.message : 'Unknown error';

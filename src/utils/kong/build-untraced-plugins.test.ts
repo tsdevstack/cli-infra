@@ -11,7 +11,7 @@ rs.mock('../../context', () => ({
 import { buildUntracedPlugins } from './build-untraced-plugins';
 
 const TRACING = {
-  name: 'opentelemetry',
+  name: 'tsdevstack-opentelemetry',
   config: {
     traces_endpoint: 'http://localhost:4318/v1/traces',
     sampling_rate: 1,
@@ -26,7 +26,7 @@ describe('buildUntracedPlugins', () => {
 
       expect(buildUntracedPlugins(config)).toEqual([
         {
-          name: 'opentelemetry',
+          name: 'tsdevstack-opentelemetry',
           config: {
             traces_endpoint: 'http://localhost:4318/v1/traces',
             sampling_rate: 0,

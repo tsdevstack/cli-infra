@@ -36,6 +36,9 @@ export async function awsInit(ctx: AWSCommandContext): Promise<void> {
   } else {
     logger.success(`S3 bucket already exists: ${result.bucketName}`);
   }
+  if (result.bucketPolicySet && !result.bucketCreated) {
+    logger.success('S3 bucket now refuses requests without HTTPS');
+  }
 
   if (result.tableCreated) {
     logger.success(`Created DynamoDB table: ${result.tableName}`);

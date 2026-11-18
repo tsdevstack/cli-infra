@@ -3,10 +3,14 @@ import { discoverServiceResources } from './discover-service-resources';
 import * as getEcsServiceModule from './get-ecs-service';
 import * as bucketExistsModule from './bucket-exists';
 import * as listSecretsByPrefixModule from './list-secrets-by-prefix';
+import { findServiceDistributions } from './find-service-distributions';
+import { findSpaOriginAccessControl } from './find-spa-origin-access-control';
 
 rs.mock('./get-ecs-service', { mock: true });
 rs.mock('./bucket-exists', { mock: true });
 rs.mock('./list-secrets-by-prefix', { mock: true });
+rs.mock('./find-service-distributions', { mock: true });
+rs.mock('./find-spa-origin-access-control', { mock: true });
 
 describe('discoverServiceResources', () => {
   const mockCredentials = {
@@ -25,6 +29,11 @@ describe('discoverServiceResources', () => {
 
   beforeEach(() => {
     rs.clearAllMocks();
+    rs.mocked(findServiceDistributions).mockResolvedValue({
+      success: true,
+      distributions: [],
+    });
+    rs.mocked(findSpaOriginAccessControl).mockResolvedValue({ success: true });
   });
 
   describe('backend service (ECS)', () => {
@@ -168,7 +177,7 @@ describe('discoverServiceResources', () => {
       expect(result.ecsService).toBe(false);
 
       expect(result.spaBucket).toBe(true);
-      expect(result.spaBucketName).toBe('myproject-admin-spa');
+      expect(result.spaBucketName).toBe('myproject-admin-spa-123456789012');
       expect(result.inferredType).toBe('spa');
     });
   });
@@ -206,6 +215,45 @@ describe('discoverServiceResources', () => {
 
       expect(result.spaBucket).toBe(false);
       expect(result.inferredType).toBe('unknown');
+    });
+  });
+
+  describe('CloudFront', () => {
+    it("should report the service's distributions and origin access control", async () => {
+      rs.mocked(getEcsServiceModule.getEcsService).mockResolvedValueOnce({
+        success: true,
+        service: { exists: false },
+      } as never);
+      rs.mocked(bucketExistsModule.bucketExists).mockResolvedValueOnce({
+        exists: true,
+      });
+      rs.mocked(
+        listSecretsByPrefixModule.listSecretsByPrefix,
+      ).mockResolvedValueOnce({ success: true, secrets: [] });
+      rs.mocked(findServiceDistributions).mockResolvedValueOnce({
+        success: true,
+        distributions: [{ id: 'E2SPA123', kind: 'spa' }],
+      });
+      rs.mocked(findSpaOriginAccessControl).mockResolvedValueOnce({
+        success: true,
+        id: 'OAC123',
+      });
+
+      const result = await discoverServiceResources({
+        ...baseOptions,
+        serviceName: 'admin',
+      });
+
+      expect(result.cloudFrontDistributions).toEqual([
+        { id: 'E2SPA123', kind: 'spa' },
+      ]);
+      expect(result.spaOriginAccessControlId).toBe('OAC123');
+      expect(findServiceDistributions).toHaveBeenCalledWith({
+        projectName: 'myproject',
+        targetEnv: 'dev',
+        serviceName: 'admin',
+        credentials: mockCredentials,
+      });
     });
   });
 });

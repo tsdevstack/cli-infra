@@ -15,6 +15,7 @@ export function hasAnyResources(discovered: DiscoveredResources): boolean {
     discovered.spaBucket ||
     discovered.secrets.length > 0 ||
     discovered.database ||
-    discovered.serviceAccount
+    discovered.serviceAccount ||
+    discovered.migrationServiceAccount
   );
 }

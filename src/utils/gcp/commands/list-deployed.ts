@@ -10,6 +10,7 @@ import { padRight } from '../../display/pad-right';
 import { parseImageTag } from '../../display/parse-image-tag';
 import { formatResources } from '../display/format-resources';
 import type { GCPCredentials } from '@tsdevstack/cli/plugin';
+import { resolveGcpNamingScheme } from '../naming/resolve-gcp-naming-scheme';
 
 interface GcpListDeployedParams {
   projectName: string;
@@ -37,6 +38,7 @@ export async function gcpListDeployed(
     region: credentials.region,
     sqlInstanceName,
     credentials,
+    naming: await resolveGcpNamingScheme(params, 'infra:list-deployed'),
   });
 
   if (!result.success) {

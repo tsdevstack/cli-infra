@@ -38,6 +38,7 @@ describe('discoverServiceResources', () => {
     projectId: 'my-gcp-project',
     region: 'us-central1',
     sqlInstanceName: 'myproject-postgres',
+    naming: 'legacy' as const,
     credentials: {
       project_id: 'my-gcp-project',
       region: 'us-central1',
@@ -142,10 +143,30 @@ describe('discoverServiceResources', () => {
       );
     });
 
+    it('should detect the migration jobs account on its own', async () => {
+      mockServiceAccountExists.mockImplementation(
+        async (o: { serviceAccountEmail: string }) => ({
+          exists: o.serviceAccountEmail.startsWith(
+            'myproject-order-service-mg@',
+          ),
+        }),
+      );
+
+      const result = await discoverServiceResources(baseOptions);
+
+      expect(result.serviceAccount).toBe(false);
+      expect(result.migrationServiceAccount).toBe(true);
+      expect(result.migrationServiceAccountEmail).toBe(
+        'myproject-order-service-mg@my-gcp-project.iam.gserviceaccount.com',
+      );
+    });
+
     it('should build correct bucket name', async () => {
       const result = await discoverServiceResources(baseOptions);
 
-      expect(result.spaBucketName).toBe('myproject-order-service-spa');
+      expect(result.spaBucketName).toBe(
+        'myproject-order-service-spa-my-gcp-project',
+      );
     });
   });
 
@@ -161,7 +182,7 @@ describe('discoverServiceResources', () => {
       });
 
       expect(mockBucketExists).toHaveBeenCalledWith({
-        bucketName: 'myproject-order-service-spa',
+        bucketName: 'myproject-order-service-spa-my-gcp-project',
         credentials: baseOptions.credentials,
       });
 
@@ -264,6 +285,28 @@ describe('discoverServiceResources', () => {
       expect(result.cloudRunService).toBe(false);
       expect(result.database).toBe(false);
       expect(result.serviceAccount).toBe(false);
+    });
+  });
+
+  describe('naming scheme', () => {
+    it('should look up the Cloud Run service and migration job by their names with the project', async () => {
+      const result = await discoverServiceResources({
+        ...baseOptions,
+        naming: 'unique',
+      });
+
+      expect(mockCloudRunServiceExists).toHaveBeenCalledWith(
+        expect.objectContaining({ serviceName: 'myproject-order-service' }),
+      );
+      expect(result.cloudRunServiceName).toBe('myproject-order-service');
+      expect(result.migrationJobName).toBe('myproject-migrate-order-service');
+    });
+
+    it('should keep the bare names in a legacy environment', async () => {
+      const result = await discoverServiceResources(baseOptions);
+
+      expect(result.cloudRunServiceName).toBe('order-service');
+      expect(result.migrationJobName).toBe('migrate-order-service');
     });
   });
 });

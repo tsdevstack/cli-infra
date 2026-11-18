@@ -12,15 +12,26 @@ class MockCliError extends Error {
 rs.mock('../../../context', () => ({
   getContext: () => ({ CliError: MockCliError, isCIEnv: () => false }),
 }));
+// --follow: the tests open the streams themselves (reconnects are
+// followLogStream's, tested there)
+rs.mock('../../logs/follow-log-stream', () => ({ followLogStream: rs.fn() }));
 
 import {
+  DescribeLogGroupsCommand,
   FilterLogEventsCommand,
+  StartLiveTailCommand,
   type CloudWatchLogsClient,
 } from '@aws-sdk/client-cloudwatch-logs';
 import { DescribeServicesCommand, type ECSClient } from '@aws-sdk/client-ecs';
 import type { AWSCredentials } from '@tsdevstack/cli/plugin';
+import { followLogStream } from '../../logs/follow-log-stream';
 import { AwsLogsReader } from './aws-logs-reader';
-import type { LogEntry, LogsQuery } from '../../logs/types';
+import type {
+  LogEntry,
+  LogsFollowQuery,
+  LogsQuery,
+  LogStreamEnd,
+} from '../../logs/types';
 
 const logsSend = rs.fn();
 const ecsSend = rs.fn();
@@ -125,6 +136,55 @@ describe('AwsLogsReader', () => {
         limit: 10000,
       });
       expect(regions).toEqual(expect.arrayContaining(['eu-west-1']));
+    });
+
+    it("should put a bucket's page in request time order, so the timeline moves on", async () => {
+      // CloudTrail delivers records out of their request order
+      const record = (eventTime: string, key: string): string =>
+        JSON.stringify({
+          eventTime,
+          eventName: 'GetObject',
+          requestParameters: { key },
+        });
+      logsSend.mockImplementation(async (command: FilterLogEventsCommand) =>
+        command.input.logGroupName === '/aws/cloudtrail/shop-storage-access'
+          ? {
+              events: [
+                {
+                  timestamp: at(40),
+                  message: record('2026-10-30T11:30:05Z', 'b'),
+                },
+                {
+                  timestamp: at(40),
+                  message: record('2026-10-30T11:30:01Z', 'a'),
+                },
+              ],
+            }
+          : { events: [{ timestamp: at(3), message: pino('app') }] },
+      );
+
+      const pages: LogEntry[][] = [];
+      await reader().read(
+        {
+          ...QUERY,
+          sources: [
+            { name: 'auth-service', type: 'service' },
+            { name: 'bucket-uploads', type: 'bucket', bucket: 'uploads' },
+          ],
+        },
+        (entries) => pages.push(entries),
+      );
+
+      expect(
+        pages
+          .flat()
+          .filter((entry) => entry.source !== 'kong')
+          .map((entry) => `${entry.source} ${entry.time}`),
+      ).toEqual([
+        'bucket-uploads 2026-10-30T11:30:01.000Z',
+        'auth-service 2026-10-30T11:30:03.000Z',
+        'bucket-uploads 2026-10-30T11:30:05.000Z',
+      ]);
     });
 
     it('should return the newest lines oldest first and say older ones exist', async () => {
@@ -255,6 +315,143 @@ describe('AwsLogsReader', () => {
       );
 
       expect(filterCalls()[0].startTime).toBe(Date.UTC(2024, 0, 1));
+    });
+  });
+
+  describe('follow', () => {
+    const FOLLOW: LogsFollowQuery = {
+      sources: [
+        { name: 'auth-service', type: 'service' },
+        { name: 'migrate-auth-service', type: 'migration' },
+        { name: 'edge', type: 'edge' },
+      ],
+    };
+
+    type Open = (
+      onOpen: () => void,
+      signal: AbortSignal,
+    ) => Promise<LogStreamEnd>;
+
+    /** Start follow; hand back the streams it gives followLogStream */
+    async function startFollow(
+      query: LogsFollowQuery,
+      existingGroups: string[],
+    ) {
+      const streams: Array<{ name: string; open: Open }> = [];
+      rs.mocked(followLogStream).mockImplementation(async (params) => {
+        streams.push({ name: params.name, open: params.open });
+      });
+      logsSend.mockImplementation(async (command: unknown) => {
+        if (command instanceof DescribeLogGroupsCommand) {
+          return {
+            logGroups: (command.input.logGroupIdentifiers ?? [])
+              .filter((name) => existingGroups.includes(name))
+              .map((name) => ({
+                logGroupName: name,
+                logGroupArn: `arn:aws:logs:region:123:log-group:${name}`,
+              })),
+          };
+        }
+        if (command instanceof StartLiveTailCommand) {
+          return {
+            responseStream: (async function* () {
+              yield { sessionStart: {} };
+            })(),
+          };
+        }
+        return {};
+      });
+      const handlers = { onEntries: rs.fn(), onNotice: rs.fn() };
+
+      await reader().follow(query, handlers, new AbortController().signal);
+      return { streams, handlers };
+    }
+
+    function describedNames(): string[][] {
+      return logsSend.mock.calls
+        .map((call) => call[0])
+        .filter((command) => command instanceof DescribeLogGroupsCommand)
+        .map(
+          (command) =>
+            (command as DescribeLogGroupsCommand).input.logGroupIdentifiers ??
+            [],
+        );
+    }
+
+    it('should tail the log groups that exist, per region, and ask ECS for platform lines', async () => {
+      const { streams, handlers } = await startFollow(FOLLOW, [
+        '/ecs/shop/auth-service',
+        '/ecs/shop/migrate-auth-service',
+        'aws-waf-logs-shop-dev',
+      ]);
+
+      expect(regions).toContain('us-east-1');
+      expect(describedNames()).toEqual([
+        [
+          '/ecs/shop/auth-service',
+          '/ecs/shop/migrate-auth-service',
+          '/ecs/migrate-auth-service-migration',
+        ],
+        ['aws-waf-logs-shop-dev'],
+      ]);
+      expect(streams.map((stream) => stream.name)).toEqual([
+        'auth-service, migrate-auth-service',
+        'edge',
+        'ECS events',
+      ]);
+      expect(handlers.onNotice).toHaveBeenCalledWith(
+        'CloudWatch Live Tail: 2 sessions. AWS bills each per minute after its free minutes.',
+      );
+
+      // The first session: the two existing groups, by ARN
+      const onOpen = rs.fn();
+      await streams[0].open(onOpen, new AbortController().signal);
+      const tail = logsSend.mock.calls
+        .map((call) => call[0])
+        .find((command) => command instanceof StartLiveTailCommand) as
+        StartLiveTailCommand | undefined;
+      expect(tail?.input.logGroupIdentifiers).toEqual([
+        'arn:aws:logs:region:123:log-group:/ecs/shop/auth-service',
+        'arn:aws:logs:region:123:log-group:/ecs/shop/migrate-auth-service',
+      ]);
+      expect(onOpen).toHaveBeenCalledTimes(1);
+    });
+
+    it('should not ask ECS when only app lines are wanted', async () => {
+      const { streams } = await startFollow({ ...FOLLOW, kind: 'app' }, [
+        '/ecs/shop/auth-service',
+      ]);
+
+      expect(streams.map((stream) => stream.name)).toEqual(['auth-service']);
+    });
+
+    it('should hand ECS platform lines from the start on to the printer', async () => {
+      const { streams, handlers } = await startFollow(
+        { sources: [{ name: 'kong', type: 'kong' }], kind: 'platform' },
+        [],
+      );
+      expect(streams.map((stream) => stream.name)).toEqual(['ECS events']);
+
+      const controller = new AbortController();
+      const onOpen = rs.fn(() => controller.abort());
+      await expect(streams[0].open(onOpen, controller.signal)).resolves.toBe(
+        'dropped',
+      );
+      expect(onOpen).toHaveBeenCalledTimes(1);
+      // The fixture's event is from 2026-10-30, before the command started
+      expect(handlers.onEntries).not.toHaveBeenCalled();
+    });
+
+    it('should say when there is nothing to follow', async () => {
+      const { streams, handlers } = await startFollow(
+        { sources: [{ name: 'edge', type: 'edge' }] },
+        [],
+      );
+
+      expect(streams).toEqual([]);
+      expect(handlers.onNotice).toHaveBeenCalledWith(
+        'Nothing to follow: none of the selected sources has logged yet.',
+      );
     });
   });
 });

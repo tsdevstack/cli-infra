@@ -5,8 +5,13 @@
  *
  * - Services, workers, frontends, Kong: Cloud Run services. stdout and
  *   stderr are app lines; requests, system and audit logs are platform lines.
- * - Migrations: Cloud Run jobs, split the same way.
+ * - Migrations and the database setup job (db-init): Cloud Run jobs, split
+ *   the same way.
  * - Scheduled jobs: Cloud Scheduler's run logs (platform lines).
+ * - Storage buckets: Cloud Storage's Data Access audit logs of the bucket
+ *   (platform lines; needs the environment and the GCP project ID for the
+ *   bucket's name). Their level comes from the access's status, so --level
+ *   is left to the printer.
  * - Edge: the load balancer's request logs, with Cloud Armor's decisions.
  *
  * App lines carry our pino level (jsonPayload.level); platform and edge
@@ -14,11 +19,18 @@
  */
 
 import {
+  GCP_DATA_ACCESS_LOG_ID,
+  GCP_DB_INIT_JOB_SUFFIX,
   GCP_KONG_SERVICE_SUFFIX,
   GCP_RUN_APP_LOG_IDS,
   GCP_URL_MAP_SUFFIX,
   LOG_LEVELS,
 } from '../../../constants';
+import {
+  buildGcpCloudRunName,
+  buildGcsStorageBucketName,
+  type NamingScheme,
+} from '@tsdevstack/infra-core';
 import type { LogKind, LogLevel, LogSource } from '../../logs/types';
 
 /** pino labels at or above each level (pino's trace counts as debug) */
@@ -41,9 +53,37 @@ const SEVERITIES: Record<LogLevel, string> = {
 export function buildGcpLogSourceFilter(
   source: LogSource,
   projectName: string,
-  options: { kind?: LogKind; level?: LogLevel },
+  naming: NamingScheme,
+  options: {
+    kind?: LogKind;
+    level?: LogLevel;
+    /** Storage buckets: the environment and its GCP project (bucket names) */
+    environment?: string;
+    gcpProjectId?: string;
+  },
 ): string | undefined {
   const { kind, level } = options;
+
+  if (source.type === 'bucket') {
+    if (
+      (kind && kind !== 'platform') ||
+      !source.bucket ||
+      !options.environment ||
+      !options.gcpProjectId
+    ) {
+      return undefined;
+    }
+    const bucketName = buildGcsStorageBucketName({
+      projectName,
+      bucket: source.bucket,
+      environment: options.environment,
+      gcpProjectId: options.gcpProjectId,
+      naming,
+    });
+    return `(log_id("${GCP_DATA_ACCESS_LOG_ID}") AND resource.type="gcs_bucket" AND resource.labels.bucket_name="${bucketName}")`;
+  }
+  // The source's Cloud Run or Cloud Scheduler name in this environment
+  const cloudName = buildGcpCloudRunName(projectName, source.name, naming);
 
   let resource: string;
   let kinds: LogKind[];
@@ -53,11 +93,16 @@ export function buildGcpLogSourceFilter(
       kinds = ['app', 'platform'];
       break;
     case 'migration':
-      resource = `resource.type="cloud_run_job" AND resource.labels.job_name="${source.name}"`;
+      resource = `resource.type="cloud_run_job" AND resource.labels.job_name="${cloudName}"`;
+      kinds = ['app', 'platform'];
+      break;
+    case 'db-init':
+      // One job per environment, named the same in both naming schemes
+      resource = `resource.type="cloud_run_job" AND resource.labels.job_name="${projectName}${GCP_DB_INIT_JOB_SUFFIX}"`;
       kinds = ['app', 'platform'];
       break;
     case 'job':
-      resource = `resource.type="cloud_scheduler_job" AND resource.labels.job_id="${source.name}"`;
+      resource = `resource.type="cloud_scheduler_job" AND resource.labels.job_id="${cloudName}"`;
       kinds = ['platform'];
       break;
     case 'edge':
@@ -65,7 +110,7 @@ export function buildGcpLogSourceFilter(
       kinds = ['edge'];
       break;
     default:
-      resource = `resource.type="cloud_run_revision" AND resource.labels.service_name="${source.name}"`;
+      resource = `resource.type="cloud_run_revision" AND resource.labels.service_name="${cloudName}"`;
       kinds = ['app', 'platform'];
   }
 

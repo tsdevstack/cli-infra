@@ -8,6 +8,7 @@
  *   npx tsdevstack infra:logs --env <env>                  # list the sources
  *   npx tsdevstack infra:logs <source> --env <env>         # one source
  *   npx tsdevstack infra:logs --all --env <env>            # every source
+ *   npx tsdevstack infra:logs <source> --env <env> --follow  # new lines as they arrive
  */
 
 import { getContext } from '../context';
@@ -25,6 +26,9 @@ import type {
   AzureCredentials,
   GCPCredentials,
 } from '@tsdevstack/cli/plugin';
+import { resolveGcpNamingScheme } from '../utils/gcp/naming/resolve-gcp-naming-scheme';
+import { resolveAzureNaming } from '../utils/azure/naming/resolve-azure-naming';
+import { getFrontdoorPremium } from '../utils/azure/infrastructure/get-frontdoor-premium';
 
 export async function infraLogs(
   sourceName: string | undefined,
@@ -37,14 +41,20 @@ export async function infraLogs(
   const sources = buildLogSources(
     config.services,
     getScheduledJobs(loadInfrastructureConfig(), ctx.targetEnv),
+    config.storage?.buckets ?? [],
   );
 
   let reader: LogsReader;
   if (ctx.provider === 'gcp') {
+    const credentials = ctx.credentials as GCPCredentials;
     reader = new GcpLogsReader({
       projectName: ctx.projectName,
       targetEnv: ctx.targetEnv,
-      credentials: ctx.credentials as GCPCredentials,
+      credentials,
+      naming: await resolveGcpNamingScheme(
+        { projectName: ctx.projectName, targetEnv: ctx.targetEnv, credentials },
+        'infra:logs',
+      ),
     });
   } else if (ctx.provider === 'aws') {
     reader = new AwsLogsReader({
@@ -53,10 +63,20 @@ export async function infraLogs(
       credentials: ctx.credentials as AWSCredentials,
     });
   } else if (ctx.provider === 'azure') {
+    const credentials = ctx.credentials as AzureCredentials;
     reader = new AzureLogsReader({
       projectName: ctx.projectName,
       targetEnv: ctx.targetEnv,
-      credentials: ctx.credentials as AzureCredentials,
+      credentials,
+      naming: await resolveAzureNaming(
+        credentials,
+        ctx.projectName,
+        ctx.targetEnv,
+      ),
+      appServicePrivate: getFrontdoorPremium(
+        loadInfrastructureConfig(),
+        ctx.targetEnv,
+      ),
     });
   } else {
     throw new CliError(

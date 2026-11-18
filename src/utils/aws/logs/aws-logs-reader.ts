@@ -5,6 +5,10 @@
  * one read per log group, merged into one timeline); platform lines from
  * ECS. --grep is checked here, not by CloudWatch, whose matching is
  * case-sensitive.
+ *
+ * --follow: CloudWatch Live Tail for the log groups that exist (one session
+ * per region and 10 log groups, billed per minute; planAwsLiveTailSessions),
+ * and ECS asked every few seconds for platform lines (pollLogLines).
  */
 
 import {
@@ -17,28 +21,43 @@ import type { AWSCredentials } from '@tsdevstack/cli/plugin';
 import { getContext } from '../../../context';
 import {
   AWS_ECS_CLUSTER_SUFFIX,
+  AWS_ECS_SERVICE_LOG_SOURCE_TYPES,
   AWS_LOGS_CONCURRENCY,
+  AWS_LOGS_FOLLOW_ECS_OVERLAP_MS,
+  AWS_LOGS_FOLLOW_ECS_POLL_MS,
   AWS_LOGS_NEWEST_FIRST_EARLIEST,
   AWS_LOGS_PAGE_SIZE,
   LOG_SOURCE_LIST_WINDOW_DAYS,
 } from '../../../constants';
 import { buildAWSClientConfig } from '../build-aws-client-config';
+import { followLogStream } from '../../logs/follow-log-stream';
+import { pollLogLines } from '../../logs/poll-log-lines';
 import { matchesLogFilters } from '../../logs/matches-log-filters';
 import { mergeSortedLogPages } from '../../logs/merge-sorted-log-pages';
 import type {
   LogEntry,
   LogSource,
   LogSourceLastLogged,
+  LogsFollowHandlers,
+  LogsFollowQuery,
   LogsQuery,
   LogsReader,
   NewestLogsResult,
 } from '../../logs/types';
 import { buildAwsLogGroupReads } from './build-aws-log-group-reads';
 import { listAwsEcsPlatformEntries } from './list-aws-ecs-platform-entries';
+import { listAwsExistingLogGroups } from './list-aws-existing-log-groups';
+import { openAwsLiveTail } from './open-aws-live-tail';
+import { planAwsLiveTailSessions } from './plan-aws-live-tail-sessions';
 import { parseAwsAppEvent } from './parse-aws-app-event';
+import { parseAwsBucketEvent } from './parse-aws-bucket-event';
 import { parseAwsJobEvent } from './parse-aws-job-event';
 import { parseAwsWafEvent } from './parse-aws-waf-event';
-import type { AwsLogGroupRead } from './types';
+import type {
+  AwsExistingLogGroup,
+  AwsLiveTailSession,
+  AwsLogGroupRead,
+} from './types';
 
 interface AwsLogsReaderParams {
   projectName: string;
@@ -72,7 +91,7 @@ export class AwsLogsReader implements LogsReader {
     return pMap(
       sources,
       async (source) => {
-        const [read] = this.reads({ sources: [source], since, until: now });
+        const [read] = this.reads({ sources: [source] });
         if (!read) {
           return { source };
         }
@@ -132,11 +151,110 @@ export class AwsLogsReader implements LogsReader {
     };
   }
 
-  private reads(query: LogsQuery): AwsLogGroupRead[] {
+  async follow(
+    query: LogsFollowQuery,
+    handlers: LogsFollowHandlers,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const start = new Date();
+    const reads = this.reads(query);
+
+    // Live Tail fails on a log group that doesn't exist
+    const existing = new Map<string, AwsExistingLogGroup>();
+    for (const region of new Set(reads.map((read) => read.region))) {
+      const found = await listAwsExistingLogGroups(
+        this.logs(region),
+        reads
+          .filter((read) => read.region === region)
+          .map((read) => read.logGroupName),
+      );
+      for (const [name, group] of found) {
+        existing.set(`${region}/${name}`, group);
+      }
+    }
+    const { sessions, notStandard } = planAwsLiveTailSessions(reads, existing);
+    if (notStandard.length > 0) {
+      handlers.onNotice(
+        `Live Tail only follows log groups in the Standard class. Left out: ${notStandard.join(', ')}.`,
+      );
+    }
+
+    const streams = sessions.map((session) =>
+      followLogStream({
+        name: this.sessionName(session),
+        open: (onOpen, streamSignal) =>
+          openAwsLiveTail({
+            client: this.logs(session.region),
+            session,
+            handlers,
+            onOpen,
+            signal: streamSignal,
+          }),
+        signal,
+        notice: handlers.onNotice,
+      }),
+    );
+
+    const ecsTypes = new Set<string>([
+      ...AWS_ECS_SERVICE_LOG_SOURCE_TYPES,
+      'migration',
+      'db-init',
+    ]);
+    const platformSources = query.sources.filter((source) =>
+      ecsTypes.has(source.type),
+    );
+    if (
+      platformSources.length > 0 &&
+      (!query.kind || query.kind === 'platform')
+    ) {
+      streams.push(
+        followLogStream({
+          name: 'ECS events',
+          open: (onOpen, streamSignal) =>
+            pollLogLines({
+              list: (since, until) =>
+                this.listPlatform(platformSources, since, until),
+              onEntries: handlers.onEntries,
+              onOpen,
+              signal: streamSignal,
+              start,
+              intervalMs: AWS_LOGS_FOLLOW_ECS_POLL_MS,
+              overlapMs: AWS_LOGS_FOLLOW_ECS_OVERLAP_MS,
+            }),
+          signal,
+          notice: handlers.onNotice,
+        }),
+      );
+    }
+
+    if (streams.length === 0) {
+      handlers.onNotice(
+        'Nothing to follow: none of the selected sources has logged yet.',
+      );
+      return;
+    }
+    if (sessions.length > 0) {
+      handlers.onNotice(
+        `CloudWatch Live Tail: ${sessions.length} session${sessions.length === 1 ? '' : 's'}. AWS bills each per minute after its free minutes.`,
+      );
+    }
+    await Promise.all(streams);
+  }
+
+  /** The sources a Live Tail session follows, for the reconnect line */
+  private sessionName(session: AwsLiveTailSession): string {
+    const names = [...new Set(session.reads.map((read) => read.source.name))];
+    return names.length <= 3
+      ? names.join(', ')
+      : `${names.slice(0, 2).join(', ')} and ${names.length - 2} more`;
+  }
+
+  private reads(query: LogsFollowQuery): AwsLogGroupRead[] {
     return buildAwsLogGroupReads(query.sources, {
       projectName: this.params.projectName,
       targetEnv: this.params.targetEnv,
       region: this.params.credentials.region,
+      accountId: this.params.credentials.accountId,
       kind: query.kind,
       level: query.level,
     });
@@ -165,16 +283,38 @@ export class AwsLogsReader implements LogsReader {
     if (query.kind && query.kind !== 'platform') {
       return [];
     }
-    const { CliError } = getContext();
 
-    let entries: LogEntry[];
+    const entries = await this.listPlatform(
+      query.sources,
+      query.since,
+      query.until,
+    );
+    if (entries.length === 0) {
+      return [];
+    }
+
+    const ordered = direction === 'asc' ? entries : [...entries].reverse();
+    const single = (async function* (): AsyncGenerator<LogEntry[]> {
+      yield ordered;
+    })();
+    return [single];
+  }
+
+  /** ECS's platform lines between two times (none without a cluster) */
+  private async listPlatform(
+    sources: LogSource[],
+    since: Date,
+    until: Date,
+  ): Promise<LogEntry[]> {
+    const { CliError } = getContext();
     try {
-      entries = await listAwsEcsPlatformEntries({
+      return await listAwsEcsPlatformEntries({
         ecs: this.ecs,
+        projectName: this.params.projectName,
         clusterName: `${this.params.projectName}${AWS_ECS_CLUSTER_SUFFIX}`,
-        sources: query.sources,
-        since: query.since,
-        until: query.until,
+        sources,
+        since,
+        until,
       });
     } catch (error) {
       const name = (error as { name?: string } | undefined)?.name;
@@ -190,12 +330,6 @@ export class AwsLogsReader implements LogsReader {
           : undefined,
       );
     }
-
-    const ordered = direction === 'asc' ? entries : [...entries].reverse();
-    const single = (async function* (): AsyncGenerator<LogEntry[]> {
-      yield ordered;
-    })();
-    return [single];
   }
 
   /** One log group's lines, page by page, in the given order */
@@ -251,10 +385,24 @@ export class AwsLogsReader implements LogsReader {
             ? parseAwsJobEvent(event, read.source)
             : read.format === 'waf'
               ? parseAwsWafEvent(event, read.source)
-              : parseAwsAppEvent(event, read.source);
+              : read.format === 'bucket'
+                ? parseAwsBucketEvent(event, read.source)
+                : parseAwsAppEvent(event, read.source);
         if (entry) {
           entries.push(entry);
         }
+      }
+      // A bucket line has the request's time, while CloudWatch orders the
+      // trail's records by delivery: put the page back in time order, which
+      // the merge needs to move on
+      if (read.format === 'bucket') {
+        entries.sort((a, b) =>
+          a.time === b.time
+            ? 0
+            : a.time < b.time === (direction === 'asc')
+              ? -1
+              : 1,
+        );
       }
       yield entries;
 

@@ -2,7 +2,7 @@
  * Tests for poll-container-job-status
  */
 
-import { describe, it, expect, rs, beforeEach } from '@rstest/core';
+import { describe, it, expect, rs, beforeEach, afterEach } from '@rstest/core';
 import { pollContainerJobStatus } from './poll-container-job-status';
 import type { ContainerAppsAPIClient } from '@azure/arm-appcontainers';
 
@@ -131,6 +131,80 @@ describe('pollContainerJobStatus', () => {
       const result = await pollContainerJobStatus(client, 'rg', 'job', 10);
 
       expect(result.status).toBe('Degraded');
+    });
+  });
+
+  describe('the execution before this start', () => {
+    afterEach(() => {
+      rs.useRealTimers();
+    });
+
+    it('should not take the earlier execution for this one', async () => {
+      rs.useFakeTimers();
+      const client = createMockClient([
+        {
+          name: 'db-init-before',
+          status: 'Succeeded',
+          startTime: new Date('2026-11-14T12:00:00Z'),
+        },
+      ]);
+
+      const result = pollContainerJobStatus(
+        client,
+        'rg',
+        'db-init',
+        3600,
+        'db-init-before',
+      );
+      await rs.runAllTimersAsync();
+
+      expect((await result).status).toBe('NotStarted');
+      // Waited for it to show up first
+      expect(client.jobsExecutions.list).toHaveBeenCalledTimes(13);
+    });
+
+    it('should wait for the first execution of a job that never ran', async () => {
+      rs.useFakeTimers();
+      const client = createMockClient([]);
+
+      const result = pollContainerJobStatus(
+        client,
+        'rg',
+        'db-init',
+        3600,
+        null,
+      );
+      await rs.runAllTimersAsync();
+
+      expect((await result).status).toBe('NotStarted');
+    });
+
+    it("should read this start's execution once it shows up", async () => {
+      const client = createMockClient([
+        {
+          name: 'db-init-before',
+          status: 'Succeeded',
+          startTime: new Date('2026-11-14T12:00:00Z'),
+        },
+        {
+          name: 'db-init-now',
+          status: 'Failed',
+          startTime: new Date('2026-11-14T12:05:00Z'),
+        },
+      ]);
+
+      const result = await pollContainerJobStatus(
+        client,
+        'rg',
+        'db-init',
+        3600,
+        'db-init-before',
+      );
+
+      expect(result).toEqual({
+        status: 'Failed',
+        executionName: 'db-init-now',
+      });
     });
   });
 });

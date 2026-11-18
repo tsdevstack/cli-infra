@@ -10,9 +10,13 @@
  */
 
 import type { KongTemplate } from '@tsdevstack/cli/plugin';
+import { getContext } from '../../../context';
 import { buildUntracedPlugins } from '../build-untraced-plugins';
+import { buildHealthRouteLimitPlugins } from '../build-health-route-limit-plugins';
 
 export function addAzureHealthToKongConfig(config: KongTemplate): KongTemplate {
+  const { KONG_AZURE_PROBE_PATH } = getContext();
+
   return {
     ...config,
     services: [
@@ -23,7 +27,7 @@ export function addAzureHealthToKongConfig(config: KongTemplate): KongTemplate {
         routes: [
           {
             name: 'health-route',
-            paths: ['/status'],
+            paths: [KONG_AZURE_PROBE_PATH],
             strip_path: false,
           },
         ],
@@ -38,6 +42,8 @@ export function addAzureHealthToKongConfig(config: KongTemplate): KongTemplate {
           },
           // Probes every few seconds: not traced
           ...buildUntracedPlugins(config),
+          // Probes never count against the global rate limit
+          ...buildHealthRouteLimitPlugins(config),
         ],
       },
     ],

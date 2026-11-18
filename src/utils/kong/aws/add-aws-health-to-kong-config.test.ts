@@ -92,7 +92,7 @@ describe('addAwsHealthToKongConfig', () => {
       services: [],
       plugins: [
         {
-          name: 'opentelemetry',
+          name: 'tsdevstack-opentelemetry',
           config: {
             traces_endpoint: 'http://localhost:4318/v1/traces',
             sampling_rate: 1,
@@ -104,12 +104,32 @@ describe('addAwsHealthToKongConfig', () => {
     const health = result.services.find((s) => s.name === 'health-check');
     expect(health?.routes?.[0].paths).toEqual(['/health']);
     expect(health?.plugins).toContainEqual({
-      name: 'opentelemetry',
+      name: 'tsdevstack-opentelemetry',
       config: {
         traces_endpoint: 'http://localhost:4318/v1/traces',
         sampling_rate: 0,
       },
     });
     expect(result.plugins?.[0].config.sampling_rate).toBe(1);
+  });
+
+  it('should keep the probes out of the global rate limit (its own per-IP limit)', () => {
+    const result = addAwsHealthToKongConfig({
+      services: [],
+      plugins: [
+        {
+          name: 'rate-limiting',
+          config: { minute: 100, policy: 'redis', redis: { host: 'redis' } },
+        },
+      ],
+    });
+
+    const health = result.services.find((s) => s.name === 'health-check');
+    expect(health?.routes?.[0].paths).toEqual(['/health']);
+    expect(health?.plugins).toContainEqual({
+      name: 'rate-limiting',
+      config: { minute: 600, limit_by: 'ip', policy: 'local' },
+    });
+    expect(result.plugins?.[0].config.minute).toBe(100);
   });
 });

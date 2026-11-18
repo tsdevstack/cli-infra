@@ -9,6 +9,8 @@ import {
   S3Client,
   CreateBucketCommand,
   HeadBucketCommand,
+  GetBucketPolicyCommand,
+  PutBucketPolicyCommand,
   PutBucketVersioningCommand,
   PutPublicAccessBlockCommand,
 } from '@aws-sdk/client-s3';
@@ -20,6 +22,7 @@ import {
 } from '@aws-sdk/client-dynamodb';
 import type { AWSCredentials } from '@tsdevstack/cli/plugin';
 import { buildAWSClientConfig } from '../build-aws-client-config';
+import { buildStateBucketPolicy } from './build-state-bucket-policy';
 
 export interface CreateStateBackendOptions {
   projectName: string;
@@ -32,6 +35,8 @@ export interface CreateStateBackendResult {
   bucketName: string;
   tableName: string;
   bucketCreated: boolean;
+  /** The bucket got the HTTPS-only policy now (new, or older without a policy) */
+  bucketPolicySet: boolean;
   tableCreated: boolean;
   error?: string;
 }
@@ -52,6 +57,7 @@ export async function createStateBackend(
   const dynamodb = new DynamoDBClient(clientConfig);
 
   let bucketCreated = false;
+  let bucketPolicySet = false;
   let tableCreated = false;
 
   try {
@@ -106,6 +112,28 @@ export async function createStateBackend(
       }
     }
 
+    // Refuse requests without HTTPS: on a new bucket, and on an older one
+    // that has no policy yet. A policy someone set is left alone.
+    let hasPolicy = true;
+    try {
+      await s3.send(new GetBucketPolicyCommand({ Bucket: bucketName }));
+    } catch (err: unknown) {
+      const error = err as { name?: string };
+      if (error.name !== 'NoSuchBucketPolicy') {
+        throw err;
+      }
+      hasPolicy = false;
+    }
+    if (!hasPolicy) {
+      await s3.send(
+        new PutBucketPolicyCommand({
+          Bucket: bucketName,
+          Policy: buildStateBucketPolicy(bucketName),
+        }),
+      );
+      bucketPolicySet = true;
+    }
+
     // Check if DynamoDB table exists
     try {
       await dynamodb.send(new DescribeTableCommand({ TableName: tableName }));
@@ -145,6 +173,7 @@ export async function createStateBackend(
       bucketName,
       tableName,
       bucketCreated,
+      bucketPolicySet,
       tableCreated,
     };
   } catch (err: unknown) {
@@ -154,6 +183,7 @@ export async function createStateBackend(
       bucketName,
       tableName,
       bucketCreated,
+      bucketPolicySet,
       tableCreated,
       error: error.message || 'Unknown error',
     };

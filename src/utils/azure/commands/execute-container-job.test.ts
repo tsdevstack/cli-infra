@@ -5,7 +5,10 @@
 import { describe, it, expect, rs, beforeEach, afterEach } from '@rstest/core';
 
 const mockBeginCreateOrUpdateAndWait = rs.fn();
-const mockBeginStartAndWait = rs.fn();
+// jobs.start(): the start request (submitted), then the wait (pollUntilDone)
+const mockStart = rs.fn();
+const mockSubmitted = rs.fn();
+const mockPollUntilDone = rs.fn();
 const mockBuildAcrAuthConfig = rs.fn();
 
 rs.mock('../../build-runtime', () => ({ buildRuntime: () => ({}) }));
@@ -21,7 +24,10 @@ rs.mock('@azure/arm-appcontainers', () => ({
   ContainerAppsAPIClient: class MockContainerAppsAPIClient {
     jobs = {
       beginCreateOrUpdateAndWait: mockBeginCreateOrUpdateAndWait,
-      beginStartAndWait: mockBeginStartAndWait,
+      start: (...args: unknown[]) => {
+        mockStart(...args);
+        return { submitted: mockSubmitted, pollUntilDone: mockPollUntilDone };
+      },
     };
     constructor() {}
   },
@@ -30,6 +36,17 @@ rs.mock('@azure/arm-appcontainers', () => ({
 // Mock poll-container-job-status
 rs.mock('./poll-container-job-status', () => ({
   pollContainerJobStatus: rs.fn(),
+}));
+
+// The newest execution before the start
+rs.mock('./find-latest-job-execution', () => ({
+  findLatestJobExecution: rs.fn(async () => ({ name: 'job-before' })),
+}));
+
+// The wait for the execution the start answered with
+const mockWaitForJobExecution = rs.fn();
+rs.mock('./wait-for-job-execution', () => ({
+  waitForJobExecution: (...args: unknown[]) => mockWaitForJobExecution(...args),
 }));
 
 import { executeContainerJob } from './execute-container-job';
@@ -60,6 +77,8 @@ const baseOptions = {
 describe('executeContainerJob', () => {
   beforeEach(() => {
     rs.clearAllMocks();
+    mockSubmitted.mockResolvedValue(undefined);
+    mockWaitForJobExecution.mockResolvedValue({ status: 'Succeeded' });
     // Default: no ACR auth (no acrLoginServer)
     mockBuildAcrAuthConfig.mockResolvedValue({
       registries: undefined,
@@ -75,7 +94,7 @@ describe('executeContainerJob', () => {
   describe('Standard use cases', () => {
     it('should return success when job completes', async () => {
       mockBeginCreateOrUpdateAndWait.mockResolvedValue({});
-      mockBeginStartAndWait.mockResolvedValue({});
+      mockPollUntilDone.mockResolvedValue({ name: 'exec-1' });
 
       const result = await executeContainerJob(baseOptions);
 
@@ -85,7 +104,7 @@ describe('executeContainerJob', () => {
 
     it('should create job with correct configuration', async () => {
       mockBeginCreateOrUpdateAndWait.mockResolvedValue({});
-      mockBeginStartAndWait.mockResolvedValue({});
+      mockPollUntilDone.mockResolvedValue({ name: 'exec-1' });
 
       await executeContainerJob(baseOptions);
 
@@ -104,22 +123,23 @@ describe('executeContainerJob', () => {
       );
     });
 
-    it('should call beginStartAndWait after job creation', async () => {
+    it('should start the job after creating it, then wait for it', async () => {
       mockBeginCreateOrUpdateAndWait.mockResolvedValue({});
-      mockBeginStartAndWait.mockResolvedValue({});
+      mockPollUntilDone.mockResolvedValue({ name: 'exec-1' });
 
       await executeContainerJob(baseOptions);
 
-      expect(mockBeginStartAndWait).toHaveBeenCalledWith(
+      expect(mockStart).toHaveBeenCalledWith(
         'test-rg',
         'migrate-auth-service',
         {},
       );
+      expect(mockPollUntilDone).toHaveBeenCalledTimes(1);
     });
 
     it('should pass env vars to container', async () => {
       mockBeginCreateOrUpdateAndWait.mockResolvedValue({});
-      mockBeginStartAndWait.mockResolvedValue({});
+      mockPollUntilDone.mockResolvedValue({ name: 'exec-1' });
 
       await executeContainerJob({
         ...baseOptions,
@@ -136,7 +156,7 @@ describe('executeContainerJob', () => {
 
     it('should omit env when envVars is empty', async () => {
       mockBeginCreateOrUpdateAndWait.mockResolvedValue({});
-      mockBeginStartAndWait.mockResolvedValue({});
+      mockPollUntilDone.mockResolvedValue({ name: 'exec-1' });
 
       await executeContainerJob(baseOptions);
 
@@ -148,7 +168,7 @@ describe('executeContainerJob', () => {
 
     it('should use custom timeout', async () => {
       mockBeginCreateOrUpdateAndWait.mockResolvedValue({});
-      mockBeginStartAndWait.mockResolvedValue({});
+      mockPollUntilDone.mockResolvedValue({ name: 'exec-1' });
 
       await executeContainerJob({
         ...baseOptions,
@@ -164,7 +184,7 @@ describe('executeContainerJob', () => {
   describe('Managed identity ACR auth', () => {
     it('should use managed identity for registry when acrManagedIdentityId is provided', async () => {
       mockBeginCreateOrUpdateAndWait.mockResolvedValue({});
-      mockBeginStartAndWait.mockResolvedValue({});
+      mockPollUntilDone.mockResolvedValue({ name: 'exec-1' });
       mockBuildAcrAuthConfig.mockResolvedValue({
         registries: [
           {
@@ -205,7 +225,7 @@ describe('executeContainerJob', () => {
 
     it('should not include acr-password secret when using managed identity', async () => {
       mockBeginCreateOrUpdateAndWait.mockResolvedValue({});
-      mockBeginStartAndWait.mockResolvedValue({});
+      mockPollUntilDone.mockResolvedValue({ name: 'exec-1' });
       mockBuildAcrAuthConfig.mockResolvedValue({
         registries: [
           {
@@ -234,10 +254,159 @@ describe('executeContainerJob', () => {
     });
   });
 
+  describe('Key Vault env vars', () => {
+    const SECRET_URL =
+      'https://shop-dev-dbjobs.vault.azure.net/secrets/shop-auth-service-MIGRATION-DATABASE-URL';
+    const ACR_IDENTITY = '/subscriptions/sub/identity/ca-id';
+    const DB_JOBS_IDENTITY = '/subscriptions/sub/identity/db-jobs';
+
+    beforeEach(() => {
+      mockBeginCreateOrUpdateAndWait.mockResolvedValue({});
+      mockPollUntilDone.mockResolvedValue({ name: 'exec-1' });
+    });
+
+    it('should have Container Apps fetch the secret, with no value in the job', async () => {
+      await executeContainerJob({
+        ...baseOptions,
+        keyVaultEnvVars: [{ name: 'DATABASE_URL', keyVaultUrl: SECRET_URL }],
+        secretsIdentityId: DB_JOBS_IDENTITY,
+      });
+
+      const jobDef = mockBeginCreateOrUpdateAndWait.mock.calls[0][2];
+      expect(jobDef.configuration.secrets).toEqual([
+        {
+          name: 'database-url',
+          keyVaultUrl: SECRET_URL,
+          identity: DB_JOBS_IDENTITY,
+        },
+      ]);
+      expect(jobDef.template.containers[0].env).toEqual([
+        { name: 'DATABASE_URL', secretRef: 'database-url' },
+      ]);
+      expect(JSON.stringify(jobDef)).not.toContain('postgres');
+    });
+
+    it("should keep the secrets identity from the container's code", async () => {
+      await executeContainerJob({
+        ...baseOptions,
+        keyVaultEnvVars: [{ name: 'DATABASE_URL', keyVaultUrl: SECRET_URL }],
+        secretsIdentityId: DB_JOBS_IDENTITY,
+      });
+
+      const jobDef = mockBeginCreateOrUpdateAndWait.mock.calls[0][2];
+      expect(jobDef.configuration.identitySettings).toEqual([
+        { identity: DB_JOBS_IDENTITY, lifecycle: 'None' },
+      ]);
+    });
+
+    it('should leave identity settings alone without a secrets identity', async () => {
+      await executeContainerJob(baseOptions);
+
+      const jobDef = mockBeginCreateOrUpdateAndWait.mock.calls[0][2];
+      expect(jobDef.configuration.identitySettings).toBeUndefined();
+    });
+
+    it('should attach the secrets identity next to the ACR one', async () => {
+      mockBuildAcrAuthConfig.mockResolvedValue({
+        registries: [{ server: 'myacr.azurecr.io', identity: ACR_IDENTITY }],
+        identity: {
+          type: 'UserAssigned',
+          userAssignedIdentities: { [ACR_IDENTITY]: {} },
+        },
+        secrets: [],
+      });
+
+      await executeContainerJob({
+        ...baseOptions,
+        acrLoginServer: 'myacr.azurecr.io',
+        acrManagedIdentityId: ACR_IDENTITY,
+        keyVaultEnvVars: [{ name: 'DATABASE_URL', keyVaultUrl: SECRET_URL }],
+        secretsIdentityId: DB_JOBS_IDENTITY,
+      });
+
+      const jobDef = mockBeginCreateOrUpdateAndWait.mock.calls[0][2];
+      expect(jobDef.identity).toEqual({
+        type: 'UserAssigned',
+        userAssignedIdentities: {
+          [ACR_IDENTITY]: {},
+          [DB_JOBS_IDENTITY]: {},
+        },
+      });
+      // The image is still pulled with the ACR identity
+      expect(jobDef.configuration.registries).toEqual([
+        { server: 'myacr.azurecr.io', identity: ACR_IDENTITY },
+      ]);
+    });
+
+    it('should keep plain env vars next to the Key Vault ones', async () => {
+      await executeContainerJob({
+        ...baseOptions,
+        envVars: [{ name: 'LOG_LEVEL', value: 'info' }],
+        keyVaultEnvVars: [{ name: 'DATABASE_URL', keyVaultUrl: SECRET_URL }],
+        secretsIdentityId: DB_JOBS_IDENTITY,
+      });
+
+      const jobDef = mockBeginCreateOrUpdateAndWait.mock.calls[0][2];
+      expect(jobDef.template.containers[0].env).toEqual([
+        { name: 'LOG_LEVEL', value: 'info' },
+        { name: 'DATABASE_URL', secretRef: 'database-url' },
+      ]);
+    });
+
+    it('should keep the ACR password secret with password auth', async () => {
+      mockBuildAcrAuthConfig.mockResolvedValue({
+        registries: [
+          {
+            server: 'myacr.azurecr.io',
+            username: 'test-client-id',
+            passwordSecretRef: 'acr-password',
+          },
+        ],
+        identity: undefined,
+        secrets: [{ name: 'acr-password', value: 'test-client-secret' }],
+      });
+
+      await executeContainerJob({
+        ...baseOptions,
+        acrLoginServer: 'myacr.azurecr.io',
+        keyVaultEnvVars: [{ name: 'DATABASE_URL', keyVaultUrl: SECRET_URL }],
+        secretsIdentityId: DB_JOBS_IDENTITY,
+      });
+
+      const jobDef = mockBeginCreateOrUpdateAndWait.mock.calls[0][2];
+      expect(jobDef.configuration.secrets).toEqual([
+        { name: 'acr-password', value: 'test-client-secret' },
+        {
+          name: 'database-url',
+          keyVaultUrl: SECRET_URL,
+          identity: DB_JOBS_IDENTITY,
+        },
+      ]);
+      expect(jobDef.identity).toEqual({
+        type: 'UserAssigned',
+        userAssignedIdentities: { [DB_JOBS_IDENTITY]: {} },
+      });
+    });
+
+    it('should fail without an identity to read the secrets with', async () => {
+      const result = await executeContainerJob({
+        ...baseOptions,
+        keyVaultEnvVars: [{ name: 'DATABASE_URL', keyVaultUrl: SECRET_URL }],
+      });
+
+      expect(result).toEqual({
+        success: false,
+        logs: '',
+        error: 'Key Vault env vars need secretsIdentityId to be read with',
+      });
+      expect(mockBeginCreateOrUpdateAndWait).not.toHaveBeenCalled();
+    });
+  });
+
   describe('ACR registry auth', () => {
     it('should configure registry credentials when acrLoginServer is provided', async () => {
       mockBeginCreateOrUpdateAndWait.mockResolvedValue({});
-      mockBeginStartAndWait.mockResolvedValue({});
+      mockPollUntilDone.mockResolvedValue({ name: 'exec-1' });
       mockBuildAcrAuthConfig.mockResolvedValue({
         registries: [
           {
@@ -271,7 +440,7 @@ describe('executeContainerJob', () => {
 
     it('should not configure registry when acrLoginServer is not provided', async () => {
       mockBeginCreateOrUpdateAndWait.mockResolvedValue({});
-      mockBeginStartAndWait.mockResolvedValue({});
+      mockPollUntilDone.mockResolvedValue({ name: 'exec-1' });
 
       await executeContainerJob(baseOptions);
 
@@ -292,7 +461,7 @@ describe('executeContainerJob', () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('Insufficient permissions');
-      expect(mockBeginStartAndWait).not.toHaveBeenCalled();
+      expect(mockPollUntilDone).not.toHaveBeenCalled();
       expect(mockBeginCreateOrUpdateAndWait).toHaveBeenCalledTimes(1);
     });
 
@@ -315,7 +484,7 @@ describe('executeContainerJob', () => {
           new Error('network_error: Network request failed'),
         )
         .mockResolvedValueOnce({});
-      mockBeginStartAndWait.mockResolvedValue({});
+      mockPollUntilDone.mockResolvedValue({ name: 'exec-1' });
 
       const resultPromise = executeContainerJob(baseOptions);
       await rs.runAllTimersAsync();
@@ -325,15 +494,16 @@ describe('executeContainerJob', () => {
       expect(mockBeginCreateOrUpdateAndWait).toHaveBeenCalledTimes(2);
     });
 
-    it('should retry beginStartAndWait on network error and succeed', async () => {
+    it('should send the start again after a network error', async () => {
       rs.useFakeTimers();
 
       mockBeginCreateOrUpdateAndWait.mockResolvedValue({});
-      mockBeginStartAndWait
+      mockSubmitted
         .mockRejectedValueOnce(
           new Error('network_error: Network request failed'),
         )
-        .mockResolvedValueOnce({});
+        .mockResolvedValueOnce(undefined);
+      mockPollUntilDone.mockResolvedValue({ name: 'exec-1' });
 
       const resultPromise = executeContainerJob(baseOptions);
       await rs.runAllTimersAsync();
@@ -341,20 +511,22 @@ describe('executeContainerJob', () => {
 
       expect(result.success).toBe(true);
       expect(result.logs).toBe('Job completed successfully');
-      expect(mockBeginStartAndWait).toHaveBeenCalledTimes(2);
+      expect(mockStart).toHaveBeenCalledTimes(2);
     });
 
-    it('should not retry non-transient errors', async () => {
-      mockBeginStartAndWait.mockRejectedValue(new Error('Bad request'));
+    it('should fail at once when the start is refused, without checking older executions', async () => {
       mockBeginCreateOrUpdateAndWait.mockResolvedValue({});
-      rs.mocked(pollContainerJobStatus).mockResolvedValue({
-        status: 'Succeeded',
-      });
+      mockSubmitted.mockRejectedValue(new Error('Bad request'));
 
       const result = await executeContainerJob(baseOptions);
 
-      expect(mockBeginStartAndWait).toHaveBeenCalledTimes(1);
-      expect(result.success).toBe(true);
+      expect(mockStart).toHaveBeenCalledTimes(1);
+      expect(result).toEqual({
+        success: false,
+        logs: '',
+        error: 'Bad request',
+      });
+      expect(pollContainerJobStatus).not.toHaveBeenCalled();
     });
 
     it('should retry on ETIMEDOUT errors', async () => {
@@ -363,7 +535,7 @@ describe('executeContainerJob', () => {
       mockBeginCreateOrUpdateAndWait
         .mockRejectedValueOnce(new Error('ETIMEDOUT'))
         .mockResolvedValueOnce({});
-      mockBeginStartAndWait.mockResolvedValue({});
+      mockPollUntilDone.mockResolvedValue({ name: 'exec-1' });
 
       const resultPromise = executeContainerJob(baseOptions);
       await rs.runAllTimersAsync();
@@ -373,20 +545,21 @@ describe('executeContainerJob', () => {
       expect(mockBeginCreateOrUpdateAndWait).toHaveBeenCalledTimes(2);
     });
 
-    it('should retry on ECONNRESET errors', async () => {
+    it('should retry the start on ECONNRESET errors', async () => {
       rs.useFakeTimers();
 
       mockBeginCreateOrUpdateAndWait.mockResolvedValue({});
-      mockBeginStartAndWait
+      mockSubmitted
         .mockRejectedValueOnce(new Error('ECONNRESET'))
-        .mockResolvedValueOnce({});
+        .mockResolvedValueOnce(undefined);
+      mockPollUntilDone.mockResolvedValue({ name: 'exec-1' });
 
       const resultPromise = executeContainerJob(baseOptions);
       await rs.runAllTimersAsync();
       const result = await resultPromise;
 
       expect(result.success).toBe(true);
-      expect(mockBeginStartAndWait).toHaveBeenCalledTimes(2);
+      expect(mockStart).toHaveBeenCalledTimes(2);
     });
 
     it('should fail after exhausting all retries for create', async () => {
@@ -403,16 +576,16 @@ describe('executeContainerJob', () => {
       expect(result.success).toBe(false);
       expect(result.error).toBe('network_error: Network request failed');
       expect(mockBeginCreateOrUpdateAndWait).toHaveBeenCalledTimes(3);
-      expect(mockBeginStartAndWait).not.toHaveBeenCalled();
+      expect(mockStart).not.toHaveBeenCalled();
     });
   });
 
   describe('LRO polling fallback', () => {
-    it('should recover when beginStartAndWait fails but job succeeded', async () => {
+    it('should check the status, not start again, when the wait loses its connection', async () => {
       rs.useFakeTimers();
 
       mockBeginCreateOrUpdateAndWait.mockResolvedValue({});
-      mockBeginStartAndWait.mockRejectedValue(
+      mockPollUntilDone.mockRejectedValue(
         new Error('network_error: Network request failed'),
       );
       rs.mocked(pollContainerJobStatus).mockResolvedValue({
@@ -426,14 +599,15 @@ describe('executeContainerJob', () => {
 
       expect(result.success).toBe(true);
       expect(result.logs).toContain('recovered from polling error');
-      expect(mockBeginStartAndWait).toHaveBeenCalledTimes(3);
+      expect(mockStart).toHaveBeenCalledTimes(1);
+      expect(mockPollUntilDone).toHaveBeenCalledTimes(1);
     });
 
     it('should report failure when job genuinely failed', async () => {
       rs.useFakeTimers();
 
       mockBeginCreateOrUpdateAndWait.mockResolvedValue({});
-      mockBeginStartAndWait.mockRejectedValue(
+      mockPollUntilDone.mockRejectedValue(
         new Error('network_error: Network request failed'),
       );
       rs.mocked(pollContainerJobStatus).mockResolvedValue({
@@ -453,7 +627,7 @@ describe('executeContainerJob', () => {
       rs.useFakeTimers();
 
       mockBeginCreateOrUpdateAndWait.mockResolvedValue({});
-      mockBeginStartAndWait.mockRejectedValue(
+      mockPollUntilDone.mockRejectedValue(
         new Error('network_error: Network request failed'),
       );
       rs.mocked(pollContainerJobStatus).mockRejectedValue(
@@ -470,7 +644,7 @@ describe('executeContainerJob', () => {
 
     it('should pass correct args to pollContainerJobStatus', async () => {
       mockBeginCreateOrUpdateAndWait.mockResolvedValue({});
-      mockBeginStartAndWait.mockRejectedValue(new Error('polling failed'));
+      mockPollUntilDone.mockRejectedValue(new Error('polling failed'));
       rs.mocked(pollContainerJobStatus).mockResolvedValue({
         status: 'Succeeded',
       });
@@ -484,17 +658,119 @@ describe('executeContainerJob', () => {
         expect.anything(),
         'test-rg',
         'migrate-auth-service',
-        600,
+        // The job's timeout plus the time before its container runs
+        900,
+        // Never taken for this start's execution
+        'job-before',
       );
     });
 
-    it('should not call pollContainerJobStatus when beginStartAndWait succeeds', async () => {
+    it("should check the newest execution when the start's answer has no name", async () => {
       mockBeginCreateOrUpdateAndWait.mockResolvedValue({});
-      mockBeginStartAndWait.mockResolvedValue({});
+      mockPollUntilDone.mockResolvedValue({});
+      rs.mocked(pollContainerJobStatus).mockResolvedValue({
+        status: 'Succeeded',
+      });
+
+      const result = await executeContainerJob(baseOptions);
+
+      expect(mockWaitForJobExecution).not.toHaveBeenCalled();
+      expect(pollContainerJobStatus).toHaveBeenCalledTimes(1);
+      expect(result.success).toBe(true);
+    });
+
+    it('should check the status when every start lost its answer', async () => {
+      rs.useFakeTimers();
+
+      mockBeginCreateOrUpdateAndWait.mockResolvedValue({});
+      mockSubmitted.mockRejectedValue(new Error('ETIMEDOUT'));
+      rs.mocked(pollContainerJobStatus).mockResolvedValue({
+        status: 'NotStarted',
+      });
+
+      const resultPromise = executeContainerJob(baseOptions);
+      await rs.runAllTimersAsync();
+      const result = await resultPromise;
+
+      expect(mockStart).toHaveBeenCalledTimes(3);
+      expect(mockPollUntilDone).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        success: false,
+        logs: '',
+        error: 'Job execution status: NotStarted',
+      });
+    });
+
+    it('should not call pollContainerJobStatus when the wait succeeds', async () => {
+      mockBeginCreateOrUpdateAndWait.mockResolvedValue({});
+      mockPollUntilDone.mockResolvedValue({ name: 'exec-1' });
 
       await executeContainerJob(baseOptions);
 
       expect(pollContainerJobStatus).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('The execution after the start', () => {
+    it('should wait for the execution the start answered with', async () => {
+      mockBeginCreateOrUpdateAndWait.mockResolvedValue({});
+      mockPollUntilDone.mockResolvedValue({ name: 'exec-1' });
+
+      await executeContainerJob({ ...baseOptions, timeoutSeconds: 600 });
+
+      expect(mockWaitForJobExecution).toHaveBeenCalledWith(
+        expect.anything(),
+        'test-rg',
+        'migrate-auth-service',
+        'exec-1',
+        900,
+      );
+    });
+
+    it('should report failure when the execution fails after a successful start', async () => {
+      // Azure's start ends when the execution exists: a migration that fails
+      // a few seconds later must still fail the job
+      mockBeginCreateOrUpdateAndWait.mockResolvedValue({});
+      mockPollUntilDone.mockResolvedValue({ name: 'exec-1' });
+      mockWaitForJobExecution.mockResolvedValue({
+        status: 'Failed',
+        detail: 'Job has reached the specified backoff limit',
+      });
+
+      const result = await executeContainerJob(baseOptions);
+
+      expect(result).toEqual({
+        success: false,
+        logs: '',
+        error:
+          'Job execution exec-1: Failed (Job has reached the specified backoff limit)',
+      });
+      expect(pollContainerJobStatus).not.toHaveBeenCalled();
+    });
+
+    it('should report failure when the execution still runs at the deadline', async () => {
+      mockBeginCreateOrUpdateAndWait.mockResolvedValue({});
+      mockPollUntilDone.mockResolvedValue({ name: 'exec-1' });
+      mockWaitForJobExecution.mockResolvedValue({ status: 'TimedOut' });
+
+      const result = await executeContainerJob(baseOptions);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Job execution exec-1: TimedOut');
+    });
+
+    it("should report failure when the execution's status can't be read", async () => {
+      mockBeginCreateOrUpdateAndWait.mockResolvedValue({});
+      mockPollUntilDone.mockResolvedValue({ name: 'exec-1' });
+      mockWaitForJobExecution.mockRejectedValue(new Error('ECONNRESET'));
+
+      const result = await executeContainerJob(baseOptions);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe(
+        'Could not read the status of job execution exec-1: ECONNRESET',
+      );
+      expect(mockStart).toHaveBeenCalledTimes(1);
     });
   });
 });

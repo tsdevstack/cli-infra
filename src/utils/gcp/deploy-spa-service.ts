@@ -135,5 +135,10 @@ export async function deploySpaService(
   if (result.filesDeleted > 0) {
     logger.info(`Stale files deleted: ${result.filesDeleted}`);
   }
+  if (result.filesKept > 0) {
+    logger.info(
+      `Files from earlier builds kept for open tabs: ${result.filesKept} (deleted by a deploy a day after their last upload)`,
+    );
+  }
   logger.newline();
 }

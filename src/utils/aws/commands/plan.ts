@@ -7,7 +7,7 @@
 
 import { getContext } from '../../../context';
 import { executeTerraform } from '../terraform';
-import { logProviderUpgradeNextSteps } from '../../terraform';
+import { logPlanNextSteps, logProviderUpgradeNextSteps } from '../../terraform';
 import { createStateBackend } from '../bootstrap/create-state-backend';
 import { generateTerraformFiles } from './generate-terraform-files';
 import {
@@ -57,6 +57,9 @@ export async function awsPlan(
     logger.success(`  ✓ Created S3 bucket: ${backendResult.bucketName}`);
   } else {
     logger.success(`  ✓ S3 bucket exists: ${backendResult.bucketName}`);
+  }
+  if (backendResult.bucketPolicySet && !backendResult.bucketCreated) {
+    logger.success('  ✓ S3 bucket now refuses requests without HTTPS');
   }
 
   if (backendResult.tableCreated) {
@@ -158,8 +161,5 @@ export async function awsPlan(
     return;
   }
 
-  logger.newline();
-  logger.info('To apply these changes, run:');
-  logger.info(`  npx tsdevstack infra:deploy --env ${ctx.targetEnv}`);
-  logger.newline();
+  logPlanNextSteps(planResult.output, ctx.targetEnv);
 }

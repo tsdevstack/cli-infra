@@ -4,6 +4,7 @@
  * Display warning about resources that will be deleted.
  */
 
+import { DB_EXPORT_RETENTION_DAYS } from '@tsdevstack/infra-core';
 import type { DiscoveredResources } from '../discovery';
 import type { CoupledWorkerInfo } from '../discovery';
 
@@ -13,6 +14,8 @@ export interface ShowResourceWarningOptions {
   coupledWorkers: CoupledWorkerInfo[];
   targetEnv: string;
   dryRun?: boolean;
+  /** --skip-export: the database is dropped without being saved */
+  skipExport?: boolean;
   logger: {
     newline: () => void;
     warn: (msg: string) => void;
@@ -24,8 +27,15 @@ export interface ShowResourceWarningOptions {
  * Show warning about resources to be deleted
  */
 export function showResourceWarning(options: ShowResourceWarningOptions): void {
-  const { serviceName, discovered, coupledWorkers, targetEnv, dryRun, logger } =
-    options;
+  const {
+    serviceName,
+    discovered,
+    coupledWorkers,
+    targetEnv,
+    dryRun,
+    skipExport,
+    logger,
+  } = options;
   const action = dryRun ? 'WOULD DELETE' : 'will PERMANENTLY DELETE';
 
   logger.newline();
@@ -49,7 +59,11 @@ export function showResourceWarning(options: ShowResourceWarningOptions): void {
     logger.info(`   Secrets:         ${secretCount} found`);
   }
   if (discovered.hasDatabase) {
-    logger.info(`   Database:        ${serviceName} (PostgreSQL)`);
+    logger.info(
+      skipExport
+        ? `   Database:        ${serviceName} (PostgreSQL) ← DATA LOST (--skip-export)`
+        : `   Database:        ${serviceName} (PostgreSQL) ← saved first, the file kept ${DB_EXPORT_RETENTION_DAYS} days`,
+    );
   }
 
   logger.newline();

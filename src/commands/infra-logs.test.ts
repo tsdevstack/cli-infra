@@ -4,6 +4,10 @@ import type { MockContext } from '@tsdevstack/cli/test-utils';
 const mocks = (globalThis as unknown as { contextMocks: MockContext })
   .contextMocks;
 
+rs.mock('../utils/gcp/naming/resolve-gcp-naming-scheme', () => ({
+  resolveGcpNamingScheme: rs.fn(async () => 'legacy'),
+}));
+
 rs.mock('../context', () => ({
   initContext: rs.fn(),
   getContext: rs.fn(
@@ -42,6 +46,10 @@ rs.mock('../utils/gcp/logs/gcp-logs-reader', () => ({
   GcpLogsReader: function GcpLogsReader(params: unknown) {
     mockGcpLogsReader(params);
   },
+}));
+
+rs.mock('../utils/azure/naming/resolve-azure-naming', () => ({
+  resolveAzureNaming: async () => ({ scheme: 'legacy', subscriptionId: 'sub' }),
 }));
 
 const mockAzureLogsReader = rs.fn();
@@ -96,6 +104,7 @@ describe('infraLogs', () => {
         projectName: 'shop',
         targetEnv: 'dev',
         credentials,
+        naming: 'legacy',
       });
       const params = mockRunLogsCommand.mock.calls[0][0];
       expect(params.sourceName).toBe('auth-service');
@@ -105,6 +114,7 @@ describe('infraLogs', () => {
         'auth-service',
         'kong',
         'migrate-auth-service',
+        'db-init',
         'sync-api-key-usage',
         'edge',
       ]);
@@ -150,6 +160,9 @@ describe('infraLogs', () => {
         projectName: 'shop',
         targetEnv: 'az4',
         credentials: azureCredentials,
+        naming: { scheme: 'legacy', subscriptionId: 'sub' },
+        // Not set for az4 in infrastructure.json: Kudu is reachable
+        appServicePrivate: false,
       });
       expect(mockRunLogsCommand.mock.calls[0][0].sourceName).toBe('kong');
     });

@@ -21,7 +21,6 @@ rs.mock('../remove-service', () => ({
   buildDeletionSteps: rs.fn(),
   executeSteps: rs.fn(),
   showFailureReport: rs.fn(),
-  fetchAllDbPasswords: rs.fn(),
   getOtherEnvironments: rs.fn(),
   selectServiceInteractive: rs.fn(),
 }));
@@ -32,17 +31,26 @@ rs.mock('inquirer', () => ({
   },
 }));
 
+rs.mock('../database-export/get-aws-db-exports-bucket', () => ({
+  getAwsDbExportsBucket: rs.fn(),
+}));
+rs.mock('../database-export/run-aws-database-job', () => ({
+  runAwsDatabaseJob: rs.fn(),
+}));
+
 import { awsRemoveService } from './remove-service';
 import { discoverServiceResources, discoverCoupledWorkers } from '../discovery';
 import {
   hasAnyResources,
   buildDeletionSteps,
   executeSteps,
-  fetchAllDbPasswords,
   getOtherEnvironments,
   selectServiceInteractive,
 } from '../remove-service';
 import inquirer from 'inquirer';
+import { getAwsDbExportsBucket } from '../database-export/get-aws-db-exports-bucket';
+import { runAwsDatabaseJob } from '../database-export/run-aws-database-job';
+import type { DeletionStepResult } from '../remove-service/types';
 
 describe('awsRemoveService', () => {
   const mockCtx = {
@@ -64,6 +72,7 @@ describe('awsRemoveService', () => {
     runningInCI: false,
     dryRunOption: undefined as boolean | undefined,
     confirmOption: undefined as boolean | undefined,
+    skipExportOption: undefined as boolean | undefined,
   };
 
   beforeEach(() => {
@@ -73,17 +82,19 @@ describe('awsRemoveService', () => {
       ecsService: true,
       spaBucket: false,
       spaBucketName: '',
+      cloudFrontDistributions: [],
       secrets: ['DATABASE_URL'],
       inferredType: 'backend',
     });
 
     rs.mocked(discoverCoupledWorkers).mockResolvedValue([]);
     rs.mocked(hasAnyResources).mockReturnValue(true);
-    rs.mocked(fetchAllDbPasswords).mockResolvedValue({
-      'auth-service': 'pass123',
-    });
     rs.mocked(getOtherEnvironments).mockReturnValue([]);
     rs.mocked(buildDeletionSteps).mockReturnValue([]);
+    rs.mocked(getAwsDbExportsBucket).mockReturnValue(
+      'my-app-db-exports-123456789012',
+    );
+    rs.mocked(runAwsDatabaseJob).mockResolvedValue(undefined);
     rs.mocked(executeSteps).mockResolvedValue({
       completed: [],
       failed: null,
@@ -97,7 +108,6 @@ describe('awsRemoveService', () => {
     // Mock inquirer for mode selection, confirmation
     rs.mocked(inquirer.prompt)
       .mockResolvedValueOnce({ runMode: 'delete' })
-      .mockResolvedValueOnce({ backedUp: true })
       .mockResolvedValueOnce({ confirmation: 'auth-service' });
   });
 
@@ -131,6 +141,17 @@ describe('awsRemoveService', () => {
     expect(result.aborted).toBe(true);
   });
 
+  it('should ask nothing with --confirm outside CI, and delete', async () => {
+    const result = await awsRemoveService({
+      ...mockParams,
+      confirmOption: true,
+    });
+
+    expect(inquirer.prompt).not.toHaveBeenCalled();
+    expect(result.aborted).toBe(false);
+    expect(executeSteps).toHaveBeenCalled();
+  });
+
   it('should abort on dry run', async () => {
     const result = await awsRemoveService({
       ...mockParams,
@@ -147,7 +168,6 @@ describe('awsRemoveService', () => {
     rs.mocked(inquirer.prompt)
       .mockReset()
       .mockResolvedValueOnce({ runMode: 'delete' })
-      .mockResolvedValueOnce({ backedUp: true })
       .mockResolvedValueOnce({ confirmation: 'wrong-name' });
 
     const result = await awsRemoveService(mockParams);
@@ -160,6 +180,7 @@ describe('awsRemoveService', () => {
       ecsService: true,
       spaBucket: false,
       spaBucketName: '',
+      cloudFrontDistributions: [],
       secrets: [],
       inferredType: 'backend',
     });
@@ -167,7 +188,6 @@ describe('awsRemoveService', () => {
     rs.mocked(inquirer.prompt)
       .mockReset()
       .mockResolvedValueOnce({ runMode: 'delete' })
-      .mockResolvedValueOnce({ backedUp: true })
       .mockResolvedValueOnce({ confirmation: 'auth-service' });
 
     await awsRemoveService(mockParams);
@@ -181,6 +201,7 @@ describe('awsRemoveService', () => {
       ecsService: true,
       spaBucket: false,
       spaBucketName: '',
+      cloudFrontDistributions: [],
       secrets: [],
       inferredType: 'backend',
     });
@@ -188,7 +209,6 @@ describe('awsRemoveService', () => {
     rs.mocked(inquirer.prompt)
       .mockReset()
       .mockResolvedValueOnce({ runMode: 'delete' })
-      .mockResolvedValueOnce({ backedUp: true })
       .mockResolvedValueOnce({ confirmation: 'auth-service' });
 
     rs.mocked(executeSteps).mockResolvedValue({
@@ -205,6 +225,7 @@ describe('awsRemoveService', () => {
       ecsService: true,
       spaBucket: false,
       spaBucketName: '',
+      cloudFrontDistributions: [],
       secrets: [],
       inferredType: 'backend',
     });
@@ -212,12 +233,96 @@ describe('awsRemoveService', () => {
     rs.mocked(inquirer.prompt)
       .mockReset()
       .mockResolvedValueOnce({ runMode: 'delete' })
-      .mockResolvedValueOnce({ backedUp: true })
       .mockResolvedValueOnce({ confirmation: 'auth-service' });
 
     const result = await awsRemoveService(mockParams);
 
     expect(result.aborted).toBe(false);
     expect(result.serviceName).toBe('auth-service');
+  });
+
+  describe('saving the database', () => {
+    const withDatabaseUrl = () =>
+      rs.mocked(discoverServiceResources).mockResolvedValue({
+        ecsService: true,
+        spaBucket: false,
+        spaBucketName: '',
+        cloudFrontDistributions: [],
+        secrets: ['my-app-auth-service-DATABASE_URL'],
+        inferredType: 'backend',
+      });
+    const saveStep = () =>
+      rs.mocked(buildDeletionSteps).mock.calls[0][0].saveDatabase as
+        (() => Promise<DeletionStepResult>) | undefined;
+
+    it('should save the database to the bucket before the drop', async () => {
+      withDatabaseUrl();
+
+      await awsRemoveService(mockParams);
+
+      const save = saveStep();
+      expect(save).toBeDefined();
+      expect(await save?.()).toEqual({ success: true, deleted: true });
+      expect(runAwsDatabaseJob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          mode: 'export',
+          serviceName: 'auth-service',
+          file: expect.stringMatching(
+            /^auth-service\/\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z-removed\.dump$/,
+          ),
+        }),
+      );
+    });
+
+    it('should stop before deleting anything without the bucket', async () => {
+      withDatabaseUrl();
+      rs.mocked(getAwsDbExportsBucket).mockReturnValue(null);
+
+      await expect(awsRemoveService(mockParams)).rejects.toThrow(
+        'This environment has no bucket for saved databases yet. Nothing was deleted.',
+      );
+      expect(executeSteps).not.toHaveBeenCalled();
+    });
+
+    it('should not save with --skip-export', async () => {
+      withDatabaseUrl();
+
+      await awsRemoveService({ ...mockParams, skipExportOption: true });
+
+      expect(getAwsDbExportsBucket).not.toHaveBeenCalled();
+      expect(saveStep()).toBeUndefined();
+    });
+
+    it('should not save a backend without a database (no DATABASE_URL)', async () => {
+      rs.mocked(discoverServiceResources).mockResolvedValue({
+        ecsService: true,
+        spaBucket: false,
+        spaBucketName: '',
+        cloudFrontDistributions: [],
+        secrets: [],
+        inferredType: 'backend',
+      });
+
+      await awsRemoveService(mockParams);
+
+      expect(saveStep()).toBeUndefined();
+      // db-delete still runs: it skips what isn't there
+      expect(rs.mocked(buildDeletionSteps).mock.calls[0][0].hasDatabase).toBe(
+        true,
+      );
+    });
+
+    it('should no longer ask whether the database was backed up', async () => {
+      withDatabaseUrl();
+
+      await awsRemoveService(mockParams);
+
+      const questions = rs
+        .mocked(inquirer.prompt)
+        .mock.calls.flatMap(
+          (call) => call[0] as unknown as Array<{ name: string }>,
+        );
+      expect(questions.map((q) => q.name)).toEqual(['runMode', 'confirmation']);
+    });
   });
 });

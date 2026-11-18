@@ -13,6 +13,9 @@ import {
 import { getTerraformOutput, getTerraformOutputJson } from '../terraform';
 import { buildRuntime } from '../../build-runtime';
 import type { GCPCredentials, FrameworkService } from '@tsdevstack/cli/plugin';
+import { buildGcpMigrationJobName } from '../build-gcp-migration-job-name';
+import { resolveGcpMigrationJobAccess } from '../resolve-gcp-migration-job-access';
+import { resolveGcpNamingScheme } from '../naming/resolve-gcp-naming-scheme';
 
 interface GcpDbMigratePlanParams {
   projectRoot: string;
@@ -28,7 +31,7 @@ interface GcpDbMigratePlanParams {
 export async function gcpDbMigratePlan(
   params: GcpDbMigratePlanParams,
 ): Promise<void> {
-  const { logger, buildSecretName, CliError } = getContext();
+  const { logger, CliError } = getContext();
   const runtime = buildRuntime();
   const { projectRoot, targetEnv, projectName, credentials, service } = params;
 
@@ -79,7 +82,15 @@ export async function gcpDbMigratePlan(
     );
   }
 
-  const secretName = buildSecretName(projectName, service.name, 'DATABASE_URL');
+  // Migrations connect as the owner role (MIGRATION_DATABASE_URL)
+  const access = await resolveGcpMigrationJobAccess({
+    projectName,
+    serviceName: service.name,
+    credentials,
+    terraformDir,
+    tfEnv,
+    runtimeServiceAccount,
+  });
   const imageUri = `${registryUrl}/${service.name}:latest`;
 
   logger.info(`Environment: ${targetEnv}`);
@@ -87,10 +98,16 @@ export async function gcpDbMigratePlan(
   logger.info(`Image: ${imageUri}`);
   logger.newline();
 
+  // Job names follow the scheme the environment was first deployed with
+  const naming = await resolveGcpNamingScheme(
+    { projectName, targetEnv, credentials },
+    'infra:db-migrate-plan',
+  );
+
   const result = await executeCloudRunJob(runtime, {
     projectId: credentials.project_id,
     region: credentials.region,
-    jobName: `migrate-${service.name}`,
+    jobName: buildGcpMigrationJobName(projectName, service.name, naming),
     imageUri,
     command: [
       'node',
@@ -100,8 +117,8 @@ export async function gcpDbMigratePlan(
     ],
     vpcNetwork,
     vpcSubnet,
-    secretName,
-    serviceAccount: runtimeServiceAccount,
+    secretName: access.secretName,
+    serviceAccount: access.serviceAccount,
     credentials,
   });
 

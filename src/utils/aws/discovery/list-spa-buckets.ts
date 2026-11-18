@@ -2,7 +2,8 @@
  * List S3 SPA Buckets
  *
  * Lists all S3 buckets that are used for SPA deployments.
- * Bucket naming convention: ${projectName}-${serviceName}-spa
+ * Bucket naming convention (as Terraform names them, see
+ * buildAwsSpaBucketName): ${projectName}-${serviceName}-spa-${accountId}
  */
 
 import { S3Client, ListBucketsCommand } from '@aws-sdk/client-s3';
@@ -43,9 +44,10 @@ export async function listSpaBuckets(
 
     const allBuckets = response.Buckets ?? [];
 
-    // Filter to buckets matching our SPA naming pattern: {project}-{service}-spa
+    // Filter to buckets matching our SPA naming pattern:
+    // {project}-{service}-spa-{accountId}
     const spaPrefix = `${projectName}-`;
-    const spaSuffix = '-spa';
+    const spaSuffix = `-spa-${credentials.accountId}`;
 
     const spaBuckets = allBuckets.filter((bucket) => {
       const name = bucket.Name ?? '';
@@ -54,7 +56,7 @@ export async function listSpaBuckets(
 
     const buckets: SpaBucketInfo[] = spaBuckets.map((bucket) => {
       const name = bucket.Name ?? '';
-      // Extract service name: "project-servicename-spa" -> "servicename"
+      // Extract service name: "project-servicename-spa-123..." -> "servicename"
       const withoutPrefix = name.slice(spaPrefix.length);
       const serviceName = withoutPrefix.slice(
         0,

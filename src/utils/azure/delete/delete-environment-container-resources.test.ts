@@ -84,6 +84,18 @@ describe('deleteEnvironmentContainerResources', () => {
       });
     });
 
+    it('should delete the db-init job too', async () => {
+      listApps.mockReturnValue(items([]));
+      listJobs.mockReturnValue(
+        items([{ name: 'db-init', environmentId: ENV_ID }]),
+      );
+
+      const result = await deleteEnvironmentContainerResources(options);
+
+      expect(deleteJob).toHaveBeenCalledWith('app-dev-rg', 'db-init');
+      expect(result.deleted).toEqual(['db-init']);
+    });
+
     it('should leave scheduled jobs (Terraform) alone', async () => {
       listApps.mockReturnValue(items([]));
       listJobs.mockReturnValue(

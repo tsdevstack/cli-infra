@@ -2,7 +2,7 @@
  * Delete Cloud SQL User
  *
  * Uses googleapis SQL Admin API to delete a database user.
- * Idempotent: NOT_FOUND is treated as success.
+ * Idempotent: a user that isn't listed, or NOT_FOUND, is success.
  */
 
 import { google } from 'googleapis';
@@ -48,6 +48,19 @@ export async function deleteDatabaseUser(
   const sql = google.sqladmin({ version: 'v1beta4', auth });
 
   try {
+    // After db-init's remove mode the user is gone from Postgres; look first
+    // instead of relying on the answer to a delete of a missing user
+    const listed = await sql.users.list({
+      project: options.projectId,
+      instance: options.instanceName,
+    });
+    const exists = (listed.data.items ?? []).some(
+      (user) => user.name === options.userName,
+    );
+    if (!exists) {
+      return { success: true, deleted: false, alreadyGone: true };
+    }
+
     await sql.users.delete({
       project: options.projectId,
       instance: options.instanceName,

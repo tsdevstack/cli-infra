@@ -16,6 +16,11 @@ export const GCP_MIGRATION_JOB_PREFIX = 'migrate-';
 export const GCP_KONG_SERVICE_SUFFIX = '-kong';
 
 /**
+ * Name suffix of the database setup Cloud Run job (`{project}-db-init`)
+ */
+export const GCP_DB_INIT_JOB_SUFFIX = '-db-init';
+
+/**
  * Cloud Run releases the subnet addresses of deleted services and jobs 1 to
  * 2 hours later (Google: "To delete the subnet, you must first delete or
  * redeploy your Cloud Run services, jobs, ... and then wait 1-2 hours").
@@ -23,3 +28,16 @@ export const GCP_KONG_SERVICE_SUFFIX = '-kong';
  * cannot be deleted. Terraform's error names that address.
  */
 export const GCP_CLOUD_RUN_SUBNET_ADDRESS_PREFIX = 'serverless-ipv4-';
+
+/**
+ * File name of an environment's Terraform state in the state bucket
+ * (`{env}/default.tfstate`: the gcs backend's prefix is the environment and
+ * the workspace is `default`)
+ */
+export const GCP_TERRAFORM_STATE_FILE = 'default.tfstate';
+
+/**
+ * Cloud Storage's JSON API: an object's content is
+ * `{url}/b/{bucket}/o/{object}?alt=media`
+ */
+export const GCS_JSON_API_URL = 'https://storage.googleapis.com/storage/v1';

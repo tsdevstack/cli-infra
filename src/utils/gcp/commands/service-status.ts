@@ -11,12 +11,15 @@ import {
   discoverDeployedServices,
 } from '../discovery';
 import type { GCPCredentials } from '@tsdevstack/cli/plugin';
+import type { NamingScheme } from '@tsdevstack/infra-core';
 
 interface GcpServiceStatusParams {
   serviceName: string;
   projectName: string;
   targetEnv: string;
   credentials: GCPCredentials;
+  /** The environment's naming scheme */
+  naming: NamingScheme;
 }
 
 /**
@@ -26,7 +29,7 @@ export async function gcpServiceStatus(
   params: GcpServiceStatusParams,
 ): Promise<void> {
   const { logger } = getContext();
-  const { serviceName, projectName, targetEnv, credentials } = params;
+  const { serviceName, projectName, targetEnv, credentials, naming } = params;
 
   const sqlInstanceName = `${projectName}-postgres`;
 
@@ -44,6 +47,7 @@ export async function gcpServiceStatus(
     region: credentials.region,
     sqlInstanceName,
     credentials,
+    naming,
   });
 
   // Display results
@@ -104,9 +108,10 @@ export async function gcpServiceStatus(
 export async function selectServiceInteractiveGcp(options: {
   projectName: string;
   credentials: GCPCredentials;
+  naming: NamingScheme;
 }): Promise<string> {
   const { logger, CliError, loadFrameworkConfig } = getContext();
-  const { projectName, credentials } = options;
+  const { projectName, credentials, naming } = options;
 
   const sqlInstanceName = `${projectName}-postgres`;
 
@@ -132,6 +137,7 @@ export async function selectServiceInteractiveGcp(options: {
     region: credentials.region,
     sqlInstanceName,
     credentials,
+    naming,
   });
 
   if (discoveryResult.success) {

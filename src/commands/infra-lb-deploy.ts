@@ -32,6 +32,7 @@ import { fetchDbPasswordsFromSecretManager } from '../utils/credentials/fetch-db
 import { loadInfrastructureConfig } from '../utils/infrastructure/load-infrastructure-config';
 import { validateInfrastructureConfig } from '../utils/infrastructure/validate-infrastructure-config';
 import { getFrontendServicesWithDomains } from '../utils/infrastructure/get-frontend-services-with-domains';
+import { resolveGcpNamingScheme } from '../utils/gcp/naming/resolve-gcp-naming-scheme';
 import type {
   EnvironmentOverrides,
   SecurityOverride,
@@ -168,6 +169,8 @@ export async function infraLbDeploy(
   logger.generating('Generating load balancer configuration...');
 
   const lbTf = gcp.generateLoadBalancerTf({
+    projectName: ctx.projectName,
+    naming: await resolveGcpNamingScheme(ctx, 'infra:deploy-lb'),
     apiDomain,
     frontendServices,
     customWafRules,

@@ -7,24 +7,31 @@
  * 1. Coupled workers (Container Apps)
  * 2. Container App (stop traffic)
  * 3. SPA Storage Account
- * 4. PostgreSQL database
- * 5. Terraform state sync (uses pre-fetched DB passwords)
- * 6. Service-scoped Key Vault secrets
- * 7. Shared secrets cleanup
+ * 4. Migration job, then the database save (db-init export), then the
+ *    database and its roles in SQL (db-init remove),
+ *    then the PostgreSQL database through the API (only an environment
+ *    without db-init still has it)
+ * 5. Service-scoped Key Vault secrets
+ * 6. Shared secrets cleanup
+ *
+ * Terraform's state is left as it is: every later plan, deploy or destroy
+ * refreshes it first.
  */
 
-import { getContext } from '../../../context';
-import type { DeletionStep } from './types';
+import type { DeletionStep, DeletionStepResult } from './types';
 import type { AzureCommandContext } from '../commands/types';
 import type { DiscoveredResources, CoupledWorkerInfo } from '../discovery';
 import {
   deleteContainerApp,
+  deleteContainerAppJob,
   deleteStorageAccount,
   deleteDatabase,
   deleteKeyVaultSecretsByPrefix,
   deleteSharedSecretsForService,
+  dropDatabaseRoles,
+  deleteMigrationDatabaseUrl,
 } from '../delete';
-import { syncTerraformState } from './sync-terraform-state';
+import { AZURE_MIGRATION_JOB_PREFIX } from '../../../constants';
 
 export interface BuildDeletionStepsOptions {
   ctx: AzureCommandContext;
@@ -32,8 +39,9 @@ export interface BuildDeletionStepsOptions {
   discovered: DiscoveredResources;
   projectName: string;
   targetEnv: string;
-  dbPasswords: Record<string, string>;
   coupledWorkers: CoupledWorkerInfo[];
+  /** Saves the database before it is dropped (left out: --skip-export) */
+  saveDatabase?: () => Promise<DeletionStepResult>;
 }
 
 /**
@@ -48,13 +56,12 @@ export function buildDeletionSteps(
     discovered,
     projectName,
     targetEnv,
-    dbPasswords,
     coupledWorkers,
+    saveDatabase,
   } = options;
   const { credentials } = ctx;
   const resourceGroupName = `${projectName}-${targetEnv}-rg`;
-  const { buildKeyVaultName } = getContext();
-  const vaultName = buildKeyVaultName(projectName, targetEnv);
+  const { vaultName } = discovered;
   const steps: DeletionStep[] = [];
 
   // 0. Delete coupled workers first
@@ -99,7 +106,46 @@ export function buildDeletionSteps(
     });
   }
 
-  // 3. Delete PostgreSQL database (on the server discovery checked, honors database.serverName)
+  // 3. Delete the migration job (infra:db-migrate-run keeps it for reuse).
+  // Before the database: a rerun after a failed database step still finds
+  // the database, so it gets here again.
+  if (discovered.hasDatabase) {
+    const jobName = `${AZURE_MIGRATION_JOB_PREFIX}${serviceName}`;
+    steps.push({
+      name: 'Migration job',
+      resource: jobName,
+      execute: () =>
+        deleteContainerAppJob({ credentials, resourceGroupName, jobName }),
+    });
+  }
+
+  // 3a. Save the database, right before the drop: the service, its workers
+  // and its migration job are gone, so nothing writes in between. A failed
+  // save stops here, with the database untouched.
+  if (discovered.hasDatabase && saveDatabase) {
+    steps.push({
+      name: 'Database save',
+      label: 'Saving the database',
+      doneText: 'Saved',
+      skippedText: 'Not saved: removing without its data',
+      resource: serviceName,
+      execute: saveDatabase,
+    });
+  }
+
+  // 3b. The database, the owner and the app role, in SQL (db-init remove),
+  // the same as on GCP and AWS
+  if (discovered.hasDatabase) {
+    steps.push({
+      name: 'Database and roles',
+      resource: `${serviceName}, ${serviceName}_app`,
+      execute: () => dropDatabaseRoles({ ctx, serviceName }),
+    });
+  }
+
+  // 3c. Delete PostgreSQL database through the API (gone already after 3b,
+  // except in an environment without db-init; on the server discovery
+  // checked, honors database.serverName)
   if (discovered.hasDatabase) {
     const serverName = discovered.postgresServerName;
     steps.push({
@@ -115,23 +161,14 @@ export function buildDeletionSteps(
     });
   }
 
-  // 4. Sync Terraform state (uses pre-fetched passwords)
-  steps.push({
-    name: 'Terraform state sync',
-    resource: 'infrastructure state',
-    execute: async () => {
-      try {
-        await syncTerraformState(ctx, dbPasswords);
-        return { success: true, deleted: true };
-      } catch (error) {
-        return {
-          success: true,
-          deleted: false,
-          error: `Warning: ${error instanceof Error ? error.message : 'Unknown'}`,
-        };
-      }
-    },
-  });
+  // 3d. The owner's URL in the database jobs' vault
+  if (discovered.hasDatabase) {
+    steps.push({
+      name: 'Migration URL',
+      resource: `${serviceName} (database jobs vault)`,
+      execute: () => deleteMigrationDatabaseUrl({ ctx, serviceName }),
+    });
+  }
 
   // 5. Delete service-scoped secrets ({project}-{service}-*): in the
   // service's own vault (kept, empty: no cost, and deleting it would
@@ -143,7 +180,7 @@ export function buildDeletionSteps(
       execute: () =>
         deleteKeyVaultSecretsByPrefix({
           credentials,
-          vaultName: buildKeyVaultName(projectName, targetEnv, serviceName),
+          vaultName: discovered.serviceVaultName,
           prefix: `${projectName}-${serviceName}-`,
         }).then((result) => ({
           success: result.success,

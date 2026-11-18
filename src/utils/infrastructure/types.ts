@@ -101,8 +101,9 @@ export interface RedisOverride {
  */
 export interface TracingOverride {
   /**
-   * Share of new traces kept, 0 to 1 (default 1). Kong decides per request
-   * and the services follow; scheduled jobs and workers use the same rate.
+   * Share of new traces kept, 0 to 1 (default 1). The first hop decides (the
+   * Next.js frontend for its calls, Kong for the others) and the rest
+   * follow; scheduled jobs and workers use the same rate.
    */
   sampleRate?: number;
 }

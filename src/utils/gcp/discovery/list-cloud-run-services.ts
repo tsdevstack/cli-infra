@@ -29,6 +29,8 @@ export interface CloudRunServiceInfo {
   imageUri?: string;
   /** Reconciliation status (e.g., "Active", "Unknown") */
   status?: string;
+  /** Service labels (the unique scheme sets GCP_PROJECT_LABEL) */
+  labels: Record<string, string>;
 }
 
 export interface ListCloudRunServicesResult {
@@ -77,14 +79,14 @@ export async function listCloudRunServices(
       const imageUri =
         containers.length > 0 ? (containers[0].image ?? undefined) : undefined;
 
-      // Derive status from conditions
-      // Cloud Run conditions: "Ready" condition reflects overall status
-      const conditions = service.conditions ?? [];
-      const readyCondition = conditions.find((c) => c.type === 'Ready');
+      // The service's readiness is its terminal condition (v2 API).
+      // `conditions` holds only the sub-parts (routes, configuration).
+      // The state comes as the enum's name or number.
+      const state = service.terminalCondition?.state;
       let status = 'UNKNOWN';
-      if (readyCondition?.state === 'CONDITION_SUCCEEDED') {
+      if (state === 'CONDITION_SUCCEEDED' || state === 4) {
         status = 'SERVING';
-      } else if (readyCondition?.state === 'CONDITION_FAILED') {
+      } else if (state === 'CONDITION_FAILED' || state === 3) {
         status = 'FAILED';
       } else if (service.reconciling) {
         status = 'DEPLOYING';
@@ -97,6 +99,7 @@ export async function listCloudRunServices(
         serviceAccount: service.template?.serviceAccount ?? undefined,
         imageUri,
         status,
+        labels: service.labels ?? {},
       });
     }
 

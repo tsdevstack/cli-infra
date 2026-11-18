@@ -9,7 +9,9 @@ import path from 'node:path';
 import { getContext } from '../../../context';
 import {
   gcp,
+  generateDbInit,
   type GCPInfraConfig,
+  type NamingScheme,
   type ScheduledJobConfig,
 } from '@tsdevstack/infra-core';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
@@ -23,6 +25,8 @@ import {
 } from '../../infrastructure/merge-with-defaults';
 import { getFrontendServicesWithDomains } from '../../infrastructure/get-frontend-services-with-domains';
 import { listRuntimeAccountServices } from '../infrastructure/list-runtime-account-services';
+import { validateGcpResourceNames } from '../infrastructure/validate-gcp-resource-names';
+import { buildGcpStateBucketName } from '../build-gcp-state-bucket-name';
 import type {
   EnvironmentOverrides,
   SecurityOverride,
@@ -32,6 +36,8 @@ import type {
 import type { GCPCommandContext } from './types';
 
 export interface GenerateTerraformFilesOptions {
+  /** The environment's naming scheme (resolveGcpNamingScheme) */
+  naming: NamingScheme;
   /** Log each file as it's generated (used by infra:generate) */
   verbose?: boolean;
 }
@@ -52,9 +58,9 @@ export interface GenerateTerraformFilesResult {
 export function generateTerraformFiles(
   ctx: GCPCommandContext,
   commandName: string,
-  options: GenerateTerraformFilesOptions = {},
+  options: GenerateTerraformFilesOptions,
 ): GenerateTerraformFilesResult {
-  const { verbose = false } = options;
+  const { naming, verbose = false } = options;
   const {
     logger,
     CliError,
@@ -63,6 +69,8 @@ export function generateTerraformFiles(
     writeTextFile,
     cleanupFolder,
     KONG_RUNTIME_SECRETS,
+    readDbInitSql,
+    DATABASE_APP_ROLE_SUFFIX,
   } = getContext();
 
   const frameworkConfig = loadFrameworkConfig();
@@ -131,7 +139,11 @@ export function generateTerraformFiles(
     environment: ctx.targetEnv,
     gcpProjectId: ctx.credentials.project_id,
     region: ctx.credentials.region,
-    stateBucket: `${ctx.projectName}-tf-state-${ctx.credentials.project_id}`,
+    stateBucket: buildGcpStateBucketName(
+      ctx.projectName,
+      ctx.credentials.project_id,
+    ),
+    naming,
     baseDomain: '',
     database: {
       tier: databaseConfig.tier,
@@ -153,6 +165,17 @@ export function generateTerraformFiles(
     scheduledJobs: {},
     allDeployables: {},
   };
+
+  // New names must fit Cloud Run's and GCS's limits before anything deploys
+  validateGcpResourceNames({
+    projectName: ctx.projectName,
+    environment: ctx.targetEnv,
+    gcpProjectId: ctx.credentials.project_id,
+    naming,
+    services: frameworkConfig.services,
+    storageBuckets: generateConfig.storageBuckets,
+    commandName,
+  });
 
   logger.generating('Generating configuration files...');
 
@@ -192,9 +215,17 @@ export function generateTerraformFiles(
   // (backend services, Next.js apps), and Kong's access to the secrets it
   // reads at startup. Workers run as their base service; SPAs have no runtime.
   const runtimeServices = listRuntimeAccountServices(frameworkConfig.services);
+  // db-init and the migration jobs run as their own account
+  const databaseServiceNames = generateConfig.servicesWithDatabase
+    .filter((service) => service.hasDatabase)
+    .map((service) => service.name);
   writeTextFile(
     path.join(outputDir, 'iam.tf'),
-    gcp.generateIamTf(runtimeServices, KONG_RUNTIME_SECRETS),
+    gcp.generateIamTf(
+      runtimeServices,
+      KONG_RUNTIME_SECRETS,
+      databaseServiceNames,
+    ),
   );
   logFile('iam.tf');
 
@@ -216,7 +247,7 @@ export function generateTerraformFiles(
 
   writeTextFile(
     path.join(outputDir, 'outputs.tf'),
-    gcp.generateOutputsTf({ spaServices }),
+    gcp.generateOutputsTf({ naming, spaServices }),
   );
   logFile('outputs.tf');
 
@@ -225,6 +256,27 @@ export function generateTerraformFiles(
     gcp.generateTfvars(generateConfig),
   );
   logFile('terraform.tfvars');
+
+  // db-init job (Dockerfile, package.json, index.js): infra:deploy builds it
+  // and runs it in the VPC to set up each service's owner and app role
+  if (databaseServiceNames.length > 0) {
+    const dbInitDir = path.join(outputDir, 'db-init');
+    ensureDirectory(dbInitDir);
+    const dbInitFiles = generateDbInit({
+      cloud: 'gcp',
+      sql: readDbInitSql(),
+      appRoleSuffix: DATABASE_APP_ROLE_SUFFIX,
+    });
+    writeTextFile(path.join(dbInitDir, 'Dockerfile'), dbInitFiles.dockerfile);
+    logFile('db-init/Dockerfile');
+    writeTextFile(
+      path.join(dbInitDir, 'package.json'),
+      dbInitFiles.packageJson,
+    );
+    logFile('db-init/package.json');
+    writeTextFile(path.join(dbInitDir, 'index.js'), dbInitFiles.indexJs);
+    logFile('db-init/index.js');
+  }
 
   // Generate loadbalancer.tf if frontend services have domains configured.
   // IAM bindings are handled at deploy time (setServiceInvokerPolicy), not in Terraform,
@@ -248,6 +300,8 @@ export function generateTerraformFiles(
     const apiDomain = loadBalancerConfig?.apiDomain ?? `api.${baseDomain}`;
 
     const lbTf = gcp.generateLoadBalancerTf({
+      projectName: ctx.projectName,
+      naming,
       apiDomain,
       frontendServices,
       customWafRules: securityConfig?.waf?.customRules,
@@ -276,7 +330,10 @@ export function generateTerraformFiles(
   if (scheduledJobs.length > 0) {
     writeTextFile(
       path.join(outputDir, 'cloud-scheduler.tf'),
-      gcp.generateCloudSchedulerTf(scheduledJobs),
+      gcp.generateCloudSchedulerTf(scheduledJobs, {
+        projectName: ctx.projectName,
+        naming,
+      }),
     );
     logFile('cloud-scheduler.tf');
   }

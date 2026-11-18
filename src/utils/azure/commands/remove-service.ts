@@ -14,11 +14,29 @@ import {
   buildDeletionSteps,
   executeSteps,
   showFailureReport,
-  fetchAllDbPasswords,
   getOtherEnvironments,
   selectServiceInteractive,
 } from '../remove-service';
 import type { AzureCommandContext } from './types';
+import type {
+  DeletionStepResult,
+  ExecuteStepsResult,
+} from '../remove-service/types';
+import { liftDatabaseLock } from '../database-lock/lift-database-lock';
+import { putDatabaseLock } from '../database-lock/put-database-lock';
+import { logRemoveServiceNextSteps } from '../../display/log-remove-service-next-steps';
+import { logDatabaseRecoveryHint } from '../../display/log-database-recovery-hint';
+import { logDatabaseSavedHint } from '../../display/log-database-saved-hint';
+import {
+  buildAzureTerraformEnv,
+  DB_EXPORT_REASONS,
+} from '@tsdevstack/infra-core';
+import { buildRuntime } from '../../build-runtime';
+import { initTerraformBeforeChanges } from '../../terraform';
+import { buildDbExportFileName } from '../../database-export/build-db-export-file-name';
+import { saveDatabaseBeforeRemoval } from '../../database-export/save-database-before-removal';
+import { getAzureDbExports } from '../database-export/get-azure-db-exports';
+import { runAzureDatabaseJob } from '../database-export/run-azure-database-job';
 
 export interface AzureRemoveServiceParams {
   serviceName: string | undefined;
@@ -26,6 +44,8 @@ export interface AzureRemoveServiceParams {
   runningInCI: boolean;
   dryRunOption: boolean | undefined;
   confirmOption: boolean | undefined;
+  /** Remove without saving the database (--skip-export) */
+  skipExportOption: boolean | undefined;
 }
 
 export interface AzureRemoveServiceResult {
@@ -41,6 +61,9 @@ export async function azureRemoveService(
 ): Promise<AzureRemoveServiceResult> {
   const { logger, CliError, loadFrameworkConfig } = getContext();
   const { serviceName, ctx, runningInCI, dryRunOption } = params;
+  // --confirm answers the questions, as in CI: delete, without typing the name
+  const interactive = !runningInCI && params.confirmOption !== true;
+  const skipExport = params.skipExportOption === true;
 
   const { credentials, projectName, targetEnv } = ctx;
 
@@ -104,7 +127,7 @@ export async function azureRemoveService(
 
   // Ask about dry-run in interactive mode (if not already specified)
   let dryRun = dryRunOption;
-  if (!runningInCI && dryRun === undefined) {
+  if (interactive && dryRun === undefined) {
     const { runMode } = await inquirer.prompt([
       {
         type: 'select',
@@ -127,6 +150,7 @@ export async function azureRemoveService(
     coupledWorkers,
     targetEnv,
     dryRun,
+    skipExport,
     logger,
   });
 
@@ -138,31 +162,8 @@ export async function azureRemoveService(
     return { aborted: true };
   }
 
-  // Database backup prompt (interactive only)
-  if (discovered.hasDatabase && !runningInCI) {
-    logger.newline();
-    logger.warn('BACKUP YOUR DATABASE before proceeding!');
-    logger.newline();
-    logger.info('  Use Azure Database for PostgreSQL backup or pg_dump');
-    logger.newline();
-
-    const { backedUp } = await inquirer.prompt([
-      {
-        type: 'confirm',
-        name: 'backedUp',
-        message: 'Have you backed up the database?',
-        default: false,
-      },
-    ]);
-
-    if (!backedUp) {
-      logger.info('Aborted. Please back up your database first.');
-      return { aborted: true };
-    }
-  }
-
   // Final confirmation (interactive only)
-  if (!runningInCI) {
+  if (interactive) {
     const { confirmation } = await inquirer.prompt([
       {
         type: 'input',
@@ -177,16 +178,57 @@ export async function azureRemoveService(
     }
   }
 
-  // Pre-fetch ALL database passwords BEFORE deleting anything
-  logger.info('Fetching database passwords for Terraform...');
-  const dbPasswords = await fetchAllDbPasswords({
-    projectName,
+  // The database step reads Terraform outputs: set up the folder first
+  // (CI and other machines have no backend yet). Nothing is deleted if it
+  // fails.
+  await initTerraformBeforeChanges({
+    projectRoot: ctx.projectRoot,
     targetEnv,
-    credentials,
+    env: buildAzureTerraformEnv(buildRuntime(), ctx.credentials),
   });
-  logger.info(
-    `  Found ${Object.keys(dbPasswords).length} database password(s)`,
-  );
+
+  // The database is saved to the exports container before it is dropped.
+  // Terraform makes it at deploy: an environment last deployed with an
+  // older CLI has none yet.
+  const savesDatabase = discovered.hasDatabase && !skipExport;
+  const exports = savesDatabase ? getAzureDbExports(ctx) : null;
+  if (savesDatabase && !exports) {
+    throw new CliError(
+      'This environment has no storage for saved databases yet. Nothing was deleted.',
+      'infra:remove-service',
+      `Run npx tsdevstack infra:deploy --env ${targetEnv} first (it makes the storage), or add --skip-export to remove the service without saving its data.`,
+    );
+  }
+  let savedFile: string | undefined;
+  const saveDatabase = exports
+    ? async (): Promise<DeletionStepResult> => {
+        let file = '';
+        const result = await saveDatabaseBeforeRemoval({
+          interactive,
+          save: () => {
+            // A new name each try: a try that failed left no file
+            file = buildDbExportFileName(
+              resolvedServiceName,
+              DB_EXPORT_REASONS.removed,
+            );
+            return runAzureDatabaseJob({
+              ctx,
+              mode: 'export',
+              serviceName: resolvedServiceName,
+              file,
+            });
+          },
+        });
+        if (result.outcome === 'saved') {
+          savedFile = file;
+          return { success: true, deleted: true };
+        }
+        if (result.outcome === 'skipped') {
+          return { success: true, deleted: false };
+        }
+        return { success: false, deleted: false, error: result.error };
+      }
+    : undefined;
 
   // Execute deletion
   logger.newline();
@@ -199,10 +241,47 @@ export async function azureRemoveService(
     discovered,
     projectName,
     targetEnv,
-    dbPasswords,
     coupledWorkers,
+    saveDatabase,
   });
-  const { completed, failed, remaining } = await executeSteps(logger, steps);
+
+  // The delete lock on the database server covers its databases: lift it
+  // before anything is deleted, put it back after the steps, also when one
+  // fails. Without a lock (deletionProtection false) nothing changes.
+  const lockTarget = {
+    credentials,
+    resourceGroupName: `${projectName}-${targetEnv}-rg`,
+    serverName: discovered.postgresServerName,
+  };
+  let lockLifted = false;
+  if (discovered.hasDatabase) {
+    try {
+      lockLifted = await liftDatabaseLock(lockTarget);
+    } catch (error) {
+      throw new CliError(
+        `Could not lift the delete lock on the database server ${lockTarget.serverName}: ${error instanceof Error ? error.message : String(error)}`,
+        'infra:remove-service',
+        'Nothing was deleted. Locks need the User Access Administrator role on the resource group (Azure account setup, step 5).',
+      );
+    }
+  }
+
+  let result: ExecuteStepsResult;
+  try {
+    result = await executeSteps(logger, steps);
+  } finally {
+    if (lockLifted) {
+      try {
+        await putDatabaseLock(lockTarget);
+        logger.info('  Put the delete lock back on the database server');
+      } catch (error) {
+        logger.warn(
+          `Could not put the delete lock back on the database server ${lockTarget.serverName}: ${error instanceof Error ? error.message : String(error)}. The next infra:deploy puts it back.`,
+        );
+      }
+    }
+  }
+  const { completed, failed, remaining } = result;
 
   // Show results
   logger.newline();
@@ -222,21 +301,21 @@ export async function azureRemoveService(
   );
   logger.newline();
 
-  // Database recovery hints (if database was removed)
-  if (discovered.hasDatabase) {
-    logger.info(
-      `Database "${resolvedServiceName}" has been dropped from the shared PostgreSQL Flexible Server.`,
+  // Where the database's data is now
+  if (savedFile && exports) {
+    logDatabaseSavedHint(
+      resolvedServiceName,
+      targetEnv,
+      `${exports.containerUrl}/${savedFile}`,
     );
-    logger.newline();
-    logger.info('Data recovery options:');
-    logger.info(
-      '  Backups are retained for the configured retention period (7-35 days).',
-    );
-    logger.info('  Portal: PostgreSQL Flexible Server → Backups → Restore');
-    logger.info(
-      '  Note: Point-in-time restore restores the entire server, not a single database.',
-    );
-    logger.newline();
+  } else if (discovered.hasDatabase) {
+    logDatabaseRecoveryHint(resolvedServiceName, {
+      server: 'the shared PostgreSQL Flexible Server',
+      backups: "the server's backups (35 days with backup on, 7 without)",
+      restore:
+        'restore the server to a time just before the removal (point-in-time restore, into a new server)',
+      links: ['Portal: PostgreSQL Flexible Server → Backups → Restore'],
+    });
   }
 
   // Check if service is in config.json
@@ -262,28 +341,7 @@ export async function azureRemoveService(
       logger.newline();
     }
 
-    logger.info('Next steps:');
-    logger.info(`  1. Remove from other environments (if deployed)`);
-    logger.info(
-      `  2. npx tsdevstack remove-service ${resolvedServiceName}  # removes from config.json`,
-    );
-    logger.info(
-      `  3. npx tsdevstack sync                                  # regenerates files`,
-    );
-    logger.info(
-      `  4. npx tsdevstack infra:generate-kong --env ${targetEnv}  # regenerates Kong routes`,
-    );
-    logger.info(
-      `  5. npx tsdevstack infra:build-kong --env ${targetEnv}     # rebuilds the Kong image`,
-    );
-    logger.info(
-      `  6. npx tsdevstack infra:deploy-kong --env ${targetEnv}    # deploys the new Kong image`,
-    );
-    logger.newline();
-
-    logger.warn(
-      'Kong routes for this service will return 502 until Kong is redeployed.',
-    );
+    logRemoveServiceNextSteps(resolvedServiceName, targetEnv);
   } else {
     if (otherEnvs.length > 0) {
       logger.info('Check if service exists in other environments:');

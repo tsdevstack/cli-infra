@@ -10,7 +10,11 @@ import {
   type StorageAccount,
 } from '@azure/arm-storage';
 import type { AzureCredentials } from '@tsdevstack/cli/plugin';
-import { createAzureCredential } from '@tsdevstack/infra-core';
+import {
+  buildAzureResourceName,
+  createAzureCredential,
+} from '@tsdevstack/infra-core';
+import { resolveAzureNaming } from '../naming/resolve-azure-naming';
 import { buildRuntime } from '../../build-runtime';
 
 export interface CreateStateBackendOptions {
@@ -29,15 +33,6 @@ export interface CreateStateBackendResult {
 }
 
 /**
- * Build the storage account name for Terraform state.
- * Azure Storage Account names: 3-24 chars, lowercase alphanumeric only, globally unique.
- */
-function buildStorageAccountName(projectName: string, env: string): string {
-  const sanitized = projectName.replace(/[^a-z0-9]/g, '');
-  return `${sanitized}${env}tfstate`;
-}
-
-/**
  * Create Storage Account and Blob Container for Terraform state
  */
 export async function createStateBackend(
@@ -46,7 +41,15 @@ export async function createStateBackend(
   const { projectName, env, credentials } = options;
 
   const resourceGroupName = `${projectName}-${env}-rg`;
-  const storageAccountName = buildStorageAccountName(projectName, env);
+  // Storage account names are unique across Azure (3-24 lowercase letters
+  // and digits): a new environment's carries the subscription's suffix
+  const naming = await resolveAzureNaming(credentials, projectName, env);
+  const storageAccountName = buildAzureResourceName('stateStorageAccount', {
+    projectName,
+    environment: env,
+    naming: naming.scheme,
+    subscriptionId: naming.subscriptionId,
+  });
   const containerName = 'tfstate';
   const runtime = buildRuntime();
 

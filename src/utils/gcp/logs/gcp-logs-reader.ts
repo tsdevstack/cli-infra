@@ -5,36 +5,59 @@
  * entries. Every call counts against Google's limit of 60 reads per minute
  * per project. When the limit is hit, reading stops: lines already printed
  * stay, and the error links to the same query in the Logs Explorer.
+ *
+ * --follow opens one tail stream (gRPC, @google-cloud/logging) with the
+ * same filter, without a window: Google allows 10 open at once per project
+ * (the Logs Explorer's live mode counts too). Its entries are turned into
+ * the REST shape first (toGcpRestLogEntry).
  */
 
+import type { Duplex } from 'stream';
+import { Logging } from '@google-cloud/logging';
 import { google, type logging_v2 } from 'googleapis';
 import type { GCPCredentials } from '@tsdevstack/cli/plugin';
+import {
+  buildGcsStorageBucketName,
+  type NamingScheme,
+} from '@tsdevstack/infra-core';
 import { getContext } from '../../../context';
 import {
   GCP_LOGGING_READ_SCOPE,
   GCP_LOGS_PAGE_SIZE,
+  GCP_LOGS_TAIL_OPEN_AFTER_MS,
   LOG_SOURCE_LIST_WINDOW_DAYS,
 } from '../../../constants';
+import { followLogStream } from '../../logs/follow-log-stream';
 import { matchesLogFilters } from '../../logs/matches-log-filters';
 import type {
   LogEntry,
   LogSource,
   LogSourceLastLogged,
+  LogsFollowHandlers,
+  LogsFollowQuery,
   LogsQuery,
   LogsReader,
+  LogStreamEnd,
   NewestLogsResult,
 } from '../../logs/types';
 import { buildGcpLogsFilter } from './build-gcp-logs-filter';
 import { buildGcpLogsExplorerUrl } from './build-gcp-logs-explorer-url';
+import { formatGcpTailSuppression } from './format-gcp-tail-suppression';
 import { isGcpLogsQuotaError } from './is-gcp-logs-quota-error';
 import { normalizeGcpLogEntry } from './normalize-gcp-log-entry';
+import { toGcpRestLogEntry } from './to-gcp-rest-log-entry';
+import type { GcpTailRequest, GcpTailResponse } from './types';
 
 interface GcpLogsReaderParams {
   projectName: string;
   targetEnv: string;
   credentials: GCPCredentials;
+  /** The environment's naming scheme (Cloud Run and Cloud Scheduler names) */
+  naming: NamingScheme;
   /** For tests */
   logging?: logging_v2.Logging;
+  /** For tests: open a tail stream (default: @google-cloud/logging) */
+  tail?: (request: GcpTailRequest) => Duplex;
 }
 
 interface PageRequest {
@@ -48,6 +71,7 @@ interface PageRequest {
 
 export class GcpLogsReader implements LogsReader {
   private readonly logging: logging_v2.Logging;
+  private tailClient: Logging | undefined;
 
   constructor(private readonly params: GcpLogsReaderParams) {
     this.logging =
@@ -81,7 +105,7 @@ export class GcpLogsReader implements LogsReader {
     return Promise.all(
       sources.map(async (source) => {
         const query: LogsQuery = { sources: [source], since, until: now };
-        const filter = buildGcpLogsFilter(query, this.params.projectName);
+        const filter = this.filterFor(query);
         if (!filter) {
           return { source };
         }
@@ -101,8 +125,7 @@ export class GcpLogsReader implements LogsReader {
           if (entry) {
             return {
               source,
-              lastLogged: normalizeGcpLogEntry(entry, this.params.projectName)
-                .time,
+              lastLogged: this.normalize(entry, [source]).time,
             };
           }
           pageToken = page.nextPageToken;
@@ -117,7 +140,7 @@ export class GcpLogsReader implements LogsReader {
     query: LogsQuery,
     onPage: (entries: LogEntry[]) => void,
   ): Promise<void> {
-    const filter = buildGcpLogsFilter(query, this.params.projectName);
+    const filter = this.filterFor(query);
     if (!filter) {
       return;
     }
@@ -131,17 +154,13 @@ export class GcpLogsReader implements LogsReader {
         pageToken,
         explorer: this.explorerFor(query),
       });
-      onPage(
-        page.entries.map((entry) =>
-          normalizeGcpLogEntry(entry, this.params.projectName),
-        ),
-      );
+      onPage(page.entries.map((entry) => this.normalize(entry, query.sources)));
       pageToken = page.nextPageToken;
     } while (pageToken);
   }
 
   async readNewest(query: LogsQuery, limit: number): Promise<NewestLogsResult> {
-    const filter = buildGcpLogsFilter(query, this.params.projectName);
+    const filter = this.filterFor(query);
     if (!filter) {
       return { entries: [], more: false };
     }
@@ -158,7 +177,7 @@ export class GcpLogsReader implements LogsReader {
         explorer: this.explorerFor(query),
       });
       for (const raw of page.entries) {
-        const entry = normalizeGcpLogEntry(raw, this.params.projectName);
+        const entry = this.normalize(raw, query.sources);
         if (matchesLogFilters(entry, query)) {
           newestFirst.push(entry);
         }
@@ -172,12 +191,78 @@ export class GcpLogsReader implements LogsReader {
     };
   }
 
+  async follow(
+    query: LogsFollowQuery,
+    handlers: LogsFollowHandlers,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const filter = this.filterFor(query);
+    if (!filter) {
+      handlers.onNotice(
+        query.kind
+          ? `No selected source has ${query.kind} lines.`
+          : 'Nothing to follow for the selected sources.',
+      );
+      return;
+    }
+
+    await followLogStream({
+      name:
+        query.sources.length === 1 ? query.sources[0].name : 'Cloud Logging',
+      open: (onOpen, streamSignal) =>
+        this.tail(filter, query.sources, handlers, onOpen, streamSignal),
+      signal,
+      notice: handlers.onNotice,
+    });
+  }
+
+  /** The query's Cloud Logging filter (storage buckets need the env and project) */
+  private filterFor(
+    query: LogsFollowQuery & Partial<Pick<LogsQuery, 'since' | 'until'>>,
+    includeTime = true,
+  ): string | undefined {
+    return buildGcpLogsFilter(
+      query,
+      this.params.projectName,
+      this.params.naming,
+      {
+        includeTime,
+        environment: this.params.targetEnv,
+        gcpProjectId: this.params.credentials.project_id,
+      },
+    );
+  }
+
+  /** An entry as a line; storage bucket entries get their source by GCS name */
+  private normalize(
+    entry: logging_v2.Schema$LogEntry,
+    sources: LogSource[],
+  ): LogEntry {
+    const bucketSources: Record<string, string> = {};
+    for (const source of sources) {
+      if (source.type === 'bucket' && source.bucket) {
+        bucketSources[
+          buildGcsStorageBucketName({
+            projectName: this.params.projectName,
+            bucket: source.bucket,
+            environment: this.params.targetEnv,
+            gcpProjectId: this.params.credentials.project_id,
+            naming: this.params.naming,
+          })
+        ] = source.name;
+      }
+    }
+    return normalizeGcpLogEntry(
+      entry,
+      this.params.projectName,
+      this.params.naming,
+      bucketSources,
+    );
+  }
+
   private explorerFor(query: LogsQuery): PageRequest['explorer'] {
     return {
-      filter:
-        buildGcpLogsFilter(query, this.params.projectName, {
-          includeTime: false,
-        }) ?? '',
+      filter: this.filterFor(query, false) ?? '',
       since: query.since,
       until: query.until,
     };
@@ -232,5 +317,112 @@ export class GcpLogsReader implements LogsReader {
 
       throw new CliError(`Cannot read Cloud Logging: ${message}`, 'infra:logs');
     }
+  }
+
+  /**
+   * One tail stream: lines as they arrive, until it ends, fails or the
+   * signal aborts. It counts as open at its first response, or after
+   * GCP_LOGS_TAIL_OPEN_AFTER_MS without an error.
+   */
+  private tail(
+    filter: string,
+    sources: LogSource[],
+    handlers: LogsFollowHandlers,
+    onOpen: () => void,
+    signal: AbortSignal,
+  ): Promise<LogStreamEnd> {
+    return new Promise<LogStreamEnd>((resolve, reject) => {
+      const stream = this.openTail({ filter });
+
+      let opened = false;
+      const open = (): void => {
+        if (!opened) {
+          opened = true;
+          clearTimeout(openTimer);
+          onOpen();
+        }
+      };
+      const openTimer = setTimeout(open, GCP_LOGS_TAIL_OPEN_AFTER_MS);
+
+      let settled = false;
+      const settle = (end: LogStreamEnd | Error): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(openTimer);
+        signal.removeEventListener('abort', onAbort);
+        if (end instanceof Error) {
+          reject(end);
+        } else {
+          resolve(end);
+        }
+      };
+      const onAbort = (): void => {
+        settle('dropped');
+        (stream as Duplex & { abort?: () => void }).abort?.();
+        stream.destroy();
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+
+      stream.on('data', (response: GcpTailResponse) => {
+        if (settled) {
+          return;
+        }
+        open();
+        const entries = (response.entries ?? []).map((entry) =>
+          this.normalize(toGcpRestLogEntry(entry), sources),
+        );
+        if (entries.length > 0) {
+          handlers.onEntries(entries);
+        }
+        for (const text of formatGcpTailSuppression(response.suppressionInfo)) {
+          handlers.onNotice(text);
+        }
+      });
+      stream.on('error', (error: unknown) => {
+        settle(signal.aborted ? 'dropped' : this.tailError(error));
+      });
+      stream.on('end', () => settle('dropped'));
+      stream.on('close', () => settle('dropped'));
+    });
+  }
+
+  private openTail(request: GcpTailRequest): Duplex {
+    if (this.params.tail) {
+      return this.params.tail(request);
+    }
+    const { buildGCPClientOptions } = getContext();
+    this.tailClient ??= new Logging(
+      buildGCPClientOptions(this.params.credentials),
+    );
+    return this.tailClient.tailEntries(request);
+  }
+
+  /** A tail stream's error, with a hint where one helps */
+  private tailError(error: unknown): Error {
+    const { CliError } = getContext();
+    const message = error instanceof Error ? error.message : String(error);
+    const code = (error as { code?: unknown } | undefined)?.code;
+
+    // gRPC codes: 7 permission denied, 8 resource exhausted
+    if (code === 7) {
+      return new CliError(
+        `Cannot follow Cloud Logging: ${message}`,
+        'infra:logs --follow',
+        `The deploy account needs the Logs Viewer role (roles/logging.viewer). Run npx tsdevstack infra:bootstrap --env ${this.params.targetEnv} to add it.`,
+      );
+    }
+    if (code === 8) {
+      return new CliError(
+        `Cannot follow Cloud Logging: ${message}`,
+        'infra:logs --follow',
+        "Google allows 10 live log streams at once per project, the Logs Explorer's live mode included. Close one and run the command again.",
+      );
+    }
+    return new CliError(
+      `Cannot follow Cloud Logging: ${message}`,
+      'infra:logs --follow',
+    );
   }
 }

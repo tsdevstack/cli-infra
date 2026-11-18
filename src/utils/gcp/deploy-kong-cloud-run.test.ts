@@ -1,11 +1,15 @@
 import { describe, it, expect, rs, beforeEach } from '@rstest/core';
 
 const mockUpdateService = rs.fn();
+const mockGetService = rs.fn();
 
 rs.mock('@google-cloud/run', () => ({
   ServicesClient: class MockServicesClient {
     updateService(...args: unknown[]) {
       return mockUpdateService(...args);
+    }
+    getService(...args: unknown[]) {
+      return mockGetService(...args);
     }
   },
 }));
@@ -91,6 +95,41 @@ describe('deployKongCloudRun', () => {
           }),
         }),
       );
+    });
+
+    it('should succeed when a status check gets no answer but Kong is deployed', async () => {
+      const name =
+        'projects/my-gcp-project/locations/us-central1/services/myapp-kong';
+      mockUpdateService.mockResolvedValue([
+        {
+          promise: () =>
+            Promise.reject(
+              Object.assign(
+                new Error('4 DEADLINE_EXCEEDED: Deadline exceeded'),
+                {
+                  code: 4,
+                },
+              ),
+            ),
+        },
+      ]);
+      mockGetService.mockResolvedValue([
+        {
+          uri: 'https://myapp-kong-abc123.run.app',
+          reconciling: false,
+          terminalCondition: { state: 'CONDITION_SUCCEEDED' },
+          latestCreatedRevision: `${name}/revisions/myapp-kong-00001`,
+          latestReadyRevision: `${name}/revisions/myapp-kong-00001`,
+        },
+      ]);
+
+      const result = await deployKongCloudRun(baseOptions);
+
+      expect(mockGetService).toHaveBeenCalledWith({ name });
+      expect(result).toEqual({
+        success: true,
+        serviceUrl: 'https://myapp-kong-abc123.run.app',
+      });
     });
 
     it('should return success with service URL', async () => {
@@ -184,10 +223,25 @@ describe('deployKongCloudRun', () => {
         { name: 'KONG_TRUSTED_IPS', value: '0.0.0.0/0,::/0' },
         { name: 'KONG_REAL_IP_HEADER', value: 'X-Tsdevstack-Edge-IP' },
         { name: 'KONG_REAL_IP_RECURSIVE', value: 'off' },
+        { name: 'DEPLOYED_AT', value: expect.any(String) },
         fromSecret('REDIS_PASSWORD'),
         fromSecret('KONG_TRUST_TOKEN'),
         fromSecret('KONG_FRONTEND_TOKEN'),
       ]);
+    });
+
+    it('should set DEPLOYED_AT to the deploy time, so every deploy starts a new revision', async () => {
+      const before = Date.now();
+      await deployKongCloudRun(baseOptions);
+      const after = Date.now();
+
+      const container =
+        mockUpdateService.mock.calls[0][0].service.template.containers[0];
+      const deployedAt = (
+        container.env as Array<{ name: string; value?: string }>
+      ).find((entry) => entry.name === 'DEPLOYED_AT')?.value;
+      expect(Date.parse(deployedAt ?? '')).toBeGreaterThanOrEqual(before);
+      expect(Date.parse(deployedAt ?? '')).toBeLessThanOrEqual(after);
     });
   });
 

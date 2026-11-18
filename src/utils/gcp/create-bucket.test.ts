@@ -4,6 +4,8 @@ import { describe, it, expect, rs, beforeEach } from '@rstest/core';
 const mocks = rs.hoisted(() => {
   return {
     exists: rs.fn(),
+    getMetadata: rs.fn(),
+    setMetadata: rs.fn(),
     createBucket: rs.fn(),
   };
 });
@@ -12,7 +14,11 @@ rs.mock('@google-cloud/storage', () => {
   return {
     Storage: class MockStorage {
       bucket() {
-        return { exists: mocks.exists };
+        return {
+          exists: mocks.exists,
+          getMetadata: mocks.getMetadata,
+          setMetadata: mocks.setMetadata,
+        };
       }
       createBucket(...args: unknown[]) {
         return mocks.createBucket(...args);
@@ -46,9 +52,20 @@ describe('createBucket', () => {
   });
 
   describe('when bucket already exists', () => {
-    it('should return success with isNew=false', async () => {
-      mocks.exists!.mockResolvedValue([true]);
+    const SECURED = {
+      iamConfiguration: {
+        uniformBucketLevelAccess: { enabled: true },
+        publicAccessPrevention: 'enforced',
+      },
+    };
 
+    beforeEach(() => {
+      mocks.exists!.mockResolvedValue([true]);
+      mocks.getMetadata!.mockResolvedValue([SECURED]);
+      mocks.setMetadata!.mockResolvedValue([{}]);
+    });
+
+    it('should return success with isNew=false', async () => {
       const result = await createBucket({
         bucketName: 'existing-bucket',
         credentials: mockCredentials,
@@ -60,14 +77,66 @@ describe('createBucket', () => {
     });
 
     it('should not attempt to create bucket', async () => {
-      mocks.exists!.mockResolvedValue([true]);
-
       await createBucket({
         bucketName: 'existing-bucket',
         credentials: mockCredentials,
       });
 
       expect(mocks.createBucket).not.toHaveBeenCalled();
+    });
+
+    it('should leave a bucket that already has the access settings alone', async () => {
+      const result = await createBucket({
+        bucketName: 'existing-bucket',
+        credentials: mockCredentials,
+      });
+
+      expect(mocks.setMetadata).not.toHaveBeenCalled();
+      expect(result.accessUpdated).toBe(false);
+    });
+
+    it('should add uniform access and public access prevention to an older bucket', async () => {
+      mocks.getMetadata!.mockResolvedValue([
+        {
+          iamConfiguration: {
+            uniformBucketLevelAccess: { enabled: false },
+            publicAccessPrevention: 'inherited',
+          },
+        },
+      ]);
+
+      const result = await createBucket({
+        bucketName: 'existing-bucket',
+        credentials: mockCredentials,
+      });
+
+      expect(mocks.setMetadata).toHaveBeenCalledWith(SECURED);
+      expect(result.accessUpdated).toBe(true);
+    });
+
+    it('should add them when the bucket reports no access settings', async () => {
+      mocks.getMetadata!.mockResolvedValue([{}]);
+
+      const result = await createBucket({
+        bucketName: 'existing-bucket',
+        credentials: mockCredentials,
+      });
+
+      expect(mocks.setMetadata).toHaveBeenCalledWith(SECURED);
+      expect(result.accessUpdated).toBe(true);
+    });
+
+    it('should fail when the settings cannot be changed', async () => {
+      mocks.getMetadata!.mockResolvedValue([{}]);
+      mocks.setMetadata!.mockRejectedValue(new Error('Permission denied'));
+
+      const result = await createBucket({
+        bucketName: 'existing-bucket',
+        credentials: mockCredentials,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Permission denied');
     });
   });
 
@@ -98,6 +167,10 @@ describe('createBucket', () => {
         location: 'US',
         storageClass: 'STANDARD',
         versioning: { enabled: false },
+        iamConfiguration: {
+          uniformBucketLevelAccess: { enabled: true },
+          publicAccessPrevention: 'enforced',
+        },
         labels: { 'managed-by': 'tsdevstack' },
       });
     });

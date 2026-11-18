@@ -12,6 +12,10 @@ import type { AWSCredentials } from '@tsdevstack/cli/plugin';
 import { getEcsService } from './get-ecs-service';
 import { bucketExists } from './bucket-exists';
 import { listSecretsByPrefix } from './list-secrets-by-prefix';
+import { buildAwsSpaBucketName } from '../build-aws-spa-bucket-name';
+import { findServiceDistributions } from './find-service-distributions';
+import type { ServiceDistribution } from './find-service-distributions';
+import { findSpaOriginAccessControl } from './find-spa-origin-access-control';
 
 export interface DiscoverServiceResourcesOptions {
   serviceName: string;
@@ -36,6 +40,11 @@ export interface DiscoveredResources {
   // S3 SPA Bucket
   spaBucket: boolean;
   spaBucketName: string;
+
+  // The service's own CloudFront distributions (SPA, Next.js) and the
+  // SPA's origin access control
+  cloudFrontDistributions: ServiceDistribution[];
+  spaOriginAccessControlId?: string;
 
   // Secrets
   secrets: string[];
@@ -67,11 +76,21 @@ export async function discoverServiceResources(
   const { serviceName, projectName, credentials } = options;
 
   const clusterName = `${projectName}-cluster`;
-  const spaBucketName = `${projectName}-${serviceName}-spa`;
+  const spaBucketName = buildAwsSpaBucketName(
+    projectName,
+    serviceName,
+    credentials.accountId,
+  );
   const secretPrefix = `${projectName}-${serviceName}-`;
 
   // Run all discovery calls in parallel for performance
-  const [ecsResult, bucketResult, secretsResult] = await Promise.all([
+  const [
+    ecsResult,
+    bucketResult,
+    secretsResult,
+    distributionsResult,
+    oacResult,
+  ] = await Promise.all([
     getEcsService({
       clusterName,
       serviceName,
@@ -85,6 +104,13 @@ export async function discoverServiceResources(
       prefix: secretPrefix,
       credentials,
     }),
+    findServiceDistributions({
+      projectName,
+      targetEnv: options.targetEnv,
+      serviceName,
+      credentials,
+    }),
+    findSpaOriginAccessControl({ projectName, serviceName, credentials }),
   ]);
 
   const hasEcs = ecsResult.success && ecsResult.service.exists;
@@ -117,6 +143,9 @@ export async function discoverServiceResources(
 
     spaBucket: hasBucket,
     spaBucketName,
+
+    cloudFrontDistributions: distributionsResult.distributions,
+    spaOriginAccessControlId: oacResult.id,
 
     networkConfiguration: hasEcs
       ? ecsResult.service.networkConfiguration

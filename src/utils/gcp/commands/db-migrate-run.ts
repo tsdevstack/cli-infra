@@ -12,7 +12,9 @@ import {
 } from '@tsdevstack/infra-core';
 import { getTerraformOutput, getTerraformOutputJson } from '../terraform';
 import { buildRuntime } from '../../build-runtime';
-import { GCP_MIGRATION_JOB_PREFIX } from '../../../constants';
+import { buildGcpMigrationJobName } from '../build-gcp-migration-job-name';
+import { resolveGcpMigrationJobAccess } from '../resolve-gcp-migration-job-access';
+import { resolveGcpNamingScheme } from '../naming/resolve-gcp-naming-scheme';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
 import { getMigrationJobConfig } from '../../infrastructure/merge-with-defaults';
 import type { GCPCredentials, FrameworkService } from '@tsdevstack/cli/plugin';
@@ -32,7 +34,7 @@ interface GcpDbMigrateRunParams {
 export async function gcpDbMigrateRun(
   params: GcpDbMigrateRunParams,
 ): Promise<void> {
-  const { logger, buildSecretName, CliError } = getContext();
+  const { logger, CliError } = getContext();
   const runtime = buildRuntime();
   const { projectRoot, targetEnv, projectName, credentials, service } = params;
 
@@ -83,7 +85,15 @@ export async function gcpDbMigrateRun(
     );
   }
 
-  const secretName = buildSecretName(projectName, service.name, 'DATABASE_URL');
+  // Migrations connect as the owner role (MIGRATION_DATABASE_URL)
+  const access = await resolveGcpMigrationJobAccess({
+    projectName,
+    serviceName: service.name,
+    credentials,
+    terraformDir,
+    tfEnv,
+    runtimeServiceAccount,
+  });
   const tag = params.imageTag ?? 'latest';
   const imageUri = `${registryUrl}/${service.name}:${tag}`;
 
@@ -114,16 +124,22 @@ export async function gcpDbMigrateRun(
   const infraConfig = loadInfrastructureConfig();
   const migrationJob = getMigrationJobConfig(infraConfig, targetEnv, 'gcp');
 
+  // Job names follow the scheme the environment was first deployed with
+  const naming = await resolveGcpNamingScheme(
+    { projectName, targetEnv, credentials },
+    'infra:db-migrate-run',
+  );
+
   const result = await executeCloudRunJob(runtime, {
     projectId: credentials.project_id,
     region: credentials.region,
-    jobName: `${GCP_MIGRATION_JOB_PREFIX}${service.name}`,
+    jobName: buildGcpMigrationJobName(projectName, service.name, naming),
     imageUri,
     command: ['sh', '-c', retryScript],
     vpcNetwork,
     vpcSubnet,
-    secretName,
-    serviceAccount: runtimeServiceAccount,
+    secretName: access.secretName,
+    serviceAccount: access.serviceAccount,
     credentials,
     cpu: migrationJob.cpu,
     memory: migrationJob.memory,

@@ -9,6 +9,8 @@
  * sidecar a site container, all pulled with the app's system-assigned
  * identity. The containers share the app settings and reach each other on
  * localhost. Without, the classic single container (DOCKER|<image>).
+ *
+ * Every deploy also turns SSH off (turnOffAppServiceSsh).
  */
 
 import { WebSiteManagementClient } from '@azure/arm-appservice';
@@ -16,6 +18,7 @@ import { getContext } from '../../../context';
 import { createAzureCredential } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
 import type { AzureCredentials } from '@tsdevstack/cli/plugin';
+import { turnOffAppServiceSsh } from './turn-off-app-service-ssh';
 
 interface DeployAppServiceParams {
   credentials: AzureCredentials;
@@ -136,7 +139,24 @@ export async function deployAppService(
     );
   }
 
-  // Step 3: Restart to pick up new image
+  // Step 3: SSH off (azurerm can't set it, and its updates drop it)
+  try {
+    await turnOffAppServiceSsh(
+      credential,
+      credentials.subscriptionId,
+      resourceGroupName,
+      appServiceName,
+    );
+  } catch (err: unknown) {
+    const error = err as { message?: string };
+    throw new CliError(
+      `Failed to turn off SSH on App Service "${appServiceName}"`,
+      'deploy-app-service',
+      error.message ?? 'Unknown error',
+    );
+  }
+
+  // Step 4: Restart to pick up new image
   try {
     await client.webApps.restart(resourceGroupName, appServiceName);
   } catch (err: unknown) {
@@ -148,7 +168,7 @@ export async function deployAppService(
     );
   }
 
-  // Step 4: Verify running
+  // Step 5: Verify running
   try {
     const app = await client.webApps.get(resourceGroupName, appServiceName);
     const state = app.state ?? 'Unknown';

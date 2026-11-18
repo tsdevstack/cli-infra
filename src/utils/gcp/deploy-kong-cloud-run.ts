@@ -13,7 +13,11 @@
  */
 
 import { ServicesClient } from '@google-cloud/run';
-import { GCP_KONG_CLIENT_IP_SETTINGS } from '@tsdevstack/infra-core';
+import {
+  DEPLOYED_AT_ENV_VAR,
+  GCP_KONG_CLIENT_IP_SETTINGS,
+  waitForCloudRunService,
+} from '@tsdevstack/infra-core';
 import type { GCPCredentials } from '@tsdevstack/cli/plugin';
 import { getContext } from '../../context';
 import {
@@ -89,6 +93,9 @@ export async function deployKongCloudRun(
           ...Object.entries(GCP_KONG_CLIENT_IP_SETTINGS).map(
             ([name, value]) => ({ name, value }),
           ),
+          // A new revision on every deploy, so Kong reads its secrets again
+          // (same tag included)
+          { name: DEPLOYED_AT_ENV_VAR, value: new Date().toISOString() },
           // Kong's runtime secrets, read by Kong's service account (which can
           // read only these)
           ...KONG_RUNTIME_SECRETS.map((key) => ({
@@ -179,7 +186,13 @@ export async function deployKongCloudRun(
     });
 
     logger.info('Waiting for deployment to complete...');
-    const [service] = await operation.promise();
+    const service = await waitForCloudRunService({
+      operation,
+      getService: async (name) =>
+        (await servicesClient.getService({ name }))[0],
+      serviceName,
+      logger,
+    });
 
     return {
       success: true,

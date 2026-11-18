@@ -11,6 +11,7 @@ import { getContext } from '../../../context';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
 import { getScheduledJobs } from '../../infrastructure/merge-with-defaults';
 import {
+  buildGcpCloudRunName,
   buildGcpTerraformEnv,
   checkTerraformInstalled,
   gcp,
@@ -20,6 +21,7 @@ import { executeTerraform } from '../terraform';
 import { buildRuntime } from '../../build-runtime';
 import { toTerraformId } from '../../terraform';
 import type { GCPCommandContext } from './types';
+import { resolveGcpNamingScheme } from '../naming/resolve-gcp-naming-scheme';
 
 export interface DeploySchedulersOptions {
   autoApprove?: boolean;
@@ -69,7 +71,14 @@ export async function gcpDeploySchedulers(
   // Generate cloud-scheduler.tf (self-contained — no need for infra:generate first)
   const schedulerTfPath = path.join(terraformDir, 'cloud-scheduler.tf');
   const { writeTextFile } = getContext();
-  writeTextFile(schedulerTfPath, gcp.generateCloudSchedulerTf(scheduledJobs));
+  const naming = await resolveGcpNamingScheme(ctx, 'infra:deploy-schedulers');
+  writeTextFile(
+    schedulerTfPath,
+    gcp.generateCloudSchedulerTf(scheduledJobs, {
+      projectName: ctx.projectName,
+      naming,
+    }),
+  );
 
   // Log deployment info
   logger.info(`Environment: ${targetEnv}`);
@@ -103,7 +112,7 @@ export async function gcpDeploySchedulers(
   // Set IAM bindings for scheduler SA on target services (via SDK, not Terraform)
   const targetServices = Array.from(
     new Set(scheduledJobs.map((j) => j.targetService)),
-  );
+  ).map((name) => buildGcpCloudRunName(ctx.projectName, name, naming));
   logger.info('Setting IAM bindings for scheduler...');
   await setSchedulerInvokerBindings(runtime, {
     projectId: credentials.project_id,

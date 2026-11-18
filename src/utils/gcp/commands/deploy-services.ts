@@ -28,6 +28,7 @@ import path from 'node:path';
 import { buildRuntime } from '../../build-runtime';
 import { getTerraformOutput } from '../terraform';
 import type { GCPCommandContext } from './types';
+import { resolveGcpNamingScheme } from '../naming/resolve-gcp-naming-scheme';
 
 export interface DeployServicesOptions {
   /** Specific service to deploy (optional, deploys all if not specified) */
@@ -53,6 +54,9 @@ export async function gcpDeployServices(
   const config = loadFrameworkConfig();
   const serviceFilter = parseServiceFilter(options.service);
 
+  // Cloud Run names follow the scheme the environment was first deployed with
+  const naming = await resolveGcpNamingScheme(ctx, 'infra:deploy-services');
+
   // Topology check: when deploying a subset of services that affect pool sizing,
   // verify topology hasn't drifted since last full deploy
   if (serviceFilter) {
@@ -70,6 +74,7 @@ export async function gcpDeployServices(
         region: ctx.credentials.region,
         sqlInstanceName,
         credentials: ctx.credentials,
+        naming,
       });
 
       if (!discoveryResult.success) {
@@ -165,6 +170,7 @@ export async function gcpDeployServices(
       dockerServices,
       async (service) => {
         await infraDockerBuild({
+          nextSteps: false,
           env: targetEnv,
           service: service.name,
           tag: options.tag,
@@ -190,6 +196,7 @@ export async function gcpDeployServices(
             `  ⏳ Pushing ${service.name}... (${pushCompleted}/${pushTotal} done)`,
           );
           await infraDockerPush({
+            nextSteps: false,
             env: targetEnv,
             service: service.name,
             tag: options.tag,
@@ -268,6 +275,7 @@ export async function gcpDeployServices(
             targetEnv,
             credentials: ctx.credentials,
             service,
+            naming,
             tag: options.tag,
           });
           deployCompleted++;

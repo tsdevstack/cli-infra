@@ -22,6 +22,7 @@ import { validateEnum } from './validate-enum';
 import { getProviderSchemaConfig } from './get-provider-schema-config';
 import { mergeServiceWithDefaults } from './merge-service-with-defaults';
 import { mergeKongWithDefaults } from './merge-kong-with-defaults';
+import { validateFargateCpuMemoryPair } from '../aws/infrastructure/validate-fargate-cpu-memory-pair';
 import { validateCloudRunResources } from '../gcp/infrastructure/validate-cloud-run-resources';
 import { isServiceCpuAlwaysOn } from '../gcp/infrastructure/is-service-cpu-always-on';
 import { validateAccessControl } from './validate-access-control';
@@ -30,6 +31,7 @@ import { validateDatabaseDiskSize } from './validate-database-disk-size';
 import { validateDatabaseHa } from './validate-database-ha';
 import { validateRedisMemoryGb } from './validate-redis-memory-gb';
 import { validateTracingOverride } from './validate-tracing-override';
+import { validateScheduledJobs } from './validate-scheduled-jobs';
 import { mergeDatabaseWithDefaults } from './merge-database-with-defaults';
 import { validateAwsMinInstances } from '../aws/infrastructure/validate-aws-min-instances';
 import { validateAppServiceScaling } from '../azure/infrastructure/validate-app-service-scaling';
@@ -88,6 +90,9 @@ export function validateInfrastructureConfig(
         if (itemKey === 'tracing') {
           validateTracingOverride(key, override);
         }
+        if (itemKey === 'scheduledJobs') {
+          validateScheduledJobs(key, override, provider);
+        }
         // Cloud Run limits on Kong's cpu/memory (with defaults filled in)
         if (
           itemKey === 'kong' &&
@@ -103,9 +108,21 @@ export function validateInfrastructureConfig(
         }
         // AWS has no scale-to-zero: Kong must run at least one task
         if (itemKey === 'kong' && provider === 'aws') {
-          const kongMin = (override as KongOverride).minInstances;
-          if (typeof kongMin === 'number') {
-            validateAwsMinInstances(kongMin, `${key}.kong`);
+          const kongOverride = override as KongOverride;
+          if (typeof kongOverride.minInstances === 'number') {
+            validateAwsMinInstances(kongOverride.minInstances, `${key}.kong`);
+          }
+          // Fargate runs only certain pairs (the value not set comes from the defaults)
+          if (
+            kongOverride.cpu !== undefined ||
+            kongOverride.memory !== undefined
+          ) {
+            const kongResolved = mergeKongWithDefaults(kongOverride, 'aws');
+            validateFargateCpuMemoryPair(
+              kongResolved.cpu,
+              kongResolved.memory,
+              `${key}.kong`,
+            );
           }
         }
         // database.serverName is Azure only and must follow Azure naming rules;
@@ -212,6 +229,28 @@ export function validateInfrastructureConfig(
         typeof serviceMin === 'number'
       ) {
         validateAwsMinInstances(serviceMin, `${key}.${itemKey}`);
+      }
+
+      // Fargate runs only certain CPU/memory pairs (the value not set comes
+      // from the defaults)
+      const serviceOverride = override as ServiceOverride;
+      if (
+        provider === 'aws' &&
+        serviceTypes.get(itemKey) !== 'spa' &&
+        (serviceOverride.cpu !== undefined ||
+          serviceOverride.memory !== undefined)
+      ) {
+        const resolved = mergeServiceWithDefaults(
+          serviceOverride,
+          itemKey,
+          key,
+          'aws',
+        );
+        validateFargateCpuMemoryPair(
+          resolved.cpu,
+          resolved.memory,
+          `${key}.${itemKey}`,
+        );
       }
     }
 

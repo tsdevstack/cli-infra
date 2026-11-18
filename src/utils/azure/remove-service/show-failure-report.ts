@@ -27,14 +27,14 @@ export function showFailureReport(
   logger.newline();
 
   if (completed.length > 0) {
-    logger.success('Already deleted:');
+    logger.success('Done:');
     for (const step of completed) {
       logger.info(`   - ${step.name}: ${step.resource}`);
     }
     logger.newline();
   }
 
-  logger.info('Not yet deleted:');
+  logger.info('Not done yet:');
   logger.info(`   - ${failed.name}: ${failed.resource} (failed)`);
   for (const step of remaining) {
     logger.info(`   - ${step.name}: ${step.resource}`);

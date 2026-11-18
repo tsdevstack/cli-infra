@@ -4,6 +4,8 @@
  * Prints instructions for setting up OIDC and user secrets required for deployment.
  */
 
+import { AWS_CICD_DOCS_URL, GITHUB_REPO_IDS_COMMAND } from '../../../constants';
+
 /**
  * Print setup instructions for AWS CI/CD
  *
@@ -43,10 +45,15 @@ export function printSetupInstructions(
   logger.info('   GitHub organization: YOUR_ORG (or username)');
   logger.info('   GitHub repository: YOUR_REPO');
   logger.info('   Role name: github-actions-deploy');
+  logger.info(
+    '   The console writes only the older subject form; step 3 adds the newer one.',
+  );
   logger.newline();
 
-  logger.info('3. Verify Trust Policy');
-  logger.info('   Go to role → Trust relationships → confirm it looks like:');
+  logger.info('3. Edit the Trust Policy');
+  logger.info(
+    '   Go to role → Trust relationships → Edit, so that it looks like:',
+  );
   logger.newline();
   logger.info('   {');
   logger.info('     "Version": "2012-10-17",');
@@ -65,20 +72,27 @@ export function printSetupInstructions(
   );
   logger.info('         },');
   logger.info('         "StringLike": {');
-  logger.info(
-    '           "token.actions.githubusercontent.com:sub": "repo:YOUR_ORG/YOUR_REPO:*"',
-  );
+  logger.info('           "token.actions.githubusercontent.com:sub": [');
+  logger.info('             "repo:YOUR_ORG/YOUR_REPO:*",');
+  logger.info('             "repo:YOUR_ORG@OWNER_ID/YOUR_REPO@REPO_ID:*"');
+  logger.info('           ]');
   logger.info('         }');
   logger.info('       }');
   logger.info('     }]');
   logger.info('   }');
   logger.newline();
+  logger.info(
+    '   GitHub signs workflows of repositories created after 15 July 2026 with',
+  );
+  logger.info(
+    '   the second form (owner and repository IDs); older ones use the first.',
+  );
+  logger.info('   Keep both. Your OWNER_ID and REPO_ID:');
+  logger.info(`     ${GITHUB_REPO_IDS_COMMAND}`);
+  logger.newline();
 
   logger.info('4. Add Permissions (Inline Policy)');
-  logger.info(
-    '   See docs/infra-notes/aws.md → "CI/CD: OIDC Federation" → Step 4',
-  );
-  logger.info('   for the complete permissions policy JSON.');
+  logger.info(`   Policy JSON: ${AWS_CICD_DOCS_URL} (Step 3)`);
   logger.newline();
 
   logger.info('5. Set GitHub Repository Secrets');
@@ -95,7 +109,7 @@ export function printSetupInstructions(
   logger.newline();
   logger.info('  "Not authorized to perform sts:AssumeRoleWithWebIdentity"');
   logger.info(
-    '    → Trust policy sub condition must match: repo:YOUR_ORG/YOUR_REPO:*',
+    '    → The trust policy needs both subject forms (step 3), with your IDs',
   );
   logger.info('    → Verify id-token: write permission is set in workflow');
   logger.newline();

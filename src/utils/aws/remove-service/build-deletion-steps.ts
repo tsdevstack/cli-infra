@@ -6,16 +6,19 @@
  * Order is critical:
  * 1. ECS Service (stop traffic)
  * 2. Cloud Map service instance
- * 3. S3 bucket (SPA only)
- * 4. CloudFront invalidation
- * 5. Database (via db-delete ECS task)
- * 6. Terraform state sync (uses pre-fetched DB passwords)
- * 7. Service-scoped secrets
- * 8. Shared secrets cleanup
- * 9. CloudWatch log group
+ * 3. The service's CloudFront distributions (disable, wait, delete), then
+ *    the SPA's origin access control
+ * 4. S3 bucket (SPA only)
+ * 5. Database save (db-init export), then the database (db-delete ECS task)
+ * 6. Service-scoped secrets
+ * 7. Shared secrets cleanup
+ * 8. CloudWatch log group
+ *
+ * Terraform's state is left as it is: every later plan, deploy or destroy
+ * refreshes it first.
  */
 
-import type { DeletionStep } from './types';
+import type { DeletionStep, DeletionStepResult } from './types';
 import type { AWSCommandContext } from '../commands/types';
 import type { DiscoveredResources } from '../discovery';
 import {
@@ -25,14 +28,20 @@ import {
   deleteSharedSecretsForService,
   deleteCloudMapService,
   deleteCloudWatchLogGroup,
+  deleteCloudFrontDistribution,
+  deleteOriginAccessControl,
 } from '../delete';
-import { syncTerraformState } from './sync-terraform-state';
 import {
   ECSClient,
   RunTaskCommand,
   DescribeTasksCommand,
 } from '@aws-sdk/client-ecs';
 import { buildAWSClientConfig } from '../build-aws-client-config';
+import { buildAwsMigrationNames } from '../build-aws-migration-names';
+import path from 'node:path';
+import { buildAwsTerraformEnv } from '@tsdevstack/infra-core';
+import { buildRuntime } from '../../build-runtime';
+import { getTerraformOutput } from '../terraform';
 
 export interface BuildDeletionStepsOptions {
   ctx: AWSCommandContext;
@@ -40,9 +49,13 @@ export interface BuildDeletionStepsOptions {
   discovered: DiscoveredResources;
   projectName: string;
   targetEnv: string;
-  dbPasswords: Record<string, string>;
   coupledWorkers: string[];
   hasDatabase: boolean;
+  /**
+   * Saves the database before it is dropped (left out: no saved database,
+   * --skip-export, or nothing to save)
+   */
+  saveDatabase?: () => Promise<DeletionStepResult>;
 }
 
 /**
@@ -57,9 +70,9 @@ export function buildDeletionSteps(
     discovered,
     projectName,
     targetEnv: _targetEnv, // unused on AWS (kept for cross-provider interface parity)
-    dbPasswords,
     coupledWorkers,
     hasDatabase,
+    saveDatabase,
   } = options;
   const { credentials } = ctx;
   const clusterName = `${projectName}-cluster`;
@@ -105,7 +118,36 @@ export function buildDeletionSteps(
       }),
   });
 
-  // 3. Delete S3 bucket (includes files)
+  // 3. The service's own CloudFront distributions. CloudFront deletes only a
+  // disabled distribution whose change has deployed: several minutes each.
+  // The API distribution is shared, caches nothing (CachingDisabled) and stays.
+  for (const distribution of discovered.cloudFrontDistributions) {
+    steps.push({
+      name:
+        distribution.kind === 'spa'
+          ? 'CloudFront distribution (SPA)'
+          : 'CloudFront distribution (Next.js)',
+      resource: distribution.id,
+      execute: () =>
+        deleteCloudFrontDistribution({
+          distributionId: distribution.id,
+          credentials,
+        }),
+    });
+  }
+
+  // The SPA's origin access control (refused while a distribution uses it)
+  if (discovered.spaOriginAccessControlId) {
+    const originAccessControlId = discovered.spaOriginAccessControlId;
+    steps.push({
+      name: 'CloudFront origin access control',
+      resource: originAccessControlId,
+      execute: () =>
+        deleteOriginAccessControl({ originAccessControlId, credentials }),
+    });
+  }
+
+  // 4. Delete S3 bucket (includes files)
   if (discovered.spaBucket) {
     steps.push({
       name: 'S3 bucket',
@@ -118,13 +160,21 @@ export function buildDeletionSteps(
     });
   }
 
-  // 4. Invalidate CloudFront cache (for SPA)
-  if (discovered.spaBucket) {
-    // TODO: Get distribution ID from discovery
-    // For now, skip this step as it requires knowing the distribution ID
+  // 5. Save the database, right before the drop: the service and its
+  // workers are gone, so nothing writes in between. A failed save stops
+  // here, with the database untouched.
+  if (hasDatabase && saveDatabase) {
+    steps.push({
+      name: 'Database save',
+      label: 'Saving the database',
+      doneText: 'Saved',
+      skippedText: 'Not saved: removing without its data',
+      resource: serviceName,
+      execute: saveDatabase,
+    });
   }
 
-  // 5. Delete database (via db-delete ECS task)
+  // 5a. Delete database (via db-delete ECS task)
   if (hasDatabase) {
     steps.push({
       name: 'RDS database',
@@ -134,6 +184,24 @@ export function buildDeletionSteps(
         const ecs = new ECSClient(clientConfig);
 
         try {
+          // The network db-init runs in (Terraform outputs), not the ECS
+          // service's: a rerun after a failed step finds the service deleted
+          const terraformDir = path.join(
+            ctx.projectRoot,
+            'infrastructure',
+            'terraform',
+            ctx.targetEnv,
+          );
+          const tfEnv = buildAwsTerraformEnv(buildRuntime(), credentials);
+          const subnets = JSON.parse(
+            getTerraformOutput(terraformDir, 'private_subnet_ids', tfEnv),
+          ) as string[];
+          const securityGroup = getTerraformOutput(
+            terraformDir,
+            'ecs_security_group_id',
+            tfEnv,
+          );
+
           // Run db-delete task
           const runTaskResponse = await ecs.send(
             new RunTaskCommand({
@@ -142,13 +210,9 @@ export function buildDeletionSteps(
               launchType: 'FARGATE',
               networkConfiguration: {
                 awsvpcConfiguration: {
-                  subnets: discovered.networkConfiguration?.subnets ?? [],
-                  securityGroups:
-                    discovered.networkConfiguration?.securityGroups ?? [],
-                  assignPublicIp: discovered.networkConfiguration
-                    ?.assignPublicIp
-                    ? 'ENABLED'
-                    : 'DISABLED',
+                  subnets,
+                  securityGroups: [securityGroup],
+                  assignPublicIp: 'DISABLED',
                 },
               },
               overrides: {
@@ -215,24 +279,6 @@ export function buildDeletionSteps(
     });
   }
 
-  // 6. Sync Terraform state (uses pre-fetched passwords)
-  steps.push({
-    name: 'Terraform state sync',
-    resource: 'infrastructure state',
-    execute: async () => {
-      try {
-        await syncTerraformState(ctx, dbPasswords);
-        return { success: true, deleted: true };
-      } catch (error) {
-        return {
-          success: true,
-          deleted: false,
-          error: `Warning: ${error instanceof Error ? error.message : 'Unknown'}`,
-        };
-      }
-    },
-  });
-
   // 7. Delete service-scoped secrets ({project}-{service}-*)
   if (discovered.secrets.length > 0) {
     steps.push({
@@ -277,6 +323,26 @@ export function buildDeletionSteps(
         credentials,
       }),
   });
+
+  // The migration runs' log group (created by the CLI, not Terraform)
+  if (hasDatabase) {
+    // Today's name and the one without the project, from earlier deploys
+    const { logGroupName, legacyLogGroupName } = buildAwsMigrationNames(
+      projectName,
+      serviceName,
+    );
+    for (const migrationLogGroup of [logGroupName, legacyLogGroupName]) {
+      steps.push({
+        name: 'Migration CloudWatch log group',
+        resource: migrationLogGroup,
+        execute: () =>
+          deleteCloudWatchLogGroup({
+            logGroupName: migrationLogGroup,
+            credentials,
+          }),
+      });
+    }
+  }
 
   // Delete log groups for coupled workers
   for (const workerName of coupledWorkers) {

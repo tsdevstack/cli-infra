@@ -7,6 +7,10 @@ const mocks = (globalThis as unknown as { contextMocks: MockContext })
 // Add isCIEnv to mocks
 const mockIsCIEnv = rs.fn();
 
+rs.mock('../utils/gcp/naming/resolve-gcp-naming-scheme', () => ({
+  resolveGcpNamingScheme: rs.fn(async () => 'legacy'),
+}));
+
 rs.mock('../context', () => ({
   initContext: rs.fn(),
   getContext: rs.fn(() => ({
@@ -44,7 +48,6 @@ const mockShowResourceWarning = rs.fn();
 const mockBuildDeletionSteps = rs.fn();
 const mockExecuteSteps = rs.fn();
 const mockShowFailureReport = rs.fn();
-const mockFetchAllDbPasswords = rs.fn();
 const mockGetOtherEnvironments = rs.fn();
 const mockSelectServiceInteractive = rs.fn();
 rs.mock('../utils/gcp/remove-service', () => ({
@@ -53,11 +56,29 @@ rs.mock('../utils/gcp/remove-service', () => ({
   buildDeletionSteps: (...args: unknown[]) => mockBuildDeletionSteps(...args),
   executeSteps: (...args: unknown[]) => mockExecuteSteps(...args),
   showFailureReport: (...args: unknown[]) => mockShowFailureReport(...args),
-  fetchAllDbPasswords: (...args: unknown[]) => mockFetchAllDbPasswords(...args),
   getOtherEnvironments: (...args: unknown[]) =>
     mockGetOtherEnvironments(...args),
   selectServiceInteractive: (...args: unknown[]) =>
     mockSelectServiceInteractive(...args),
+}));
+
+const mockGetGcpDbExportsBucket = rs.fn();
+rs.mock('../utils/gcp/database-export/get-gcp-db-exports-bucket', () => ({
+  getGcpDbExportsBucket: (...args: unknown[]) =>
+    mockGetGcpDbExportsBucket(...args),
+}));
+const mockRunGcpDatabaseJob = rs.fn();
+rs.mock('../utils/gcp/database-export/run-gcp-database-job', () => ({
+  runGcpDatabaseJob: (...args: unknown[]) => mockRunGcpDatabaseJob(...args),
+}));
+
+const mockAwsRemoveService = rs.fn();
+rs.mock('../utils/aws/commands/remove-service', () => ({
+  awsRemoveService: (...args: unknown[]) => mockAwsRemoveService(...args),
+}));
+const mockAzureRemoveService = rs.fn();
+rs.mock('../utils/azure/commands/remove-service', () => ({
+  azureRemoveService: (...args: unknown[]) => mockAzureRemoveService(...args),
 }));
 
 import { infraRemoveService } from './infra-remove-service';
@@ -94,7 +115,6 @@ describe('infraRemoveService', () => {
     });
     mockDiscoverCoupledWorkers.mockResolvedValue([]);
     mockHasAnyResources.mockReturnValue(true);
-    mockFetchAllDbPasswords.mockResolvedValue({});
     mockBuildDeletionSteps.mockReturnValue([]);
     mockExecuteSteps.mockResolvedValue({
       completed: [],
@@ -102,10 +122,13 @@ describe('infraRemoveService', () => {
       remaining: [],
     });
     mockGetOtherEnvironments.mockReturnValue([]);
+    mockGetGcpDbExportsBucket.mockReturnValue(
+      'my-app-db-exports-gcp-project-123',
+    );
+    mockRunGcpDatabaseJob.mockResolvedValue(undefined);
     mockInquirer.prompt.mockResolvedValue({
       runMode: 'delete',
       confirmation: 'auth-service',
-      backedUp: true,
     });
     mocks.loadFrameworkConfig.mockReturnValue({
       project: { name: 'my-app' },
@@ -211,16 +234,6 @@ describe('infraRemoveService', () => {
   });
 
   describe('deletion flow', () => {
-    it('should fetch database passwords before deletion', async () => {
-      mockInquirer.prompt
-        .mockResolvedValueOnce({ runMode: 'delete' })
-        .mockResolvedValueOnce({ confirmation: 'auth-service' });
-
-      await infraRemoveService('auth-service', {});
-
-      expect(mockFetchAllDbPasswords).toHaveBeenCalled();
-    });
-
     it('should build deletion steps', async () => {
       mockInquirer.prompt
         .mockResolvedValueOnce({ runMode: 'delete' })
@@ -259,8 +272,8 @@ describe('infraRemoveService', () => {
     });
   });
 
-  describe('database backup prompt', () => {
-    it('should prompt for database backup when database exists', async () => {
+  describe('saving the database', () => {
+    const withDatabase = () =>
       mockDiscoverServiceResources.mockResolvedValue({
         cloudRunService: true,
         database: true,
@@ -268,37 +281,119 @@ describe('infraRemoveService', () => {
         serviceAccountEmail: 'sa@test.iam',
         inferredType: 'nestjs',
       });
+    const deleteAndConfirm = () =>
       mockInquirer.prompt
         .mockResolvedValueOnce({ runMode: 'delete' })
-        .mockResolvedValueOnce({ backedUp: true })
         .mockResolvedValueOnce({ confirmation: 'auth-service' });
-
-      await infraRemoveService('auth-service', {});
-
-      expect(mocks.logger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('BACKUP YOUR DATABASE'),
-      );
-    });
-
-    it('should abort when user has not backed up database', async () => {
-      mockDiscoverServiceResources.mockResolvedValue({
-        cloudRunService: true,
-        database: true,
-        serviceAccount: true,
-        serviceAccountEmail: 'sa@test.iam',
-        inferredType: 'nestjs',
+    /** Runs the save step the command gave buildDeletionSteps */
+    const runSaveStep = () =>
+      mockExecuteSteps.mockImplementation(async () => {
+        await mockBuildDeletionSteps.mock.calls[0][0].saveDatabase();
+        return { completed: [], failed: null, remaining: [] };
       });
-      mockInquirer.prompt
-        .mockResolvedValueOnce({ runMode: 'delete' })
-        .mockResolvedValueOnce({ backedUp: false });
+
+    it('should save the database before the drop, without asking about backups', async () => {
+      withDatabase();
+      deleteAndConfirm();
 
       await infraRemoveService('auth-service', {});
 
-      expect(mockExecuteSteps).not.toHaveBeenCalled();
-      expect(mocks.logger.info).toHaveBeenCalledWith(
-        expect.stringContaining('Please back up'),
+      expect(mockInquirer.prompt).toHaveBeenCalledTimes(2);
+      expect(mockBuildDeletionSteps.mock.calls[0][0].saveDatabase).toBeTypeOf(
+        'function',
       );
     });
+
+    it('should save to the service folder, then say where the file is and how to restore it', async () => {
+      withDatabase();
+      deleteAndConfirm();
+      runSaveStep();
+
+      await infraRemoveService('auth-service', {});
+
+      expect(mockRunGcpDatabaseJob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          mode: 'export',
+          serviceName: 'auth-service',
+          file: expect.stringMatching(
+            /^auth-service\/\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z-removed\.dump$/,
+          ),
+        }),
+      );
+      const lines = mocks.logger.info.mock.calls.map((call) => call[0]);
+      expect(
+        lines.some((line) =>
+          String(line).includes(
+            'gs://my-app-db-exports-gcp-project-123/auth-service/',
+          ),
+        ),
+      ).toBe(true);
+      expect(
+        lines.some((line) =>
+          String(line).includes(
+            'npx tsdevstack infra:restore-database auth-service --env prod',
+          ),
+        ),
+      ).toBe(true);
+    });
+
+    it('should stop before deleting anything when the environment has no exports bucket', async () => {
+      withDatabase();
+      deleteAndConfirm();
+      mockGetGcpDbExportsBucket.mockReturnValue(null);
+
+      await expect(infraRemoveService('auth-service', {})).rejects.toThrow(
+        'This environment has no bucket for saved databases yet. Nothing was deleted.',
+      );
+      expect(mockExecuteSteps).not.toHaveBeenCalled();
+    });
+
+    it('should not save with --skip-export', async () => {
+      withDatabase();
+      deleteAndConfirm();
+
+      await infraRemoveService('auth-service', { skipExport: true });
+
+      expect(mockGetGcpDbExportsBucket).not.toHaveBeenCalled();
+      expect(
+        mockBuildDeletionSteps.mock.calls[0][0].saveDatabase,
+      ).toBeUndefined();
+      expect(mockShowResourceWarning).toHaveBeenCalledWith(
+        expect.objectContaining({ skipExport: true }),
+      );
+    });
+
+    it('should not look for the bucket without a database', async () => {
+      deleteAndConfirm();
+
+      await infraRemoveService('auth-service', {});
+
+      expect(mockGetGcpDbExportsBucket).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('AWS and Azure', () => {
+    it.each([
+      ['aws', mockAwsRemoveService],
+      ['azure', mockAzureRemoveService],
+    ] as const)(
+      'should pass --skip-export on to %s',
+      async (provider, remove) => {
+        mockSetupInfraCommand.mockResolvedValue({
+          ...mockGCPContext,
+          provider,
+        });
+
+        await infraRemoveService('auth-service', { skipExport: true });
+
+        expect(remove).toHaveBeenCalledWith(
+          expect.objectContaining({
+            serviceName: 'auth-service',
+            skipExportOption: true,
+          }),
+        );
+      },
+    );
   });
 
   describe('confirmation', () => {

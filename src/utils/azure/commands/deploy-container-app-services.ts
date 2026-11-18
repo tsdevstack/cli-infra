@@ -37,6 +37,7 @@ import type { EnvironmentOverrides } from '../../infrastructure/types';
 import { azureDbMigrateRun } from './db-migrate-run';
 import type { AzureCommandContext } from './types';
 import { warnIfSmallDatabasePool } from '../../deploy/warn-if-small-database-pool';
+import { resolveAzureNaming } from '../naming/resolve-azure-naming';
 
 interface DeployContainerAppServicesOptions {
   service?: string;
@@ -154,6 +155,7 @@ export async function deployContainerAppServices(
     services,
     async (service) => {
       await infraDockerBuild({
+        nextSteps: false,
         env: targetEnv,
         service: service.name,
         tag: imageTag,
@@ -179,6 +181,7 @@ export async function deployContainerAppServices(
           `  ⏳ Pushing ${service.name}... (${pushCompleted}/${pushTotal} done)`,
         );
         await infraDockerPush({
+          nextSteps: false,
           env: targetEnv,
           service: service.name,
           tag: imageTag,
@@ -278,6 +281,7 @@ export async function deployContainerAppServices(
         projectName,
         targetEnv,
         credentials,
+        naming: await resolveAzureNaming(credentials, projectName, targetEnv),
         serviceName: service.name,
         hasDatabase: service.hasDatabase ?? false,
         hasStorage: (config.storage?.buckets?.length ?? 0) > 0,

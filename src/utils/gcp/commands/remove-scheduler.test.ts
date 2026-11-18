@@ -8,6 +8,10 @@ import type { MockContext } from '@tsdevstack/cli/test-utils';
 const mocks = (globalThis as unknown as { contextMocks: MockContext })
   .contextMocks;
 
+rs.mock('../naming/resolve-gcp-naming-scheme', () => ({
+  resolveGcpNamingScheme: rs.fn(async () => 'legacy'),
+}));
+
 rs.mock('../../../context', () => ({
   getContext: rs.fn(
     () => (globalThis as unknown as { contextMocks: MockContext }).contextMocks,
@@ -36,6 +40,7 @@ rs.mock('@google-cloud/scheduler', () => {
 });
 
 import { gcpRemoveScheduler } from './remove-scheduler';
+import { resolveGcpNamingScheme } from '../naming/resolve-gcp-naming-scheme';
 
 describe('gcpRemoveScheduler', () => {
   const mockCredentials = {
@@ -240,6 +245,47 @@ describe('gcpRemoveScheduler', () => {
 
       expect(mocks.logger.warn).toHaveBeenCalledWith(
         expect.stringContaining('infrastructure.json'),
+      );
+    });
+  });
+
+  describe('unique naming scheme', () => {
+    const job = (name: string, description?: string) => ({
+      name: `projects/gcp-project-123/locations/us-central1/jobs/${name}`,
+      description,
+      schedule: '0 0 * * *',
+      state: 'ENABLED',
+    });
+
+    beforeEach(() => {
+      rs.mocked(resolveGcpNamingScheme).mockResolvedValue('unique');
+      mockDeleteSchedulerJob.mockResolvedValue({
+        success: true,
+        deleted: true,
+      });
+    });
+
+    it("should offer only this project's jobs, by their config names", async () => {
+      mockListJobs.mockResolvedValue([
+        [
+          job('my-app-cleanup-tokens', 'tsdevstack project: my-app'),
+          job('my-app-admin-cleanup', 'tsdevstack project: my-app-admin'),
+          job('my-app-old-job'),
+        ],
+      ]);
+      mockInquirerPrompt
+        .mockResolvedValueOnce({ selectedJob: 'cleanup-tokens' })
+        .mockResolvedValueOnce({ confirmed: true });
+
+      await gcpRemoveScheduler(mockCtx, {});
+
+      const choices = mockInquirerPrompt.mock.calls[0][0][0].choices;
+      expect(choices.map((c: { value: string }) => c.value)).toEqual([
+        'cleanup-tokens',
+        '__manual__',
+      ]);
+      expect(mockDeleteSchedulerJob).toHaveBeenCalledWith(
+        expect.objectContaining({ jobName: 'my-app-cleanup-tokens' }),
       );
     });
   });

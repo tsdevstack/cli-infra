@@ -1,7 +1,7 @@
 /**
  * List SPA buckets for a project
  *
- * Finds GCS buckets matching the pattern {projectName}-{serviceName}-spa.
+ * Finds GCS buckets matching the pattern {projectName}-{serviceName}-spa-{gcpProjectId}.
  * Used to discover deployed SPA services.
  */
 
@@ -16,9 +16,9 @@ export interface ListSpaBucketsOptions {
 }
 
 export interface SpaBucketInfo {
-  /** Extracted service name (e.g., "landing-page" from "myproject-landing-page-spa") */
+  /** Extracted service name (e.g., "landing-page" from "myproject-landing-page-spa-my-gcp-project") */
   serviceName: string;
-  /** Full bucket name (e.g., "myproject-landing-page-spa") */
+  /** Full bucket name (e.g., "myproject-landing-page-spa-my-gcp-project") */
   bucketName: string;
 }
 
@@ -31,7 +31,7 @@ export interface ListSpaBucketsResult {
 /**
  * List all SPA buckets for a project
  *
- * Finds buckets matching {projectName}-*-spa pattern and extracts service names.
+ * Finds buckets matching {projectName}-*-spa-{projectId} and extracts service names.
  *
  * @param options - Project name and credentials
  * @returns List of SPA buckets found with extracted service names
@@ -46,8 +46,9 @@ export async function listSpaBuckets(
     projectId: options.projectId,
   });
 
+  // {project}-{service}-spa-{gcpProjectId} (buildGcpSpaBucketName)
   const prefix = `${options.projectName}-`;
-  const suffix = '-spa';
+  const suffix = `-spa-${options.projectId}`;
 
   try {
     const [allBuckets] = await storage.getBuckets();
@@ -57,7 +58,7 @@ export async function listSpaBuckets(
     for (const bucket of allBuckets) {
       const bucketName = bucket.name;
 
-      // Check if bucket matches pattern: {projectName}-{serviceName}-spa
+      // Check if bucket matches pattern: {projectName}-{serviceName}-spa-{projectId}
       if (bucketName.startsWith(prefix) && bucketName.endsWith(suffix)) {
         // Extract service name: remove prefix and suffix
         const serviceName = bucketName.slice(prefix.length, -suffix.length);

@@ -10,6 +10,7 @@
 import inquirer from 'inquirer';
 import { getContext } from '../../../context';
 import {
+  buildGcpCloudRunName,
   buildGcpTerraformEnv,
   checkTerraformInstalled,
   setSchedulerInvokerBindings,
@@ -25,8 +26,13 @@ import { createBucket } from '../create-bucket';
 import { getGcsLocationFromRegion } from '../get-gcs-location-from-region';
 import { fetchDbPasswordsFromSecretManager } from '../../credentials/fetch-db-passwords-from-secret-manager';
 import { setSecretViaCli } from '../../credentials/set-secret-via-cli';
+import { setUpGcpDatabaseUsers } from '../set-up-gcp-database-users';
 import { buildGcpDashboardUrl } from '../build-gcp-dashboard-url';
 import { generateTerraformFiles } from './generate-terraform-files';
+import { resolveGcpNamingScheme } from '../naming/resolve-gcp-naming-scheme';
+import { buildGcpStateBucketName } from '../build-gcp-state-bucket-name';
+import { buildGcpCloudRunUrl } from '../build-gcp-cloud-run-url';
+import { GCP_KONG_SERVICE_SUFFIX } from '../../../constants';
 import { applyWithCapacityRetry } from '../../deploy/apply-with-capacity-retry';
 import { applyWithServiceAgentRetry } from '../terraform';
 import { collectLoadBalancerDnsRecords } from '../display/collect-load-balancer-dns-records';
@@ -63,7 +69,10 @@ export async function gcpDeploy(
   logger.newline();
 
   // Ensure state bucket exists
-  const stateBucket = `${ctx.projectName}-tf-state-${ctx.credentials.project_id}`;
+  const stateBucket = buildGcpStateBucketName(
+    ctx.projectName,
+    ctx.credentials.project_id,
+  );
   logger.info(`Ensuring state bucket exists: ${stateBucket}`);
 
   const bucketResult = await createBucket({
@@ -90,13 +99,18 @@ export async function gcpDeploy(
   } else {
     logger.success(`  ✓ Bucket exists: ${stateBucket}`);
   }
+  if (bucketResult.accessUpdated) {
+    logger.success('  ✓ Bucket now uses IAM only and can never be made public');
+  }
   logger.newline();
 
   // Generate all Terraform files using shared function.
   // cloud-scheduler.tf is included when scheduled jobs are configured.
   // IAM bindings for schedulers are handled by deploy-schedulers (via SDK).
+  // Names follow the scheme the environment was first deployed with
+  const naming = await resolveGcpNamingScheme(ctx, 'infra:deploy');
   const { outputDir, servicesWithDatabase, scheduledJobs } =
-    generateTerraformFiles(ctx, 'infra:deploy');
+    generateTerraformFiles(ctx, 'infra:deploy', { naming });
 
   logger.complete('Configuration generated');
   logger.newline();
@@ -207,51 +221,17 @@ export async function gcpDeploy(
   logger.success('Infrastructure deployed successfully!');
   logger.newline();
 
-  // Sync DATABASE_URL per service
+  // Database users: the owner's MIGRATION_DATABASE_URL, then db-init (in
+  // the VPC) sets up the owner and app role and writes DATABASE_URL
   if (servicesWithDb.length > 0) {
-    logger.info('Syncing DATABASE_URL secrets to Secret Manager...');
-
-    try {
-      const dbHost = getTerraformOutput(
-        outputDir,
-        'database_private_ip',
-        tfEnv,
-      );
-
-      for (const service of servicesWithDb) {
-        const password = dbPasswords[service.name];
-        if (!password) {
-          logger.warn(
-            `  ⚠ No password for ${service.name}, skipping DATABASE_URL`,
-          );
-          continue;
-        }
-
-        const encodedPassword = encodeURIComponent(password);
-        const databaseUrl = `postgresql://${service.name}:${encodedPassword}@${dbHost}:5432/${service.name}`;
-
-        setSecretViaCli(
-          'DATABASE_URL',
-          databaseUrl,
-          ctx.targetEnv,
-          service.name,
-        );
-        logger.success(`  ✓ DATABASE_URL for ${service.name}`);
-      }
-
-      logger.newline();
-      logger.complete('DATABASE_URL secrets synced to Secret Manager');
-    } catch (error) {
-      logger.newline();
-      logger.warn('Failed to sync DATABASE_URL secrets automatically');
-      logger.error(
-        `Error: ${error instanceof Error ? error.message : String(error)}`,
-      );
-      logger.info('Run manually with:');
-      logger.info(
-        `  npx tsdevstack cloud-secrets:set DATABASE_URL --env ${ctx.targetEnv} --service <service>`,
-      );
-    }
+    await setUpGcpDatabaseUsers({
+      terraformDir: outputDir,
+      tfEnv,
+      projectName: ctx.projectName,
+      targetEnv: ctx.targetEnv,
+      credentials: ctx.credentials,
+      ownerPasswords: dbPasswords,
+    });
     logger.newline();
   }
 
@@ -346,7 +326,8 @@ export async function gcpDeploy(
   }
 
   // Sync deterministic service URLs to Secret Manager
-  // Cloud Run URLs are deterministic: https://{service}-{projectNumber}.{region}.run.app
+  // Cloud Run URLs are deterministic: https://{name}-{projectNumber}.{region}.run.app,
+  // with the service's Cloud Run name (the project in front in the unique scheme)
   logger.newline();
   logger.info('Syncing service URLs to Secret Manager...');
 
@@ -360,13 +341,23 @@ export async function gcpDeploy(
     for (const service of frameworkConfig.services) {
       if (!service.port) continue;
       const urlKey = `${service.name.replace(/-/g, '_').toUpperCase()}_URL`;
-      const url = `https://${service.name}-${projectNumber}.${ctx.credentials.region}.run.app`;
+      const url = buildGcpCloudRunUrl(
+        buildGcpCloudRunName(ctx.projectName, service.name, naming),
+        projectNumber,
+        ctx.credentials.region,
+        'infra:deploy',
+      );
       setSecretViaCli(urlKey, url, ctx.targetEnv);
       logger.success(`  ✓ ${urlKey} = ${url}`);
     }
 
     // Kong Gateway URL follows the same predictable pattern
-    const kongUrl = `https://${ctx.projectName}-kong-${projectNumber}.${ctx.credentials.region}.run.app`;
+    const kongUrl = buildGcpCloudRunUrl(
+      `${ctx.projectName}${GCP_KONG_SERVICE_SUFFIX}`,
+      projectNumber,
+      ctx.credentials.region,
+      'infra:deploy',
+    );
     setSecretViaCli('KONG_INTERNAL_URL', kongUrl, ctx.targetEnv);
     logger.success(`  ✓ KONG_INTERNAL_URL = ${kongUrl}`);
 
@@ -411,7 +402,7 @@ export async function gcpDeploy(
   if (scheduledJobs.length > 0) {
     const targetServices = Array.from(
       new Set(scheduledJobs.map((j) => j.targetService)),
-    );
+    ).map((name) => buildGcpCloudRunName(ctx.projectName, name, naming));
     logger.newline();
     logger.info('Setting scheduler IAM bindings...');
     await setSchedulerInvokerBindings(runtime, {

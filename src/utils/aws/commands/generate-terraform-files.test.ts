@@ -41,11 +41,6 @@ rs.mock('@tsdevstack/infra-core', () => ({
     generateResponseHeadersPolicyTf: rs.fn(() => '# response-headers.tf'),
     generateRedirectTf: rs.fn(() => '# redirect.tf'),
     generateDbInitTf: rs.fn(() => '# db-init.tf'),
-    generateDbInit: rs.fn(() => ({
-      dockerfile: 'FROM node',
-      packageJson: '{}',
-      indexJs: '// init',
-    })),
     generateDbDeleteTf: rs.fn(() => '# db-delete.tf'),
     generateDbDelete: rs.fn(() => ({
       dockerfile: 'FROM node',
@@ -60,6 +55,11 @@ rs.mock('@tsdevstack/infra-core', () => ({
     totalInstances: 6,
   })),
   getTotalWorkerMaxInstances: rs.fn(() => 3),
+  generateDbInit: rs.fn(() => ({
+    dockerfile: 'FROM node',
+    packageJson: '{}',
+    indexJs: '// init',
+  })),
 }));
 
 rs.mock('../../infrastructure/load-infrastructure-config', () => ({

@@ -46,50 +46,74 @@ export async function awsServiceStatus(
   logger.info(`${serviceName} status in ${targetEnv}:`);
   logger.newline();
 
+  // Only the resources the service's type has (an SPA has no ECS service or
+  // secrets; the others have no SPA bucket), all with logger.info so the
+  // lines line up
+  const isSpa = discovered.inferredType === 'spa';
+  const isUnknown = discovered.inferredType === 'unknown';
+
   // ECS Service
-  if (discovered.ecsService) {
-    const running = discovered.ecsRunningCount ?? 0;
-    const desired = discovered.ecsDesiredCount ?? 0;
-    const status = discovered.ecsStatus ?? 'UNKNOWN';
-    logger.success(
-      `  ECS Service:      ✓ ${status} (${running}/${desired} running)`,
-    );
+  if (!isSpa) {
+    if (discovered.ecsService) {
+      const running = discovered.ecsRunningCount ?? 0;
+      const desired = discovered.ecsDesiredCount ?? 0;
+      const status = discovered.ecsStatus ?? 'UNKNOWN';
+      logger.info(
+        `  ECS Service:      ✓ ${status} (${running}/${desired} running)`,
+      );
 
-    if (discovered.ecsDeploymentStatus) {
-      logger.info(`    Deployment:     ${discovered.ecsDeploymentStatus}`);
-    }
-
-    // Show recent events if there are issues
-    if (
-      discovered.ecsEvents &&
-      discovered.ecsEvents.length > 0 &&
-      (running !== desired || discovered.ecsDeploymentStatus === 'IN_PROGRESS')
-    ) {
-      logger.newline();
-      logger.info('  Recent events:');
-      for (const event of discovered.ecsEvents.slice(0, 3)) {
-        const time = event.createdAt
-          ? event.createdAt.toISOString().slice(11, 19)
-          : '';
-        logger.info(`    ${time} ${event.message}`);
+      if (discovered.ecsDeploymentStatus) {
+        logger.info(`    Deployment:     ${discovered.ecsDeploymentStatus}`);
       }
+
+      // Show recent events if there are issues
+      if (
+        discovered.ecsEvents &&
+        discovered.ecsEvents.length > 0 &&
+        (running !== desired ||
+          discovered.ecsDeploymentStatus === 'IN_PROGRESS')
+      ) {
+        logger.newline();
+        logger.info('  Recent events:');
+        for (const event of discovered.ecsEvents.slice(0, 3)) {
+          const time = event.createdAt
+            ? event.createdAt.toISOString().slice(11, 19)
+            : '';
+          logger.info(`    ${time} ${event.message}`);
+        }
+      }
+    } else {
+      logger.info(`  ECS Service:      ✗ not found`);
     }
-  } else {
-    logger.info(`  ECS Service:      ✗ not found`);
   }
 
-  // SPA Bucket
-  if (discovered.spaBucket) {
-    logger.success(`  SPA Bucket:       ✓ ${discovered.spaBucketName}`);
-  } else {
-    logger.info(`  SPA Bucket:       ✗ not found`);
+  // SPA Bucket and its CloudFront distribution
+  if (isSpa || isUnknown) {
+    logger.info(
+      discovered.spaBucket
+        ? `  SPA Bucket:       ✓ ${discovered.spaBucketName}`
+        : `  SPA Bucket:       ✗ not found`,
+    );
+  }
+  if (isSpa) {
+    const spaDistributions = discovered.cloudFrontDistributions.filter(
+      (distribution) => distribution.kind === 'spa',
+    );
+    if (spaDistributions.length === 0) {
+      logger.info(`  CloudFront:       ✗ not found`);
+    }
+    for (const distribution of spaDistributions) {
+      logger.info(`  CloudFront:       ✓ ${distribution.id}`);
+    }
   }
 
   // Secrets
-  if (discovered.secrets.length > 0) {
-    logger.success(`  Secrets:          ✓ ${discovered.secrets.length} found`);
-  } else {
-    logger.info(`  Secrets:          ✗ none found`);
+  if (!isSpa) {
+    logger.info(
+      discovered.secrets.length > 0
+        ? `  Secrets:          ✓ ${discovered.secrets.length} found`
+        : `  Secrets:          ✗ none found`,
+    );
   }
 
   logger.newline();

@@ -45,6 +45,7 @@ describe('selectServiceInteractive', () => {
     projectId: 'test-project-123',
     region: 'us-central1',
     sqlInstanceName: 'test-project-postgres',
+    naming: 'legacy' as const,
     credentials: {
       project_id: 'test-project-123',
       region: 'us-central1',

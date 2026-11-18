@@ -4,6 +4,8 @@
  * Prints instructions for setting up Azure OIDC and user secrets required for deployment.
  */
 
+import { GITHUB_REPO_IDS_COMMAND } from '../../../constants';
+
 /**
  * Print setup instructions for Azure CI/CD
  *
@@ -35,17 +37,30 @@ export function printSetupInstructions(
   );
   logger.newline();
 
-  logger.info('2. Add Federated Credential for GitHub Actions OIDC');
+  logger.info('2. Add two Federated Credentials for GitHub Actions OIDC');
   logger.info(
     '   App registration → Certificates & secrets → Federated credentials',
   );
-  logger.info('   → Add credential');
-  logger.info(
-    '   Federated credential scenario: GitHub Actions deploying Azure resources',
-  );
+  logger.info('   → Add credential, once for each subject below');
   logger.info('   Issuer: https://token.actions.githubusercontent.com');
-  logger.info('   Subject: repo:YOUR_ORG/YOUR_REPO:*');
+  logger.info('   Subject: repo:YOUR_ORG/YOUR_REPO:ref:refs/heads/main');
+  logger.info(
+    '   Subject: repo:YOUR_ORG@OWNER_ID/YOUR_REPO@REPO_ID:ref:refs/heads/main',
+  );
   logger.info('   Audience: api://AzureADTokenExchange');
+  logger.info(
+    '   Azure matches the subject exactly (no wildcards). GitHub signs workflows of',
+  );
+  logger.info(
+    '   repositories created after 15 July 2026 with the second form (owner and',
+  );
+  logger.info(
+    '   repository IDs); older ones use the first. Keep both. Your OWNER_ID and REPO_ID:',
+  );
+  logger.info(`     ${GITHUB_REPO_IDS_COMMAND}`);
+  logger.info(
+    '   Both name main: run the deploy workflows from main (Run workflow → main).',
+  );
   logger.newline();
 
   logger.info('3. Verify SP has required roles on the Resource Group');
@@ -83,7 +98,9 @@ export function printSetupInstructions(
   );
   logger.newline();
   logger.info('  "No matching federated identity record found"');
-  logger.info('    → Verify subject claim matches: repo:YOUR_ORG/YOUR_REPO:*');
+  logger.info(
+    '    → Verify both subjects of step 2 exist, with your IDs and branch main',
+  );
   logger.info('    → Verify id-token: write permission is set in workflow');
   logger.newline();
 

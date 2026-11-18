@@ -18,6 +18,18 @@ export const LOG_KINDS = ['app', 'platform', 'edge'] as const;
 export const DEFAULT_LOGS_SINCE = '1h';
 
 /**
+ * --follow stops by itself after this many hours (--no-time-limit: until
+ * Ctrl+C). AWS bills Live Tail per minute, so a forgotten terminal stops.
+ */
+export const LOGS_FOLLOW_TIME_LIMIT_HOURS = 1;
+
+/** --follow: tries to open a dropped stream again before it gives up */
+export const LOGS_FOLLOW_RECONNECT_TRIES = 3;
+
+/** --follow: wait between two tries to open a stream */
+export const LOGS_FOLLOW_RECONNECT_DELAY_MS = 5000;
+
+/**
  * How far back the source list looks for each source's last line. Matches
  * the shortest default retention of the three clouds (Cloud Logging's
  * _Default bucket keeps 30 days).
@@ -32,6 +44,18 @@ export const EDGE_LOG_SOURCE = 'edge';
 
 /** Name prefix of migration runs on every provider (`migrate-{service}`) */
 export const MIGRATION_LOG_SOURCE_PREFIX = 'migrate-';
+
+/**
+ * Source name of the database setup job (db-init) on every provider: the
+ * job infra:deploy runs to create the database roles
+ */
+export const DB_INIT_LOG_SOURCE = 'db-init';
+
+/**
+ * Name prefix of a storage bucket's access log on every provider
+ * (`bucket-{name}`, the name in config.json)
+ */
+export const BUCKET_LOG_SOURCE_PREFIX = 'bucket-';
 
 /** ANSI colors for the human output (only when writing to a terminal) */
 export const LOG_COLORS = {

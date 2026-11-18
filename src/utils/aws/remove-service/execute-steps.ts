@@ -23,13 +23,13 @@ export async function executeSteps(
 
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
-    logger.info(`  ${i + 1}. Deleting ${step.name}...`);
+    logger.info(`  ${i + 1}. ${step.label ?? `Deleting ${step.name}`}...`);
 
     try {
       const result = await step.execute();
 
       if (!result.success) {
-        logger.error(`     ✗ Failed: ${result.error}`);
+        logger.error(`     Failed: ${result.error}`);
         return {
           completed,
           failed: step,
@@ -38,9 +38,9 @@ export async function executeSteps(
       }
 
       if (result.deleted) {
-        logger.success(`     ✔ Deleted`);
+        logger.success(`     ✔ ${step.doneText ?? 'Deleted'}`);
       } else {
-        logger.info(`     ✔ Already gone`);
+        logger.info(`     ✔ ${step.skippedText ?? 'Already gone'}`);
       }
 
       completed.push(step);

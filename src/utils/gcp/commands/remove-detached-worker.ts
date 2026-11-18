@@ -9,10 +9,17 @@ import { getContext } from '../../../context';
 import { discoverDeployedServices } from '../discovery';
 import { deleteCloudRunService } from '../delete';
 import type { GCPCredentials } from '@tsdevstack/cli/plugin';
+import {
+  buildGcpCloudRunName,
+  type NamingScheme,
+} from '@tsdevstack/infra-core';
 
 interface GcpRemoveDetachedWorkerParams {
   workerName: string;
+  projectName: string;
   credentials: GCPCredentials;
+  /** The environment's naming scheme */
+  naming: NamingScheme;
 }
 
 /**
@@ -22,12 +29,12 @@ export async function gcpRemoveDetachedWorker(
   params: GcpRemoveDetachedWorkerParams,
 ): Promise<void> {
   const { logger, CliError } = getContext();
-  const { workerName, credentials } = params;
+  const { workerName, projectName, credentials, naming } = params;
 
   logger.info('Deleting Cloud Run service...');
 
   const result = await deleteCloudRunService({
-    serviceName: workerName,
+    serviceName: buildGcpCloudRunName(projectName, workerName, naming),
     projectId: credentials.project_id,
     region: credentials.region,
     credentials,
@@ -54,6 +61,7 @@ export async function gcpRemoveDetachedWorker(
 export async function selectWorkerInteractiveGcp(
   credentials: GCPCredentials,
   projectName: string,
+  naming: NamingScheme,
 ): Promise<string> {
   const { logger, CliError } = getContext();
 
@@ -69,6 +77,7 @@ export async function selectWorkerInteractiveGcp(
     region: credentials.region,
     sqlInstanceName,
     credentials,
+    naming,
   });
 
   if (!discoveryResult.success) {

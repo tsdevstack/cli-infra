@@ -39,6 +39,7 @@ import type {
   AzureCredentials,
 } from '@tsdevstack/cli/plugin';
 import { warnIfSmallDatabasePool } from '../utils/deploy/warn-if-small-database-pool';
+import { resolveAzureNaming } from '../utils/azure/naming/resolve-azure-naming';
 
 interface InfraWorkerDeployOptions {
   env?: string;
@@ -188,6 +189,11 @@ export async function infraWorkerDeploy(
       projectName,
       targetEnv,
       credentials: azureCredentials,
+      naming: await resolveAzureNaming(
+        azureCredentials,
+        projectName,
+        targetEnv,
+      ),
       serviceName: baseService.name,
       hasDatabase: baseService.hasDatabase ?? false,
       hasStorage: (config.storage?.buckets?.length ?? 0) > 0,

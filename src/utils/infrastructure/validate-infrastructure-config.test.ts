@@ -271,6 +271,35 @@ describe('validateInfrastructureConfig', () => {
   });
 
   describe('provider-aware validation', () => {
+    it("should check scheduled jobs against the provider's httpTimeout limit", () => {
+      mocks.loadFrameworkConfig.mockReturnValue({
+        project: { name: 'test-project' },
+        cloud: { provider: 'azure' },
+        services: [{ name: 'auth-service' }],
+      });
+      const withTimeout = (httpTimeout: number) => ({
+        version: '1.0.0',
+        dev: {
+          scheduledJobs: [
+            {
+              name: 'cleanup-tokens',
+              schedule: '0 3 * * *',
+              targetService: 'auth-service',
+              endpoint: '/auth/jobs/cleanup-tokens',
+              httpTimeout,
+            },
+          ],
+        },
+      });
+
+      expect(() =>
+        validateInfrastructureConfig(withTimeout(240)),
+      ).not.toThrow();
+      expect(() => validateInfrastructureConfig(withTimeout(300))).toThrow(
+        'dev.scheduledJobs.cleanup-tokens.httpTimeout: 300 is not a whole number of seconds from 15 to 240',
+      );
+    });
+
     it('should reject Azure-invalid memory when provider is azure', () => {
       mocks.loadFrameworkConfig.mockReturnValue({
         project: { name: 'test-project' },
@@ -528,6 +557,50 @@ describe('validateInfrastructureConfig', () => {
           dev: { web: { cpu: '0.5' } },
         }),
       ).not.toThrow();
+    });
+  });
+
+  describe('Fargate CPU/memory pairs (AWS)', () => {
+    beforeEach(() => {
+      mocks.loadFrameworkConfig.mockReturnValue({
+        project: { name: 'test-project' },
+        cloud: { provider: 'aws' },
+        services: [
+          { name: 'auth-service', type: 'nestjs' },
+          { name: 'react-app', type: 'spa' },
+        ],
+      });
+    });
+
+    it('should reject a cpu whose default memory Fargate has no pair for', () => {
+      // memory not set: the default 1Gi, and 1 vCPU needs 2Gi or more
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { 'auth-service': { cpu: '1' } },
+        }),
+      ).toThrow(
+        'Invalid AWS Fargate CPU/memory pair "1/1Gi" in dev.auth-service',
+      );
+    });
+
+    it('should accept a valid pair', () => {
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { 'auth-service': { cpu: '1', memory: '2Gi' } },
+        }),
+      ).not.toThrow();
+    });
+
+    it('should check Kong with its own defaults', () => {
+      // Kong's default memory on a partial override is 2Gi: 4 vCPU needs 8Gi
+      expect(() =>
+        validateInfrastructureConfig({
+          version: '1.0.0',
+          dev: { kong: { cpu: '4' } },
+        } as unknown as InfrastructureConfig),
+      ).toThrow('Invalid AWS Fargate CPU/memory pair "4/2Gi" in dev.kong');
     });
   });
 

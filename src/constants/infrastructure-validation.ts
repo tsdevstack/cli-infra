@@ -110,6 +110,23 @@ export const VALID_SCHEDULED_JOB_FIELDS = [
 ] as const;
 
 /**
+ * Time zone names that mean UTC: the only zone Azure Container Apps jobs
+ * run their schedule in (compared without case)
+ */
+export const UTC_TIME_ZONE_NAMES = ['UTC', 'ETC/UTC'] as const;
+
+/**
+ * HTTP methods a scheduled job's call can use
+ */
+export const VALID_SCHEDULED_JOB_METHODS = [
+  'GET',
+  'POST',
+  'PUT',
+  'DELETE',
+  'PATCH',
+] as const;
+
+/**
  * Valid field names in AppServiceOverride
  */
 export const VALID_APP_SERVICE_FIELDS = ['kongSku', 'nextjsSku'] as const;
@@ -131,7 +148,7 @@ export const VALID_APP_SERVICE_SKUS = [
 
 /**
  * Commands that build or deploy from infrastructure.json validate it first
- * (setupInfraCommand; infra:lb-deploy validates on its own). Destroy, status,
+ * (setupInfraCommand; infra:deploy-lb validates on its own). Destroy, status,
  * list, removal and migration commands do not: an invalid file must never
  * block tearing down or inspecting an environment.
  */

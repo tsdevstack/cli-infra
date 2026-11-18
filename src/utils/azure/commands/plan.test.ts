@@ -4,6 +4,13 @@ import type { MockContext } from '@tsdevstack/cli/test-utils';
 const mocks = (globalThis as unknown as { contextMocks: MockContext })
   .contextMocks;
 
+rs.mock('../naming/resolve-azure-naming', () => ({
+  resolveAzureNaming: async () => ({
+    scheme: 'legacy',
+    subscriptionId: 'sub-123',
+  }),
+}));
+
 rs.mock('../../../context', () => ({
   getContext: rs.fn(
     () => (globalThis as unknown as { contextMocks: MockContext }).contextMocks,
@@ -25,6 +32,11 @@ rs.mock('./generate-terraform-files', () => ({
 }));
 
 rs.mock('@tsdevstack/infra-core', () => ({
+  generateDbInit: rs.fn(() => ({
+    dockerfile: 'FROM node',
+    packageJson: '{}',
+    indexJs: '// init',
+  })),
   extractLockId: rs.fn(),
   checkTerraformInstalled: rs.fn(),
   buildAzureTerraformEnv: rs.fn(),
@@ -66,6 +78,7 @@ describe('azurePlan', () => {
       outputDir: '/test/project/infrastructure/terraform/dev',
       generateConfig: {
         provider: 'azure',
+        naming: 'legacy',
         projectName: 'my-app',
         environment: 'dev',
         subscriptionId: 'sub-123',
@@ -73,6 +86,8 @@ describe('azurePlan', () => {
         storageAccountName: 'myappdevtfstate',
         keyVaultName: 'myproject-dev-kv',
         serviceKeyVaults: {},
+        dbJobsKeyVault: 'test-dev-dbjobs',
+        databaseServiceKeyVaults: {},
         database: {
           tier: 'B_Standard_B1ms',
           storageSizeGb: 32,
@@ -138,7 +153,9 @@ describe('azurePlan', () => {
   it('should generate terraform files', async () => {
     await azurePlan(mockCtx);
 
-    expect(generateTerraformFiles).toHaveBeenCalledWith(mockCtx, 'infra:plan');
+    expect(generateTerraformFiles).toHaveBeenCalledWith(mockCtx, 'infra:plan', {
+      naming: { scheme: 'legacy', subscriptionId: 'sub-123' },
+    });
   });
 
   it('should run terraform init and plan', async () => {

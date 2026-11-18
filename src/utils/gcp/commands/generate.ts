@@ -4,6 +4,7 @@
 
 import { getContext } from '../../../context';
 import { generateTerraformFiles } from './generate-terraform-files';
+import { resolveGcpNamingScheme } from '../naming/resolve-gcp-naming-scheme';
 import type { GCPCommandContext } from './types';
 
 /**
@@ -18,7 +19,9 @@ export async function gcpGenerate(ctx: GCPCommandContext): Promise<void> {
   logger.info(`Region: ${ctx.credentials.region}`);
   logger.newline();
 
+  const naming = await resolveGcpNamingScheme(ctx, 'infra:generate');
   const { outputDir } = generateTerraformFiles(ctx, 'infra:generate', {
+    naming,
     verbose: true,
   });
 

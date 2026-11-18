@@ -56,15 +56,17 @@ describe('awsServiceStatus', () => {
       ecsStatus: 'ACTIVE',
       spaBucket: false,
       spaBucketName: '',
+      cloudFrontDistributions: [],
       secrets: ['DATABASE_URL'],
       inferredType: 'backend',
     });
 
     await awsServiceStatus(mockParams);
 
-    expect(mocks.logger.success).toHaveBeenCalledWith(
-      expect.stringContaining('ECS Service'),
-    );
+    const lines = rs.mocked(mocks.logger.info).mock.calls.map(([line]) => line);
+    expect(lines).toContain('  ECS Service:      ✓ ACTIVE (1/1 running)');
+    expect(lines).toContain('  Secrets:          ✓ 1 found');
+    expect(lines.join('\n')).not.toContain('SPA Bucket');
   });
 
   it('should display SPA bucket status', async () => {
@@ -72,15 +74,18 @@ describe('awsServiceStatus', () => {
       ecsService: false,
       spaBucket: true,
       spaBucketName: 'my-app-dev-landing',
+      cloudFrontDistributions: [{ id: 'E123', kind: 'spa' }],
       secrets: [],
       inferredType: 'spa',
     });
 
     await awsServiceStatus(mockParams);
 
-    expect(mocks.logger.success).toHaveBeenCalledWith(
-      expect.stringContaining('SPA Bucket'),
-    );
+    // Only what an SPA has: no ECS service or secrets lines
+    const lines = rs.mocked(mocks.logger.info).mock.calls.map(([line]) => line);
+    expect(lines).toContain('  SPA Bucket:       ✓ my-app-dev-landing');
+    expect(lines).toContain('  CloudFront:       ✓ E123');
+    expect(lines.join('\n')).not.toMatch(/ECS Service|Secrets/);
   });
 
   it('should show not found for missing resources', async () => {
@@ -88,6 +93,7 @@ describe('awsServiceStatus', () => {
       ecsService: false,
       spaBucket: false,
       spaBucketName: '',
+      cloudFrontDistributions: [],
       secrets: [],
       inferredType: 'unknown',
     });

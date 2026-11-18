@@ -151,6 +151,34 @@ export const CLOUD_RUN_MEMORY_BY_CPU = [
   { cpu: 6, minMiB: 4096, maxMiB: 24576 },
   { cpu: 8, minMiB: 4096, maxMiB: 32768 },
 ] as const;
+
+/**
+ * Memory Fargate allows per CPU size, in MiB (AWS "Task CPU and memory"
+ * table): a task runs only at these pairs.
+ */
+export const FARGATE_MEMORY_BY_CPU: readonly {
+  readonly cpu: number;
+  readonly memoryMiB: readonly number[];
+}[] = [
+  { cpu: 0.25, memoryMiB: [512, 1024, 2048] },
+  { cpu: 0.5, memoryMiB: [1024, 2048, 3072, 4096] },
+  { cpu: 1, memoryMiB: [2048, 3072, 4096, 5120, 6144, 7168, 8192] },
+  {
+    cpu: 2,
+    memoryMiB: [
+      4096, 5120, 6144, 7168, 8192, 9216, 10240, 11264, 12288, 13312, 14336,
+      15360, 16384,
+    ],
+  },
+  {
+    cpu: 4,
+    memoryMiB: [
+      8192, 9216, 10240, 11264, 12288, 13312, 14336, 15360, 16384, 17408, 18432,
+      19456, 20480, 21504, 22528, 23552, 24576, 25600, 26624, 27648, 28672,
+      29696, 30720,
+    ],
+  },
+];
 export const VALID_CPU_VALUES_AZURE = ['0.25', '0.5', '1', '2', '4'] as const;
 
 /**

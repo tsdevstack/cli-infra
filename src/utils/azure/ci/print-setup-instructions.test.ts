@@ -32,6 +32,23 @@ describe('printSetupInstructions', () => {
     expect(infoCalls).toContain('YOUR_ORG/YOUR_REPO');
   });
 
+  it('should ask for one exact credential per GitHub subject form, on main', () => {
+    const logger = createMockLogger();
+    printSetupInstructions([], 'myproject', ['dev'], logger);
+
+    const infoCalls = logger.info.mock.calls.map((c) => c[0]).join('\n');
+    expect(infoCalls).toContain(
+      'Subject: repo:YOUR_ORG/YOUR_REPO:ref:refs/heads/main',
+    );
+    expect(infoCalls).toContain(
+      'Subject: repo:YOUR_ORG@OWNER_ID/YOUR_REPO@REPO_ID:ref:refs/heads/main',
+    );
+    expect(infoCalls).toContain(
+      "gh api repos/YOUR_ORG/YOUR_REPO --jq '.owner.id, .id'",
+    );
+    expect(infoCalls).not.toContain('YOUR_REPO:*');
+  });
+
   it('should print required roles', () => {
     const logger = createMockLogger();
     printSetupInstructions([], 'myproject', ['dev'], logger);

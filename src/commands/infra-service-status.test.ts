@@ -4,6 +4,10 @@ import type { MockContext } from '@tsdevstack/cli/test-utils';
 const mocks = (globalThis as unknown as { contextMocks: MockContext })
   .contextMocks;
 
+rs.mock('../utils/gcp/naming/resolve-gcp-naming-scheme', () => ({
+  resolveGcpNamingScheme: rs.fn(async () => 'legacy'),
+}));
+
 rs.mock('../context', () => ({
   initContext: rs.fn(),
   getContext: rs.fn(
@@ -108,6 +112,7 @@ describe('infraServiceStatus', () => {
         region: 'us-central1',
         sqlInstanceName: 'my-app-postgres',
         credentials: mockCredentials,
+        naming: 'legacy',
       });
     });
   });

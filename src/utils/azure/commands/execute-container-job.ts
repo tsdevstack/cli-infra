@@ -7,7 +7,10 @@
 
 import { ContainerAppsAPIClient } from '@azure/arm-appcontainers';
 import { pollContainerJobStatus } from './poll-container-job-status';
+import { findLatestJobExecution } from './find-latest-job-execution';
+import { waitForJobExecution } from './wait-for-job-execution';
 import { buildRuntime } from '../../build-runtime';
+import { AZURE_JOB_START_MARGIN_SECONDS } from '../../../constants';
 import {
   createAzureCredential,
   buildAcrAuthConfig,
@@ -22,6 +25,16 @@ export interface ExecuteContainerJobOptions {
   image: string;
   command: string[];
   envVars?: Array<{ name: string; value: string }>;
+  /**
+   * Env vars Container Apps fetches from Key Vault (keyVaultUrl: the
+   * secret's URL) with secretsIdentityId, so no value is in the job's settings
+   */
+  keyVaultEnvVars?: Array<{ name: string; keyVaultUrl: string }>;
+  /**
+   * Identity (resource ID) that reads keyVaultEnvVars, attached to the job
+   * for Container Apps only: the code in the container can't get its tokens
+   */
+  secretsIdentityId?: string;
   /** ACR login server for private registry auth (e.g., 'myacr.azurecr.io') */
   acrLoginServer?: string;
   /** User-assigned managed identity resource ID for ACR pull (preferred over password auth) */
@@ -77,9 +90,19 @@ export async function executeContainerJob(
     image,
     command,
     envVars = [],
+    keyVaultEnvVars = [],
+    secretsIdentityId,
     acrLoginServer,
     timeoutSeconds = 300,
   } = options;
+
+  if (keyVaultEnvVars.length > 0 && !secretsIdentityId) {
+    return {
+      success: false,
+      logs: '',
+      error: 'Key Vault env vars need secretsIdentityId to be read with',
+    };
+  }
 
   let client = createClient(credentials);
 
@@ -89,8 +112,40 @@ export async function executeContainerJob(
     acrManagedIdentityId: options.acrManagedIdentityId,
     credentials,
   });
-  const { registries, identity } = acrAuth;
-  const secrets = acrAuth.secrets.length > 0 ? acrAuth.secrets : undefined;
+  const { registries } = acrAuth;
+
+  // Container Apps secret names: lowercase letters, digits and hyphens
+  const keyVaultSecrets = keyVaultEnvVars.map((e) => ({
+    envName: e.name,
+    secret: {
+      name: e.name.toLowerCase().replace(/_/g, '-'),
+      keyVaultUrl: e.keyVaultUrl,
+      identity: secretsIdentityId,
+    },
+  }));
+  const allSecrets = [
+    ...acrAuth.secrets,
+    ...keyVaultSecrets.map((s) => s.secret),
+  ];
+  const secrets = allSecrets.length > 0 ? allSecrets : undefined;
+  const env = [
+    ...envVars,
+    ...keyVaultSecrets.map((s) => ({
+      name: s.envName,
+      secretRef: s.secret.name,
+    })),
+  ];
+
+  // The secrets identity joins the ACR one
+  const identity = secretsIdentityId
+    ? {
+        type: 'UserAssigned' as const,
+        userAssignedIdentities: {
+          ...(acrAuth.identity?.userAssignedIdentities ?? {}),
+          [secretsIdentityId]: {},
+        },
+      }
+    : acrAuth.identity;
 
   const jobDefinition = {
     location: credentials.location,
@@ -102,6 +157,11 @@ export async function executeContainerJob(
       replicaRetryLimit: 0,
       secrets,
       registries,
+      // Container Apps reads the Key Vault secrets with it; the code in the
+      // container can't use it (an identity is open to it by default)
+      identitySettings: secretsIdentityId
+        ? [{ identity: secretsIdentityId, lifecycle: 'None' as const }]
+        : undefined,
     },
     template: {
       containers: [
@@ -110,7 +170,7 @@ export async function executeContainerJob(
           image,
           command,
           resources: { cpu: options.cpu ?? 1, memory: options.memory ?? '2Gi' },
-          env: envVars.length > 0 ? envVars : undefined,
+          env: env.length > 0 ? env : undefined,
         },
       ],
     },
@@ -154,16 +214,29 @@ export async function executeContainerJob(
     };
   }
 
-  // Step 2: Start the job execution and wait for completion
-  // beginStartAndWait is an LRO that polls until the execution finishes.
-  // The LRO poller can fail with transient network errors even when the
-  // job itself succeeds. Retry with fresh client, then fall back to polling.
+  // Step 2: Start one execution, then wait for it to finish. Only the start
+  // request is sent again after a network error: once an execution runs,
+  // another start would run the job twice (two restores of one database at
+  // once). The newest execution before this start is noted first, so the
+  // fallback below never takes it for this one.
+  let previousExecution: string | null | undefined;
+  try {
+    previousExecution =
+      (await findLatestJobExecution(client, resourceGroupName, jobName))
+        ?.name ?? null;
+  } catch {
+    previousExecution = undefined;
+  }
+
   let lastStartError: unknown;
+  let started: ReturnType<typeof client.jobs.start> | undefined;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      await client.jobs.beginStartAndWait(resourceGroupName, jobName, {});
-      return { success: true, logs: 'Job completed successfully' };
+      const poller = client.jobs.start(resourceGroupName, jobName, {});
+      await poller.submitted();
+      started = poller;
+      break;
     } catch (err: unknown) {
       lastStartError = err;
       if (isTransientError(err) && attempt < MAX_RETRIES) {
@@ -173,17 +246,67 @@ export async function executeContainerJob(
         client = createClient(credentials);
         continue;
       }
+      if (!isTransientError(err)) {
+        // Refused: no execution started
+        return {
+          success: false,
+          logs: '',
+          error: extractErrorMessage(
+            err,
+            'Unknown error starting Container Apps Job',
+          ),
+        };
+      }
       break;
     }
   }
 
-  // All retries failed — fall back to polling execution status
+  // The start ends once the execution exists, not when it has run (its
+  // answer is the execution's name): whether the job worked is the
+  // execution's own status
+  let executionName: string | undefined;
+  if (started) {
+    try {
+      executionName = (await started.pollUntilDone()).name;
+    } catch (err: unknown) {
+      lastStartError = err;
+    }
+  }
+
+  if (executionName) {
+    try {
+      const end = await waitForJobExecution(
+        client,
+        resourceGroupName,
+        jobName,
+        executionName,
+        timeoutSeconds + AZURE_JOB_START_MARGIN_SECONDS,
+      );
+      if (end.status === 'Succeeded') {
+        return { success: true, logs: 'Job completed successfully' };
+      }
+      return {
+        success: false,
+        logs: '',
+        error: `Job execution ${executionName}: ${end.status}${end.detail ? ` (${end.detail})` : ''}`,
+      };
+    } catch (err: unknown) {
+      return {
+        success: false,
+        logs: '',
+        error: `Could not read the status of job execution ${executionName}: ${extractErrorMessage(err, 'unknown error')}`,
+      };
+    }
+  }
+
+  // The start's answer or the wait was lost: the newest execution's status
   try {
     const result = await pollContainerJobStatus(
       client,
       resourceGroupName,
       jobName,
-      timeoutSeconds,
+      timeoutSeconds + AZURE_JOB_START_MARGIN_SECONDS,
+      previousExecution,
     );
 
     if (result.status === 'Succeeded') {

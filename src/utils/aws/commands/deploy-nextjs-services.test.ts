@@ -50,6 +50,10 @@ rs.mock('../../deploy/get-service-secret-keys', () => ({
   getServiceSecretKeys: rs.fn(() => ['API_URL', 'KONG_FRONTEND_TOKEN']),
 }));
 
+rs.mock('../deploy/clear-nextjs-cloudfront-cache', () => ({
+  clearNextjsCloudfrontCache: rs.fn(),
+}));
+
 rs.mock('node:fs', () => ({
   default: {
     existsSync: rs.fn(() => true),
@@ -66,6 +70,7 @@ rs.mock('p-map', () => ({
   ),
 }));
 
+import { clearNextjsCloudfrontCache } from '../deploy/clear-nextjs-cloudfront-cache';
 import { deployNextjsServices } from './deploy-nextjs-services';
 import { getTerraformOutput } from '../terraform';
 import {
@@ -137,6 +142,19 @@ describe('deployNextjsServices', () => {
         expect.objectContaining({ service: 'frontend', tag: 'abc123' }),
       );
       expect(deployEcsServiceWithSecrets).toHaveBeenCalledTimes(1);
+    });
+
+    it("should clear the app's CloudFront cache once it is stable", async () => {
+      await deployNextjsServices(mockCtx, {});
+
+      expect(clearNextjsCloudfrontCache).toHaveBeenCalledWith(
+        expect.objectContaining({ serviceName: 'frontend', targetEnv: 'dev' }),
+      );
+      expect(
+        rs.mocked(clearNextjsCloudfrontCache).mock.invocationCallOrder[0],
+      ).toBeGreaterThan(
+        rs.mocked(waitForEcsStable).mock.invocationCallOrder[0],
+      );
     });
 
     it('should give the service its secrets and the visitor header name', async () => {

@@ -11,6 +11,22 @@ rs.mock('../../../context', () => ({
 }));
 
 rs.mock('@tsdevstack/infra-core', () => ({
+  generateDbInit: rs.fn(() => ({
+    dockerfile: 'FROM node',
+    packageJson: '{}',
+    indexJs: '// init',
+  })),
+  // Legacy names (the builder has its own tests in infra-core)
+  buildAzureResourceName: (
+    resource: string,
+    o: { projectName: string; environment: string; app?: string },
+  ) =>
+    ({
+      stateStorageAccount: `${o.projectName.replace(/[^a-z0-9]/g, '')}${o.environment}tfstate`,
+      blobStorageAccount: `${o.projectName.replace(/[^a-z0-9]/g, '')}${o.environment}storage`,
+      appService: `${o.projectName}-${o.environment}-${o.app}`,
+      postgresServer: `${o.projectName}-${o.environment}-postgres`,
+    })[resource],
   azure: {
     generateMainTf: rs.fn(() => '# main.tf'),
     generateVariablesTf: rs.fn(() => '# variables.tf'),
@@ -94,6 +110,7 @@ import {
   getAppServiceConfig,
 } from '../../infrastructure/merge-with-defaults';
 
+const LEGACY_NAMING = { scheme: 'legacy' as const, subscriptionId: 'sub-123' };
 describe('generateTerraformFiles', () => {
   const mockCtx = {
     projectRoot: '/test/project',
@@ -126,13 +143,17 @@ describe('generateTerraformFiles', () => {
   });
 
   it('should return correct output directory', () => {
-    const result = generateTerraformFiles(mockCtx, 'infra:generate');
+    const result = generateTerraformFiles(mockCtx, 'infra:generate', {
+      naming: LEGACY_NAMING,
+    });
 
     expect(result.outputDir).toBe('/test/project/infrastructure/terraform/dev');
   });
 
   it('should ensure output directory exists', () => {
-    generateTerraformFiles(mockCtx, 'infra:generate');
+    generateTerraformFiles(mockCtx, 'infra:generate', {
+      naming: LEGACY_NAMING,
+    });
 
     expect(mocks.ensureDirectory).toHaveBeenCalledWith(
       '/test/project/infrastructure/terraform/dev',
@@ -140,7 +161,9 @@ describe('generateTerraformFiles', () => {
   });
 
   it('should clean up old generated files', () => {
-    generateTerraformFiles(mockCtx, 'infra:generate');
+    generateTerraformFiles(mockCtx, 'infra:generate', {
+      naming: LEGACY_NAMING,
+    });
 
     expect(
       (mocks as unknown as Record<string, ReturnType<typeof rs.fn>>)
@@ -152,7 +175,9 @@ describe('generateTerraformFiles', () => {
   });
 
   it('should call all generators', () => {
-    generateTerraformFiles(mockCtx, 'infra:generate');
+    generateTerraformFiles(mockCtx, 'infra:generate', {
+      naming: LEGACY_NAMING,
+    });
 
     expect(azure.generateMainTf).toHaveBeenCalled();
     expect(azure.generateVariablesTf).toHaveBeenCalled();
@@ -172,10 +197,30 @@ describe('generateTerraformFiles', () => {
     expect(azure.generateDiagnosticsTf).toHaveBeenCalled();
   });
 
-  it('should write all generated files', () => {
-    generateTerraformFiles(mockCtx, 'infra:generate');
+  it("should name the database jobs' vault and each database service's vault", () => {
+    const { generateConfig } = generateTerraformFiles(
+      mockCtx,
+      'infra:generate',
+      {
+        naming: LEGACY_NAMING,
+      },
+    );
 
-    expect(mocks.writeTextFile).toHaveBeenCalledTimes(18);
+    expect(generateConfig.dbJobsKeyVault).toMatch(/-dbjobs$/);
+    expect(Object.keys(generateConfig.databaseServiceKeyVaults)).toEqual(
+      generateConfig.servicesWithDatabase
+        .filter((service) => service.hasDatabase)
+        .map((service) => service.name),
+    );
+  });
+
+  it('should write all generated files', () => {
+    generateTerraformFiles(mockCtx, 'infra:generate', {
+      naming: LEGACY_NAMING,
+    });
+
+    // + db-init's Dockerfile, package.json, index.js (a service has a database)
+    expect(mocks.writeTextFile).toHaveBeenCalledTimes(21);
     expect(mocks.writeTextFile).toHaveBeenCalledWith(
       '/test/project/infrastructure/terraform/dev/main.tf',
       '# main.tf',
@@ -261,7 +306,9 @@ describe('generateTerraformFiles', () => {
       ],
     });
 
-    generateTerraformFiles(mockCtx, 'infra:generate');
+    generateTerraformFiles(mockCtx, 'infra:generate', {
+      naming: LEGACY_NAMING,
+    });
 
     expect(azure.generateDashboardTf).toHaveBeenCalledWith({
       serviceNames: ['auth-service'],
@@ -273,7 +320,9 @@ describe('generateTerraformFiles', () => {
   });
 
   it("should name the shared vault and each backend service's vault", () => {
-    generateTerraformFiles(mockCtx, 'infra:generate');
+    generateTerraformFiles(mockCtx, 'infra:generate', {
+      naming: LEGACY_NAMING,
+    });
 
     expect(azure.generateTfvars).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -288,7 +337,10 @@ describe('generateTerraformFiles', () => {
   });
 
   it('should log file names when verbose', () => {
-    generateTerraformFiles(mockCtx, 'infra:generate', { verbose: true });
+    generateTerraformFiles(mockCtx, 'infra:generate', {
+      naming: LEGACY_NAMING,
+      verbose: true,
+    });
 
     expect(mocks.logger.generating).toHaveBeenCalledWith('  main.tf');
     expect(mocks.logger.generating).toHaveBeenCalledWith('  variables.tf');
@@ -312,7 +364,9 @@ describe('generateTerraformFiles', () => {
   });
 
   it('should not log file names when not verbose', () => {
-    generateTerraformFiles(mockCtx, 'infra:generate');
+    generateTerraformFiles(mockCtx, 'infra:generate', {
+      naming: LEGACY_NAMING,
+    });
 
     expect(mocks.logger.generating).not.toHaveBeenCalled();
   });
@@ -320,7 +374,9 @@ describe('generateTerraformFiles', () => {
   describe('domain wiring', () => {
     it('should fetch DOMAIN secret via executeCommand', () => {
       mocks.executeCommand.mockReturnValue('example.com\n');
-      generateTerraformFiles(mockCtx, 'infra:generate');
+      generateTerraformFiles(mockCtx, 'infra:generate', {
+        naming: LEGACY_NAMING,
+      });
 
       expect(mocks.executeCommand).toHaveBeenCalledWith(
         'npx tsdevstack cloud-secrets:get DOMAIN --env dev',
@@ -330,7 +386,9 @@ describe('generateTerraformFiles', () => {
 
     it('should pass baseDomain to generators when DOMAIN secret exists', () => {
       mocks.executeCommand.mockReturnValue('example.com\n');
-      generateTerraformFiles(mockCtx, 'infra:generate');
+      generateTerraformFiles(mockCtx, 'infra:generate', {
+        naming: LEGACY_NAMING,
+      });
 
       expect(azure.generateDnsTf).toHaveBeenCalledWith(
         expect.objectContaining({ baseDomain: 'example.com' }),
@@ -341,7 +399,9 @@ describe('generateTerraformFiles', () => {
       mocks.executeCommand.mockImplementation(() => {
         throw new Error('secret not found');
       });
-      generateTerraformFiles(mockCtx, 'infra:generate');
+      generateTerraformFiles(mockCtx, 'infra:generate', {
+        naming: LEGACY_NAMING,
+      });
 
       expect(azure.generateDnsTf).toHaveBeenCalledWith(
         expect.objectContaining({ baseDomain: '' }),
@@ -352,7 +412,9 @@ describe('generateTerraformFiles', () => {
       mocks.executeCommand.mockImplementation(() => {
         throw new Error('secret not found');
       });
-      generateTerraformFiles(mockCtx, 'infra:generate');
+      generateTerraformFiles(mockCtx, 'infra:generate', {
+        naming: LEGACY_NAMING,
+      });
 
       expect(mocks.logger.warn).toHaveBeenCalledWith(
         expect.stringContaining('DOMAIN secret not found'),
@@ -361,7 +423,9 @@ describe('generateTerraformFiles', () => {
 
     it('should set SPA domain to {name}.{baseDomain} when domain exists', () => {
       mocks.executeCommand.mockReturnValue('example.com\n');
-      generateTerraformFiles(mockCtx, 'infra:generate');
+      generateTerraformFiles(mockCtx, 'infra:generate', {
+        naming: LEGACY_NAMING,
+      });
 
       expect(azure.generateFrontdoorTf).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -374,7 +438,9 @@ describe('generateTerraformFiles', () => {
 
     it('should set Next.js domain to {name}.{baseDomain} when domain exists', () => {
       mocks.executeCommand.mockReturnValue('example.com\n');
-      generateTerraformFiles(mockCtx, 'infra:generate');
+      generateTerraformFiles(mockCtx, 'infra:generate', {
+        naming: LEGACY_NAMING,
+      });
 
       expect(azure.generateFrontdoorTf).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -391,7 +457,9 @@ describe('generateTerraformFiles', () => {
       mocks.executeCommand.mockImplementation(() => {
         throw new Error('secret not found');
       });
-      generateTerraformFiles(mockCtx, 'infra:generate');
+      generateTerraformFiles(mockCtx, 'infra:generate', {
+        naming: LEGACY_NAMING,
+      });
 
       expect(azure.generateFrontdoorTf).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -408,19 +476,25 @@ describe('generateTerraformFiles', () => {
 
   describe('infrastructure config flow', () => {
     it('should call getDatabaseConfig with azure provider', () => {
-      generateTerraformFiles(mockCtx, 'infra:generate');
+      generateTerraformFiles(mockCtx, 'infra:generate', {
+        naming: LEGACY_NAMING,
+      });
 
       expect(getDatabaseConfig).toHaveBeenCalledWith(null, 'dev', 'azure');
     });
 
     it('should call getRedisConfig with azure provider', () => {
-      generateTerraformFiles(mockCtx, 'infra:generate');
+      generateTerraformFiles(mockCtx, 'infra:generate', {
+        naming: LEGACY_NAMING,
+      });
 
       expect(getRedisConfig).toHaveBeenCalledWith(null, 'dev', 'azure');
     });
 
     it('should call getServiceConfig for each nestjs and nextjs service', () => {
-      generateTerraformFiles(mockCtx, 'infra:generate');
+      generateTerraformFiles(mockCtx, 'infra:generate', {
+        naming: LEGACY_NAMING,
+      });
 
       expect(getServiceConfig).toHaveBeenCalledWith(
         null,
@@ -443,20 +517,24 @@ describe('generateTerraformFiles', () => {
     });
 
     it('should call getAppServiceConfig', () => {
-      generateTerraformFiles(mockCtx, 'infra:generate');
+      generateTerraformFiles(mockCtx, 'infra:generate', {
+        naming: LEGACY_NAMING,
+      });
 
       expect(getAppServiceConfig).toHaveBeenCalledWith(null, 'dev');
     });
 
     it('should pass merged database config to generators', () => {
-      generateTerraformFiles(mockCtx, 'infra:generate');
+      generateTerraformFiles(mockCtx, 'infra:generate', {
+        naming: LEGACY_NAMING,
+      });
 
       expect(azure.generateDatabaseTf).toHaveBeenCalledWith(
         expect.objectContaining({
           database: {
             tier: 'B_Standard_B1ms',
             storageSizeGb: 32,
-            deletionProtection: false,
+            deletionProtection: true,
             backup: false,
             ha: false,
           },
@@ -465,7 +543,9 @@ describe('generateTerraformFiles', () => {
     });
 
     it('should pass merged redis config to generators', () => {
-      generateTerraformFiles(mockCtx, 'infra:generate');
+      generateTerraformFiles(mockCtx, 'infra:generate', {
+        naming: LEGACY_NAMING,
+      });
 
       expect(azure.generateRedisTf).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -475,7 +555,9 @@ describe('generateTerraformFiles', () => {
     });
 
     it('should pass merged service config to generators', () => {
-      generateTerraformFiles(mockCtx, 'infra:generate');
+      generateTerraformFiles(mockCtx, 'infra:generate', {
+        naming: LEGACY_NAMING,
+      });
 
       expect(azure.generateMainTf).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -504,7 +586,9 @@ describe('generateTerraformFiles', () => {
         backup: false,
       });
 
-      generateTerraformFiles(mockCtx, 'infra:generate');
+      generateTerraformFiles(mockCtx, 'infra:generate', {
+        naming: LEGACY_NAMING,
+      });
 
       expect(azure.generateDatabaseTf).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -517,7 +601,9 @@ describe('generateTerraformFiles', () => {
     });
 
     it('should pass App Service SKUs to generators', () => {
-      generateTerraformFiles(mockCtx, 'infra:generate');
+      generateTerraformFiles(mockCtx, 'infra:generate', {
+        naming: LEGACY_NAMING,
+      });
 
       expect(azure.generateAppServiceTf).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -535,7 +621,9 @@ describe('generateTerraformFiles', () => {
         dev: { accessControl: { noIndex: true } },
       } as ReturnType<typeof loadInfrastructureConfig>);
 
-      generateTerraformFiles(mockCtx, 'infra:generate');
+      generateTerraformFiles(mockCtx, 'infra:generate', {
+        naming: LEGACY_NAMING,
+      });
 
       expect(azure.generateFrontdoorTf).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -554,7 +642,9 @@ describe('generateTerraformFiles', () => {
       } as ReturnType<typeof loadInfrastructureConfig>);
       mocks.executeCommand.mockReturnValue('example.com\n');
 
-      generateTerraformFiles(mockCtx, 'infra:generate');
+      generateTerraformFiles(mockCtx, 'infra:generate', {
+        naming: LEGACY_NAMING,
+      });
 
       expect(azure.generateFrontdoorTf).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -569,7 +659,9 @@ describe('generateTerraformFiles', () => {
     });
 
     it('should default noIndex to false when not configured', () => {
-      generateTerraformFiles(mockCtx, 'infra:generate');
+      generateTerraformFiles(mockCtx, 'infra:generate', {
+        naming: LEGACY_NAMING,
+      });
 
       expect(azure.generateFrontdoorTf).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -578,18 +670,23 @@ describe('generateTerraformFiles', () => {
       );
     });
 
-    it('should read deletionProtection from raw infrastructure config', () => {
-      rs.mocked(loadInfrastructureConfig).mockReturnValue({
-        version: '1',
-        dev: { database: { deletionProtection: true } },
-      } as ReturnType<typeof loadInfrastructureConfig>);
+    it('should take deletionProtection from the resolved database config', () => {
+      rs.mocked(getDatabaseConfig).mockReturnValue({
+        tier: 'B_Standard_B1ms',
+        diskSize: 32,
+        deletionProtection: false,
+        ha: false,
+        backup: false,
+      });
 
-      generateTerraformFiles(mockCtx, 'infra:generate');
+      generateTerraformFiles(mockCtx, 'infra:generate', {
+        naming: LEGACY_NAMING,
+      });
 
       expect(azure.generateDatabaseTf).toHaveBeenCalledWith(
         expect.objectContaining({
           database: expect.objectContaining({
-            deletionProtection: true,
+            deletionProtection: false,
           }),
         }),
       );
@@ -598,17 +695,22 @@ describe('generateTerraformFiles', () => {
 
   describe('PostgreSQL server name', () => {
     it('should resolve the server name for the project and environment', () => {
-      generateTerraformFiles(mockCtx, 'infra:generate');
+      generateTerraformFiles(mockCtx, 'infra:generate', {
+        naming: LEGACY_NAMING,
+      });
 
       expect(resolvePostgresServerName).toHaveBeenCalledWith(
         'my-app',
         'dev',
         null,
+        LEGACY_NAMING,
       );
     });
 
     it('should not pass serverName when the default name is used', () => {
-      generateTerraformFiles(mockCtx, 'infra:generate');
+      generateTerraformFiles(mockCtx, 'infra:generate', {
+        naming: LEGACY_NAMING,
+      });
 
       const config = rs.mocked(azure.generateDatabaseTf).mock.calls[0][0];
       expect('serverName' in config.database).toBe(false);
@@ -625,12 +727,15 @@ describe('generateTerraformFiles', () => {
         isOverride: true,
       });
 
-      generateTerraformFiles(mockCtx, 'infra:generate');
+      generateTerraformFiles(mockCtx, 'infra:generate', {
+        naming: LEGACY_NAMING,
+      });
 
       expect(resolvePostgresServerName).toHaveBeenCalledWith(
         'my-app',
         'dev',
         infraConfig,
+        LEGACY_NAMING,
       );
       expect(azure.generateDatabaseTf).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -644,7 +749,9 @@ describe('generateTerraformFiles', () => {
 
   describe('App Service scaling', () => {
     it('should run a fixed count on Basic plans and write no autoscale file', () => {
-      generateTerraformFiles(mockCtx, 'infra:generate');
+      generateTerraformFiles(mockCtx, 'infra:generate', {
+        naming: LEGACY_NAMING,
+      });
 
       expect(azure.generateAppServiceTf).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -659,7 +766,9 @@ describe('generateTerraformFiles', () => {
     });
 
     it('should report a Basic plan whose default ceiling is ignored', () => {
-      generateTerraformFiles(mockCtx, 'infra:generate');
+      generateTerraformFiles(mockCtx, 'infra:generate', {
+        naming: LEGACY_NAMING,
+      });
 
       expect(mocks.logger.info).toHaveBeenCalledWith(
         expect.stringContaining(
@@ -682,7 +791,9 @@ describe('generateTerraformFiles', () => {
         '# autoscale',
       );
 
-      generateTerraformFiles(mockCtx, 'infra:generate');
+      generateTerraformFiles(mockCtx, 'infra:generate', {
+        naming: LEGACY_NAMING,
+      });
 
       expect(azure.generateAppServiceTf).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -710,7 +821,9 @@ describe('generateTerraformFiles', () => {
         nextjsSku: 'S1',
       });
 
-      generateTerraformFiles(mockCtx, 'infra:generate');
+      generateTerraformFiles(mockCtx, 'infra:generate', {
+        naming: LEGACY_NAMING,
+      });
 
       expect(mocks.logger.info).toHaveBeenCalledWith(
         'Next.js plan on S1: CPU autoscale from 1 to 5 instances. minInstances 0 runs 1 instance: App Service cannot scale to zero.',
@@ -726,7 +839,9 @@ describe('generateTerraformFiles', () => {
         services: [{ name: 'auth-service', type: 'nestjs' }],
       });
 
-      generateTerraformFiles(mockCtx, 'infra:generate');
+      generateTerraformFiles(mockCtx, 'infra:generate', {
+        naming: LEGACY_NAMING,
+      });
 
       expect(mocks.logger.info).not.toHaveBeenCalledWith(
         expect.stringContaining('Next.js plan'),
@@ -763,7 +878,9 @@ describe('generateTerraformFiles', () => {
           }) as never,
       );
 
-      generateTerraformFiles(mockCtx, 'infra:generate');
+      generateTerraformFiles(mockCtx, 'infra:generate', {
+        naming: LEGACY_NAMING,
+      });
 
       expect(azure.generateAppServiceTf).toHaveBeenCalledWith(
         expect.objectContaining({

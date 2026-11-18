@@ -107,6 +107,7 @@ describe('deploySpaServices', () => {
     rs.mocked(uploadSpaToAzureStorage).mockResolvedValue({
       filesUploaded: 5,
       filesDeleted: 0,
+      filesKept: 0,
     });
   });
 

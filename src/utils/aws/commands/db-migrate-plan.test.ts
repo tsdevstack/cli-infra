@@ -19,6 +19,9 @@ rs.mock('@tsdevstack/infra-core', () => ({
   executeEcsTask: rs.fn(),
 }));
 
+rs.mock('../resolve-aws-migration-secret-name', () => ({
+  resolveAwsMigrationSecretName: rs.fn(),
+}));
 rs.mock('../../build-runtime', () => ({
   buildRuntime: () => ({}),
 }));
@@ -26,6 +29,7 @@ rs.mock('../../build-runtime', () => ({
 import { awsDbMigratePlan } from './db-migrate-plan';
 import { getTerraformOutput } from '../../terraform';
 import { buildAwsTerraformEnv, executeEcsTask } from '@tsdevstack/infra-core';
+import { resolveAwsMigrationSecretName } from '../resolve-aws-migration-secret-name';
 
 describe('awsDbMigratePlan', () => {
   const mockParams = {
@@ -50,6 +54,9 @@ describe('awsDbMigratePlan', () => {
     (mocks as Record<string, unknown>).buildSecretName = rs.fn(
       (project: string, scope: string, key: string) =>
         `${project}-${scope}-${key}`,
+    );
+    rs.mocked(resolveAwsMigrationSecretName).mockResolvedValue(
+      'my-app-auth-service-MIGRATION_DATABASE_URL',
     );
 
     rs.mocked(buildAwsTerraformEnv).mockReturnValue({
@@ -94,13 +101,26 @@ describe('awsDbMigratePlan', () => {
     );
   });
 
+  it('should name the task and its log group with the project', async () => {
+    await awsDbMigratePlan(mockParams);
+
+    expect(executeEcsTask).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        taskFamily: 'my-app-migrate-auth-service',
+        logGroupName: '/ecs/my-app/migrate-auth-service',
+      }),
+    );
+  });
+
   it('should pass correct secret ARN', async () => {
     await awsDbMigratePlan(mockParams);
 
     expect(executeEcsTask).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
-        secretArn: expect.stringContaining('my-app-auth-service-DATABASE_URL'),
+        secretArn:
+          'arn:aws:secretsmanager:us-east-1:123456789012:secret:my-app-auth-service-MIGRATION_DATABASE_URL',
       }),
     );
   });
