@@ -7,7 +7,11 @@
 
 import inquirer from 'inquirer';
 import { getContext } from '../../../context';
-import { discoverServiceResources, discoverCoupledWorkers } from '../discovery';
+import {
+  discoverServiceResources,
+  discoverCoupledWorkers,
+  discoverAwsCronJobs,
+} from '../discovery';
 import {
   hasAnyResources,
   showResourceWarning,
@@ -121,6 +125,22 @@ export async function awsRemoveService(
     credentials,
   });
 
+  // The service's cron jobs, by their task definitions' tags
+  const coupledCronJobs = (
+    await discoverAwsCronJobs({ projectName, credentials }).catch(
+      (error: unknown) => {
+        throw new CliError(
+          "Could not list the cron jobs' task definitions",
+          'infra:remove-service',
+          `${error instanceof Error ? error.message : String(error)}. Nothing was deleted; run the command again.`,
+        );
+      },
+    )
+  ).filter((job) => job.serviceName === resolvedServiceName);
+  if (coupledCronJobs.length > 0) {
+    logger.info(`Cron jobs: ${coupledCronJobs.map((j) => j.name).join(', ')}`);
+  }
+
   logger.newline();
 
   // Ask about dry-run in interactive mode (if not already specified)
@@ -158,6 +178,7 @@ export async function awsRemoveService(
     serviceName: resolvedServiceName,
     discovered,
     coupledWorkers,
+    coupledCronJobs,
     targetEnv,
     dryRun,
     databaseSaved: savesDatabase,
@@ -252,6 +273,7 @@ export async function awsRemoveService(
     projectName,
     targetEnv,
     coupledWorkers,
+    coupledCronJobs,
     hasDatabase,
     saveDatabase,
   });

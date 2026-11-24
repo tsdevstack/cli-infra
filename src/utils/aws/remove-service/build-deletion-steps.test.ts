@@ -11,6 +11,8 @@ rs.mock('../delete', () => {
     deleteCloudWatchLogGroup: ok(),
     deleteCloudFrontDistribution: ok(),
     deleteOriginAccessControl: ok(),
+    deleteSchedulerSchedule: ok(),
+    deleteEcsTaskDefinitionFamily: ok(),
   };
 });
 
@@ -44,7 +46,9 @@ import { buildDeletionSteps } from './build-deletion-steps';
 import {
   deleteCloudFrontDistribution,
   deleteCloudWatchLogGroup,
+  deleteEcsTaskDefinitionFamily,
   deleteOriginAccessControl,
+  deleteSchedulerSchedule,
 } from '../delete';
 import type { DiscoveredResources } from '../discovery';
 import type { AWSCommandContext } from '../commands/types';
@@ -165,6 +169,59 @@ describe('buildDeletionSteps (AWS)', () => {
       });
       expect(deleteCloudWatchLogGroup).toHaveBeenCalledWith({
         logGroupName: '/ecs/migrate-admin-ui-migration',
+        credentials,
+      });
+    });
+  });
+
+  describe('Cron jobs', () => {
+    it("should delete each cron job's schedule, task definition and log group before the workers and the service", async () => {
+      const steps = buildDeletionSteps({
+        ctx,
+        serviceName: 'auth-service',
+        discovered: discovery({ ecsService: true }),
+        projectName: 'myapp',
+        targetEnv: 'dev',
+        coupledWorkers: ['auth-worker'],
+        coupledCronJobs: [
+          {
+            name: 'usage-report',
+            serviceName: 'auth-service',
+            taskFamily: 'myapp-cron-usage-report',
+            containerName: 'cron-usage-report',
+            logGroupName: '/ecs/myapp/cron-usage-report',
+            scheduleName: 'myapp-auth-service-usage-report',
+          },
+        ],
+        hasDatabase: false,
+      });
+
+      expect(
+        steps.slice(0, 5).map((step) => [step.name, step.resource]),
+      ).toEqual([
+        ['Cron job schedule', 'myapp-auth-service-usage-report'],
+        ['Cron job', 'myapp-cron-usage-report'],
+        ['Cron job log group', '/ecs/myapp/cron-usage-report'],
+        ['Coupled worker', 'auth-worker'],
+        ['ECS Service', 'auth-service'],
+      ]);
+      // Each line names the job: a service can have several
+      expect(steps.slice(0, 3).map((step) => step.label)).toEqual([
+        'Deleting the schedule of cron job usage-report',
+        'Deleting the task definition of cron job usage-report',
+        'Deleting the log group of cron job usage-report',
+      ]);
+      for (const step of steps.slice(0, 3)) await step.execute();
+      expect(deleteSchedulerSchedule).toHaveBeenCalledWith({
+        scheduleName: 'myapp-auth-service-usage-report',
+        credentials,
+      });
+      expect(deleteEcsTaskDefinitionFamily).toHaveBeenCalledWith({
+        family: 'myapp-cron-usage-report',
+        credentials,
+      });
+      expect(deleteCloudWatchLogGroup).toHaveBeenCalledWith({
+        logGroupName: '/ecs/myapp/cron-usage-report',
         credentials,
       });
     });

@@ -280,4 +280,43 @@ describe('buildDeletionSteps (Azure)', () => {
       expect(steps.map((s) => s.name)).not.toContain('Service vault secrets');
     });
   });
+  describe('Cron job steps', () => {
+    it("should delete the service's cron jobs first, by their Container App Job names", async () => {
+      const steps = buildDeletionSteps({
+        ctx,
+        serviceName: 'auth-service',
+        discovered: createDiscovery(),
+        projectName: 'myproject',
+        targetEnv: 'dev',
+        coupledWorkers: [
+          { name: 'auth-worker', containerAppName: 'myproject-auth-worker' },
+        ],
+        coupledCronJobs: [
+          { name: 'usage-report', jobName: 'myproject-cron-usage-report' },
+        ],
+      });
+
+      expect(steps[0]).toMatchObject({
+        name: 'Cron job',
+        label: 'Deleting cron job usage-report',
+        resource: 'usage-report',
+      });
+      expect(steps[1]).toMatchObject({
+        name: 'Coupled worker',
+        resource: 'auth-worker',
+      });
+
+      await steps[0].execute();
+      expect(deleteContainerAppJob).toHaveBeenCalledWith({
+        credentials,
+        resourceGroupName: 'myproject-dev-rg',
+        jobName: 'myproject-cron-usage-report',
+      });
+    });
+
+    it('should add no cron job step without cron jobs', () => {
+      const steps = build(createDiscovery());
+      expect(steps.find((s) => s.name === 'Cron job')).toBeUndefined();
+    });
+  });
 });

@@ -53,4 +53,9 @@ export type {
 } from './list-secrets-by-prefix';
 
 export { discoverCoupledWorkers } from './discover-coupled-workers';
+export { discoverAwsCronJobs } from './discover-aws-cron-jobs';
+export type {
+  DiscoverAwsCronJobsOptions,
+  AwsCronJobInfo,
+} from './discover-aws-cron-jobs';
 export type { DiscoverCoupledWorkersOptions } from './discover-coupled-workers';

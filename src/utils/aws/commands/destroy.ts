@@ -15,7 +15,11 @@ import { buildRuntime } from '../../build-runtime';
 import { disableDeletionProtection } from '../disable-deletion-protection';
 import { disableAlbDeletionProtection } from '../disable-alb-deletion-protection';
 import type { AWSCommandContext, DestroyOptions } from './types';
-import { deleteCloudWatchLogGroup } from '../delete';
+import {
+  deleteCloudWatchLogGroup,
+  deleteEcsTaskDefinitionFamily,
+} from '../delete';
+import { discoverAwsCronJobs } from '../discovery/discover-aws-cron-jobs';
 import { buildAwsMigrationNames } from '../build-aws-migration-names';
 import { AWS_VPC_FLOW_LOG_GROUP_PREFIX } from '../../../constants';
 
@@ -213,6 +217,30 @@ export async function awsDestroy(
         logger.warn(`Could not delete ${name}: ${result.error}`);
       }
     }
+  }
+
+  // The cron jobs' task definitions: Terraform deregisters only its own
+  // revision, not the ones deploys registered. Found by their tags, also a
+  // job whose entry left infrastructure.json; one that won't go only warns
+  // (a task definition costs nothing)
+  try {
+    const cronJobs = await discoverAwsCronJobs({
+      projectName: ctx.projectName,
+      credentials: ctx.credentials,
+    });
+    for (const job of cronJobs) {
+      const result = await deleteEcsTaskDefinitionFamily({
+        family: job.taskFamily,
+        credentials: ctx.credentials,
+      });
+      if (!result.success) {
+        logger.warn(`Could not delete ${job.taskFamily}: ${result.error}`);
+      }
+    }
+  } catch (error) {
+    logger.warn(
+      `Could not list the cron jobs' task definitions: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 
   // The VPC flow log's group again: records still on their way after the

@@ -6,12 +6,14 @@
 
 import { DB_EXPORT_RETENTION_DAYS } from '@tsdevstack/infra-core';
 import type { DiscoveredResources } from '../discovery';
-import type { CoupledWorkerInfo } from '../discovery';
+import type { CoupledWorkerInfo, CoupledCronJobInfo } from '../discovery';
 
 export interface ShowResourceWarningOptions {
   serviceName: string;
   discovered: DiscoveredResources;
   coupledWorkers: CoupledWorkerInfo[];
+  /** The service's cron jobs (Cloud Run Jobs labeled with the service) */
+  coupledCronJobs?: CoupledCronJobInfo[];
   targetEnv: string;
   dryRun?: boolean;
   /** --skip-export: the database is dropped without being saved */
@@ -31,6 +33,7 @@ export function showResourceWarning(options: ShowResourceWarningOptions): void {
     serviceName,
     discovered,
     coupledWorkers,
+    coupledCronJobs = [],
     targetEnv,
     dryRun,
     skipExport,
@@ -42,6 +45,11 @@ export function showResourceWarning(options: ShowResourceWarningOptions): void {
   logger.warn(`WARNING: This ${action} from ${targetEnv}:`);
   logger.newline();
 
+  if (coupledCronJobs.length > 0) {
+    logger.info(
+      `   Cron jobs:       ${coupledCronJobs.map((j) => j.name).join(', ')} (with their schedules)`,
+    );
+  }
   if (coupledWorkers.length > 0) {
     logger.info(
       `   Coupled workers: ${coupledWorkers.map((w) => w.name).join(', ')}`,

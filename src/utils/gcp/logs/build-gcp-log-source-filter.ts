@@ -30,6 +30,7 @@ import {
   buildGcpCloudRunName,
   buildGcsStorageBucketName,
   type NamingScheme,
+  CRON_JOB_NAME_PREFIX,
 } from '@tsdevstack/infra-core';
 import type { LogKind, LogLevel, LogSource } from '../../logs/types';
 
@@ -104,6 +105,10 @@ export function buildGcpLogSourceFilter(
     case 'job':
       resource = `resource.type="cloud_scheduler_job" AND resource.labels.job_id="${cloudName}"`;
       kinds = ['platform'];
+      break;
+    case 'cron':
+      resource = `resource.type="cloud_run_job" AND resource.labels.job_name="${buildGcpCloudRunName(projectName, `${CRON_JOB_NAME_PREFIX}${source.name}`, naming)}"`;
+      kinds = ['app', 'platform'];
       break;
     case 'edge':
       resource = `resource.type="http_load_balancer" AND resource.labels.url_map_name="${projectName}${GCP_URL_MAP_SUFFIX}"`;

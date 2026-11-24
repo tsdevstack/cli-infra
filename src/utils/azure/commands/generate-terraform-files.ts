@@ -20,8 +20,10 @@ import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructu
 import { validateDatabaseDiskSize } from '../../infrastructure/validate-database-disk-size';
 import { validateDatabaseHa } from '../../infrastructure/validate-database-ha';
 import { validateRedisMemoryGb } from '../../infrastructure/validate-redis-memory-gb';
+import { validateAzureCronJobNames } from '../infrastructure/validate-azure-cron-job-names';
 import {
-  getScheduledJobs,
+  getTriggerJobs,
+  getCronJobs,
   getDatabaseConfig,
   getRedisConfig,
   getServiceConfig,
@@ -84,6 +86,11 @@ export function generateTerraformFiles(
     (infraConfig?.[ctx.targetEnv] as { redis?: RedisOverride } | undefined)
       ?.redis?.memoryGb,
     'azure',
+  );
+  validateAzureCronJobNames(
+    ctx.projectName,
+    getCronJobs(loadInfrastructureConfig(), ctx.targetEnv),
+    ctx.targetEnv,
   );
   const appServiceConfig = getAppServiceConfig(infraConfig, ctx.targetEnv);
   const kongConfig = getKongConfig(infraConfig, ctx.targetEnv, 'azure');
@@ -426,7 +433,7 @@ function buildScheduledJobsMap(
   targetEnv: string,
 ): AzureInfraConfig['scheduledJobs'] {
   const infraConfig = loadInfrastructureConfig();
-  const jobs = getScheduledJobs(infraConfig, targetEnv);
+  const jobs = getTriggerJobs(infraConfig, targetEnv);
   const jobsMap: AzureInfraConfig['scheduledJobs'] = {};
 
   for (const job of jobs) {

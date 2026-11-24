@@ -14,6 +14,7 @@ import type { AWSCommandContext } from '../utils/aws/commands';
 import type { AzureCommandContext } from '../utils/azure/commands';
 import { loadInfrastructureConfig } from '../utils/infrastructure/load-infrastructure-config';
 import { warnMissingApiKeyUsageJob } from '../utils/infrastructure/warn-missing-api-key-usage-job';
+import { warnMissingCronHandlers } from '../utils/infrastructure/warn-missing-cron-handlers';
 
 interface InfraGenerateOptions {
   env?: string;
@@ -25,7 +26,8 @@ interface InfraGenerateOptions {
 export async function infraGenerate(
   options: InfraGenerateOptions,
 ): Promise<void> {
-  const { logger, loadFrameworkConfig, hasAuthTemplate } = getContext();
+  const { logger, loadFrameworkConfig, hasAuthTemplate, findProjectRoot } =
+    getContext();
 
   logger.newline();
   logger.info('Generating infrastructure configuration...');
@@ -33,15 +35,24 @@ export async function infraGenerate(
 
   const ctx = await setupInfraCommand(options, 'infra:generate');
 
-  // Auth template: the API key usage sync job must be scheduled
   const frameworkConfig = loadFrameworkConfig();
+  const infraConfig = loadInfrastructureConfig();
+
+  // Auth template: the API key usage sync job must be scheduled
   if (hasAuthTemplate(frameworkConfig)) {
     warnMissingApiKeyUsageJob({
       frameworkConfig,
-      infraConfig: loadInfrastructureConfig(),
+      infraConfig,
       environment: ctx.targetEnv,
     });
   }
+
+  // Every cron job entry needs its handler file in its service
+  warnMissingCronHandlers({
+    infraConfig,
+    environment: ctx.targetEnv,
+    projectRoot: findProjectRoot(),
+  });
 
   if (ctx.provider === 'gcp') {
     await gcpGenerate(ctx as GCPCommandContext);

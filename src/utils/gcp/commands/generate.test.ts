@@ -93,6 +93,10 @@ rs.mock('../../infrastructure/merge-with-defaults', () => ({
     backup: false,
   })),
   getRedisConfig: rs.fn(() => ({ tier: 'BASIC', memoryGb: 1 })),
+  getTriggerJobs: (
+    ...args: Parameters<typeof mockGetScheduledJobs>
+  ): ReturnType<typeof mockGetScheduledJobs> => mockGetScheduledJobs(...args),
+  getCronJobs: rs.fn(() => []),
   getScheduledJobs: (
     ...args: Parameters<typeof mockGetScheduledJobs>
   ): ReturnType<typeof mockGetScheduledJobs> => mockGetScheduledJobs(...args),

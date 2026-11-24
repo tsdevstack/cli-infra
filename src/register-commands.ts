@@ -21,6 +21,7 @@ import { infraDockerGenerate } from './commands/infra-docker-generate';
 import { infraDockerBuild } from './commands/infra-docker-build';
 import { infraDockerPush } from './commands/infra-docker-push';
 import { infraDbMigratePlan } from './commands/infra-db-migrate-plan';
+import { infraRunCron } from './commands/infra-run-cron';
 import { infraDbMigrateRun } from './commands/infra-db-migrate-run';
 import { infraDeployServices } from './commands/infra-deploy-services';
 import { infraDeploySingleService } from './commands/infra-deploy-single-service';
@@ -514,7 +515,7 @@ export function registerInfraPlugin(program: Command): void {
   // infra:deploy-scheduler - Deploy a single scheduled job
   program
     .command('infra:deploy-scheduler')
-    .description('Deploy a single scheduled job to Cloud Scheduler')
+    .description('Deploy a single scheduled job (a trigger or a cron job)')
     .option('--env <environment>', 'Target environment')
     .option('--job <name>', 'Scheduled job name to deploy')
     .option('--auto-approve', 'Skip confirmation prompt')
@@ -533,7 +534,7 @@ export function registerInfraPlugin(program: Command): void {
   // infra:deploy-schedulers - Deploy all scheduled jobs
   program
     .command('infra:deploy-schedulers')
-    .description('Deploy all scheduled jobs to Cloud Scheduler')
+    .description('Deploy all scheduled jobs (triggers and cron jobs)')
     .option('--env <environment>', 'Target environment')
     .option('--auto-approve', 'Skip confirmation prompt')
     .action(
@@ -553,10 +554,10 @@ export function registerInfraPlugin(program: Command): void {
       }),
     );
 
-  // infra:remove-scheduler - Remove a scheduled job from Cloud Scheduler
+  // infra:remove-scheduler - Remove a scheduled job (and a cron job's job resource)
   program
     .command('infra:remove-scheduler')
-    .description('Remove a scheduled job from Cloud Scheduler')
+    .description("Remove a scheduled job; a cron job's job resource goes too")
     .option('--env <environment>', 'Target environment')
     .option('--job <name>', 'Job name to remove')
     .option('--confirm', 'Skip confirmation prompts (required in CI)')
@@ -564,6 +565,26 @@ export function registerInfraPlugin(program: Command): void {
       wrapCommand(
         async (options: { env?: string; job?: string; confirm?: boolean }) => {
           await infraRemoveScheduler(options);
+        },
+      ),
+    );
+
+  // infra:run-cron - Start a scheduled job now (a cron job or a trigger) and wait for the run
+  const runCronCommand = program
+    .command('infra:run-cron')
+    .description(
+      'Start a scheduled job now and wait for its run: a cron job or a trigger',
+    )
+    .requiredOption('--job <name>', 'Scheduled job name (infrastructure.json)')
+    .option('--env <environment>', 'Target environment');
+  runCronCommand
+    // --no-lines (hidden, MCP infra_run_cron): a failed run's log lines are
+    // left out; the agent reads them with get_logs, which asks the user first
+    .addOption(runCronCommand.createOption('--no-lines').hideHelp())
+    .action(
+      wrapCommand(
+        async (options: { job: string; env?: string; lines?: boolean }) => {
+          await infraRunCron(options);
         },
       ),
     );

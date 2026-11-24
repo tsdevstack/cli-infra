@@ -50,6 +50,8 @@ const mockBuildGcpTerraformEnv = rs.fn(
   },
 );
 rs.mock('@tsdevstack/infra-core', () => ({
+  toTfVarSuffix: (name: string) =>
+    name.replace(/-service$/, '').replace(/-/g, '_'),
   generateDbInit: rs.fn(() => ({
     dockerfile: 'FROM node',
     packageJson: '{}',
@@ -118,6 +120,8 @@ rs.mock('../../infrastructure/merge-with-defaults', () => ({
   })),
   getRedisConfig: rs.fn(() => ({ tier: 'BASIC', memoryGb: 1 })),
   getScheduledJobs: rs.fn(() => []),
+  getTriggerJobs: rs.fn(() => []),
+  getCronJobs: rs.fn(() => []),
 }));
 
 const mockFetchDbPasswordsFromSecretManager = rs.fn();

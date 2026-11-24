@@ -79,6 +79,9 @@ rs.mock('@tsdevstack/infra-core', () => ({
   detectRouteAssociationError: rs.fn(() => null),
   checkTerraformInstalled: rs.fn(),
   buildAzureTerraformEnv: rs.fn(),
+  toScreamingSnakeCase: rs.fn((name: string) =>
+    name.toUpperCase().replace(/-/g, '_'),
+  ),
 }));
 
 rs.mock('../preflight/check-postgres-availability', () => ({

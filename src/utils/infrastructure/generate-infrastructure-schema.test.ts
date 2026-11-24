@@ -323,9 +323,18 @@ describe('generateInfrastructureSchema', () => {
   });
 
   describe('ScheduledJobConfig definition', () => {
-    it('should require name, schedule, targetService, endpoint', () => {
+    it('should be one of a trigger and a cron job', () => {
       const result = JSON.parse(generateInfrastructureSchema());
       const job = result.definitions.ScheduledJobConfig;
+      expect(job.oneOf).toEqual([
+        { $ref: '#/definitions/TriggerJobConfig' },
+        { $ref: '#/definitions/CronJobConfig' },
+      ]);
+    });
+
+    it('should require name, schedule, targetService, endpoint of a trigger', () => {
+      const result = JSON.parse(generateInfrastructureSchema());
+      const job = result.definitions.TriggerJobConfig;
       expect(job.required).toEqual(
         expect.arrayContaining([
           'name',
@@ -334,13 +343,55 @@ describe('generateInfrastructureSchema', () => {
           'endpoint',
         ]),
       );
+      expect(job.properties.type.enum).toEqual(['trigger']);
+      expect(job.additionalProperties).toBe(false);
     });
 
     it('should have method enum', () => {
       const result = JSON.parse(generateInfrastructureSchema());
-      const method = result.definitions.ScheduledJobConfig.properties.method;
+      const method = result.definitions.TriggerJobConfig.properties.method;
       expect(method.enum).toContain('GET');
       expect(method.enum).toContain('POST');
+    });
+
+    it("should require a cron job's type, with the cloud's timeout limit and the migration job's values", () => {
+      for (const provider of ['gcp', 'aws', 'azure'] as const) {
+        const result = JSON.parse(generateInfrastructureSchema(provider));
+        const job = result.definitions.CronJobConfig;
+        expect(job.required).toEqual(
+          expect.arrayContaining(['name', 'type', 'schedule', 'targetService']),
+        );
+        expect(job.properties.type.enum).toEqual(['cron']);
+        expect(job.properties.name.pattern).toBe('^[a-z][a-z0-9-]*[a-z0-9]$');
+        expect(job.properties.name.maxLength).toBe(40);
+        expect(job.properties.timeout.minimum).toBe(1);
+        expect(job.properties.timeout.maximum).toBe(
+          provider === 'gcp' ? 604740 : 86400,
+        );
+        expect(job.properties.cpu.enum).toEqual(
+          result.definitions.MigrationJobConfig.properties.cpu.enum,
+        );
+        expect(job.properties.memory.enum).toEqual(
+          result.definitions.MigrationJobConfig.properties.memory.enum,
+        );
+        expect(job.properties.endpoint).toBeUndefined();
+        expect(job.additionalProperties).toBe(false);
+      }
+    });
+
+    it('should give both kinds the same timezone rule', () => {
+      const azure = JSON.parse(generateInfrastructureSchema('azure'));
+      expect(azure.definitions.CronJobConfig.properties.timezone.enum).toEqual([
+        'UTC',
+        'Etc/UTC',
+      ]);
+      expect(
+        azure.definitions.TriggerJobConfig.properties.timezone.enum,
+      ).toEqual(['UTC', 'Etc/UTC']);
+      const gcp = JSON.parse(generateInfrastructureSchema('gcp'));
+      expect(
+        gcp.definitions.CronJobConfig.properties.timezone.enum,
+      ).toBeUndefined();
     });
   });
 

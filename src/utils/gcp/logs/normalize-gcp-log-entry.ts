@@ -4,7 +4,8 @@
  * - Source: the Cloud Run service or job, the Cloud Scheduler job, a
  *   storage bucket's access log (its source by the bucket's GCS name, from
  *   bucketSources), or edge for the load balancer. Kong's `{project}-kong`
- *   shows as kong.
+ *   shows as kong, a cron job's Cloud Run Job (`{project}-cron-{name}`) as
+ *   the job's name.
  * - Kind: a Cloud Run container's stdout and stderr are app lines; every
  *   other Cloud Run log and Cloud Scheduler's run logs are platform lines;
  *   the load balancer's are edge lines.
@@ -13,7 +14,10 @@
  */
 
 import type { logging_v2 } from 'googleapis';
-import type { NamingScheme } from '@tsdevstack/infra-core';
+import {
+  CRON_JOB_NAME_PREFIX,
+  type NamingScheme,
+} from '@tsdevstack/infra-core';
 import {
   DB_INIT_LOG_SOURCE,
   GCP_DB_INIT_JOB_SUFFIX,
@@ -56,10 +60,18 @@ export function normalizeGcpLogEntry(
         : toSource(name);
   } else if (resourceType === 'cloud_run_job') {
     const name = labels.job_name ?? '';
-    source =
-      name === `${projectName}${GCP_DB_INIT_JOB_SUFFIX}`
-        ? DB_INIT_LOG_SOURCE
-        : toSource(name);
+    if (name === `${projectName}${GCP_DB_INIT_JOB_SUFFIX}`) {
+      source = DB_INIT_LOG_SOURCE;
+    } else {
+      // A cron job's lines carry its name in infrastructure.json, the name
+      // infra:logs takes, not the Cloud Run Job's `cron-{name}`
+      const jobName = toSource(name);
+      source =
+        jobName.startsWith(CRON_JOB_NAME_PREFIX) &&
+        jobName.length > CRON_JOB_NAME_PREFIX.length
+          ? jobName.slice(CRON_JOB_NAME_PREFIX.length)
+          : jobName;
+    }
   } else if (resourceType === 'cloud_scheduler_job') {
     source = toSource(labels.job_id ?? '');
   } else if (resourceType === 'gcs_bucket') {

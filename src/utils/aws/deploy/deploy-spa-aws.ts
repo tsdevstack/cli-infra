@@ -16,6 +16,7 @@ import {
   buildAwsTerraformEnv,
   invalidateCloudfront,
   uploadSpaToS3,
+  toTerraformId,
 } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
 import { fetchServiceSecrets } from '../../deploy/fetch-service-secrets';
@@ -61,8 +62,8 @@ export async function deploySpaAws(
 
   // Get bucket name from terraform output
   // Terraform output key format: {service_name}_spa_bucket (underscores)
-  const bucketOutputKey = `${service.name.replace(/-/g, '_')}_spa_bucket`;
-  const distributionOutputKey = `${service.name.replace(/-/g, '_')}_cloudfront_id`;
+  const bucketOutputKey = `${toTerraformId(service.name)}_spa_bucket`;
+  const distributionOutputKey = `${toTerraformId(service.name)}_cloudfront_id`;
   let bucketName: string;
   let distributionId: string;
 

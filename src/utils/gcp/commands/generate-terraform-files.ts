@@ -22,6 +22,8 @@ import {
   getDatabaseConfig,
   getRedisConfig,
   getScheduledJobs,
+  getTriggerJobs,
+  getCronJobs,
 } from '../../infrastructure/merge-with-defaults';
 import { getFrontendServicesWithDomains } from '../../infrastructure/get-frontend-services-with-domains';
 import { listRuntimeAccountServices } from '../infrastructure/list-runtime-account-services';
@@ -174,6 +176,9 @@ export function generateTerraformFiles(
     naming,
     services: frameworkConfig.services,
     storageBuckets: generateConfig.storageBuckets,
+    cronJobNames: getCronJobs(infraConfig, ctx.targetEnv).map(
+      (job) => job.name,
+    ),
     commandName,
   });
 
@@ -327,13 +332,19 @@ export function generateTerraformFiles(
 
   // Generate cloud-scheduler.tf when scheduled jobs are configured.
   // Uses computed Cloud Run URLs (no dependency on existing services).
-  if (scheduledJobs.length > 0) {
+  const triggerJobs = getTriggerJobs(infraConfig, ctx.targetEnv);
+  const cronJobs = getCronJobs(infraConfig, ctx.targetEnv);
+  if (triggerJobs.length > 0 || cronJobs.length > 0) {
     writeTextFile(
       path.join(outputDir, 'cloud-scheduler.tf'),
-      gcp.generateCloudSchedulerTf(scheduledJobs, {
-        projectName: ctx.projectName,
-        naming,
-      }),
+      gcp.generateCloudSchedulerTf(
+        triggerJobs,
+        {
+          projectName: ctx.projectName,
+          naming,
+        },
+        cronJobs,
+      ),
     );
     logFile('cloud-scheduler.tf');
   }

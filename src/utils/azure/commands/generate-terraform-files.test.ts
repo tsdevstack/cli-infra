@@ -10,6 +10,11 @@ rs.mock('../../../context', () => ({
   ),
 }));
 
+// The cron job name check reads infra-core's limits, mocked away below
+rs.mock('../infrastructure/validate-azure-cron-job-names', () => ({
+  validateAzureCronJobNames: rs.fn(),
+}));
+
 rs.mock('@tsdevstack/infra-core', () => ({
   generateDbInit: rs.fn(() => ({
     dockerfile: 'FROM node',
@@ -58,7 +63,8 @@ rs.mock('../../infrastructure/load-infrastructure-config', () => ({
 }));
 
 rs.mock('../../infrastructure/merge-with-defaults', () => ({
-  getScheduledJobs: rs.fn(() => []),
+  getTriggerJobs: rs.fn(() => []),
+  getCronJobs: rs.fn(() => []),
   getDatabaseConfig: rs.fn(() => ({
     tier: 'B_Standard_B1ms',
     diskSize: 32,

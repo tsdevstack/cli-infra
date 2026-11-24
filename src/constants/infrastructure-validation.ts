@@ -97,16 +97,48 @@ export const REMOVED_ACCESS_CONTROL_FIELDS = [
 ] as const;
 
 /**
- * Valid field names in ScheduledJobConfig
+ * Fields every scheduledJobs entry may have, whichever kind
  */
-export const VALID_SCHEDULED_JOB_FIELDS = [
+export const VALID_SCHEDULED_JOB_BASE_FIELDS = [
   'name',
+  'type',
   'schedule',
   'targetService',
+  'timezone',
+] as const;
+
+/**
+ * Valid field names of a trigger (an entry with an endpoint; `type` left out
+ * or "trigger")
+ */
+export const VALID_TRIGGER_JOB_FIELDS = [
+  ...VALID_SCHEDULED_JOB_BASE_FIELDS,
   'endpoint',
   'method',
   'httpTimeout',
-  'timezone',
+] as const;
+
+/**
+ * Valid field names of a cron job (`type: "cron"`)
+ */
+export const VALID_CRON_JOB_FIELDS = [
+  ...VALID_SCHEDULED_JOB_BASE_FIELDS,
+  'timeout',
+  'cpu',
+  'memory',
+] as const;
+
+/**
+ * Valid field names in ScheduledJobConfig, both kinds together
+ */
+export const VALID_SCHEDULED_JOB_FIELDS = [
+  ...VALID_SCHEDULED_JOB_BASE_FIELDS,
+  'endpoint',
+  'method',
+  'httpTimeout',
+  'timeout',
+  'cpu',
+  'memory',
 ] as const;
 
 /**

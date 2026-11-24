@@ -121,6 +121,13 @@ describe('azureDbMigrateRun', () => {
       );
     });
 
+    it('should let Azure start the migration again after a failed start', async () => {
+      // Safe twice at once: Prisma locks the migrations table
+      await azureDbMigrateRun(baseParams);
+
+      expect(rs.mocked(executeContainerJob).mock.calls[0][0].retries).toBe(1);
+    });
+
     it('should have Container Apps read DATABASE_URL from Key Vault, with no value in the job', async () => {
       await azureDbMigrateRun(baseParams);
 

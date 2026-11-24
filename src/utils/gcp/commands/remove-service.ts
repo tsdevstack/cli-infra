@@ -10,6 +10,7 @@ import { getContext } from '../../../context';
 import {
   discoverServiceResources,
   discoverCoupledWorkers,
+  discoverCoupledCronJobs,
   type CoupledWorkerInfo,
 } from '../discovery';
 import {
@@ -148,6 +149,17 @@ export async function gcpRemoveService(
       );
     }
   }
+
+  // The service's cron jobs (Cloud Run Jobs running its image) and their schedules
+  const coupledCronJobs = await discoverCoupledCronJobs({
+    serviceName: resolvedServiceName,
+    projectName,
+    naming,
+    credentials,
+  });
+  if (coupledCronJobs.length > 0) {
+    logger.info(`Cron jobs: ${coupledCronJobs.map((j) => j.name).join(', ')}`);
+  }
   logger.newline();
 
   // Ask about dry-run in interactive mode (if not already specified)
@@ -173,6 +185,7 @@ export async function gcpRemoveService(
     serviceName: resolvedServiceName,
     discovered,
     coupledWorkers,
+    coupledCronJobs,
     targetEnv,
     dryRun,
     skipExport,
@@ -266,6 +279,7 @@ export async function gcpRemoveService(
     discovered,
     projectName,
     coupledWorkers,
+    coupledCronJobs,
     saveDatabase,
   });
   const { completed, failed, remaining } = await executeSteps(logger, steps);

@@ -27,6 +27,7 @@ import {
   extractLockId,
   extractImportTargets,
   detectRouteAssociationError,
+  toScreamingSnakeCase,
 } from '@tsdevstack/infra-core';
 import { checkPostgresAvailability } from '../preflight/check-postgres-availability';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
@@ -524,7 +525,7 @@ export async function azureDeploy(
       >(outputDir, 'storage_buckets', tfEnv);
 
       for (const bucket of frameworkConfig.storage.buckets) {
-        const secretKey = `STORAGE_BUCKET_${bucket.replace(/-/g, '_').toUpperCase()}`;
+        const secretKey = `STORAGE_BUCKET_${toScreamingSnakeCase(bucket)}`;
         const bucketName = storageBuckets[bucket].name;
         setSecretViaCli(secretKey, bucketName, ctx.targetEnv);
         logger.success(`  ✓ ${secretKey}`);
@@ -583,7 +584,7 @@ export async function azureDeploy(
 
     for (const service of frameworkConfig.services) {
       if (!service.port) continue;
-      const urlKey = `${service.name.replace(/-/g, '_').toUpperCase()}_URL`;
+      const urlKey = `${toScreamingSnakeCase(service.name)}_URL`;
       const url = `https://${ctx.projectName}-${service.name}.${caeDefaultDomain}`;
       await setSecretWithRetry(urlKey, url, ctx.targetEnv);
       logger.success(`  ✓ ${urlKey} = ${url}`);

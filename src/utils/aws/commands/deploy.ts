@@ -26,6 +26,7 @@ import {
   buildAwsTerraformEnv,
   checkTerraformInstalled,
   extractLockId,
+  toScreamingSnakeCase,
 } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
 import { createStateBackend } from '../bootstrap/create-state-backend';
@@ -395,7 +396,7 @@ export async function awsDeploy(
       >(outputDir, 'storage_buckets', tfEnv);
 
       for (const bucket of frameworkConfig.storage.buckets) {
-        const secretKey = `STORAGE_BUCKET_${bucket.replace(/-/g, '_').toUpperCase()}`;
+        const secretKey = `STORAGE_BUCKET_${toScreamingSnakeCase(bucket)}`;
         const bucketName = storageBuckets[bucket].name;
         setSecretViaCli(secretKey, bucketName, ctx.targetEnv);
         logger.success(`  ✓ ${secretKey}`);
@@ -513,7 +514,7 @@ export async function awsDeploy(
   try {
     for (const service of frameworkConfig.services) {
       if (!service.port) continue;
-      const urlKey = `${service.name.replace(/-/g, '_').toUpperCase()}_URL`;
+      const urlKey = `${toScreamingSnakeCase(service.name)}_URL`;
       const url = buildCloudMapUrl(service.name, ctx.projectName);
       setSecretViaCli(urlKey, url, ctx.targetEnv);
       logger.success(`  ✓ ${urlKey} = ${url}`);

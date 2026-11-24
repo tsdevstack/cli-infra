@@ -231,6 +231,55 @@ describe('listAwsEcsPlatformEntries', () => {
       ).toBe(false);
     });
 
+    it("should list a cron job's stopped tasks by its family", async () => {
+      send.mockImplementation(async (command: unknown) => {
+        if (command instanceof ListTasksCommand) {
+          return command.input.family === 'shop-cron-usage-report'
+            ? { taskArns: ['arn:task/dddddddd'] }
+            : { taskArns: [] };
+        }
+        if (command instanceof DescribeTasksCommand) {
+          return {
+            tasks: [
+              {
+                taskArn: 'arn:aws:ecs:eu-west-1:1:task/shop-cluster/dddddddd',
+                stoppedAt: new Date('2026-10-30T11:50:00.000Z'),
+                stoppedReason: 'Essential container in task exited',
+                containers: [{ name: 'cron-usage-report', exitCode: 1 }],
+              },
+            ],
+          };
+        }
+        return {};
+      });
+
+      const entries = await listAwsEcsPlatformEntries({
+        ecs,
+        projectName: 'shop',
+        clusterName: 'shop-cluster',
+        sources: [
+          { name: 'usage-report', type: 'cron', service: 'auth-service' },
+        ],
+        since: SINCE,
+        until: UNTIL,
+      });
+
+      expect(entries.map((entry) => [entry.source, entry.kind])).toEqual([
+        ['usage-report', 'platform'],
+      ]);
+      const listed = send.mock.calls
+        .map(([command]) => command)
+        .filter((command) => command instanceof ListTasksCommand)
+        .map((command) => (command as ListTasksCommand).input);
+      expect(listed).toEqual([
+        {
+          cluster: 'shop-cluster',
+          desiredStatus: 'STOPPED',
+          family: 'shop-cron-usage-report',
+        },
+      ]);
+    });
+
     it('should call nothing without ECS sources', async () => {
       const entries = await listAwsEcsPlatformEntries({
         ecs,

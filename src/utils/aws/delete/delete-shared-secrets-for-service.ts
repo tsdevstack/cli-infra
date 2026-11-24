@@ -21,8 +21,7 @@ import {
 import { buildAWSClientConfig } from '../build-aws-client-config';
 import type { AWSCredentials } from '@tsdevstack/cli/plugin';
 import { getContext } from '../../../context';
-import { toEnvVarPrefix } from '@tsdevstack/infra-core';
-import { toScreamingSnakeCase } from '../../string/to-screaming-snake-case';
+import { toEnvVarPrefix, toScreamingSnakeCase } from '@tsdevstack/infra-core';
 
 export interface DeleteSharedSecretsOptions {
   projectName: string;

@@ -1,9 +1,9 @@
 /**
  * Platform lines on AWS come from ECS, not from CloudWatch Logs: each
  * service's events (deployments, steady state, tasks it could not place)
- * and its stopped tasks with their reasons and exit codes. Migrations and
- * the database setup job (db-init) are standalone tasks: their stopped tasks
- * only. ECS keeps the last 100 events per service and stopped tasks for
+ * and its stopped tasks with their reasons and exit codes. Migrations, the
+ * database setup job (db-init) and cron jobs are standalone tasks: their
+ * stopped tasks only. ECS keeps the last 100 events per service and stopped tasks for
  * about an hour.
  */
 
@@ -20,6 +20,7 @@ import {
   MIGRATION_LOG_SOURCE_PREFIX,
 } from '../../../constants';
 import { buildAwsMigrationNames } from '../build-aws-migration-names';
+import { buildAwsCronJobNames } from '../build-aws-cron-job-names';
 import type { LogEntry, LogSource } from '../../logs/types';
 import { formatAwsStoppedTask } from './format-aws-stopped-task';
 
@@ -46,6 +47,7 @@ export async function listAwsEcsPlatformEntries(params: {
   );
   const migrations = sources.filter((source) => source.type === 'migration');
   const dbInit = sources.filter((source) => source.type === 'db-init');
+  const cronJobs = sources.filter((source) => source.type === 'cron');
 
   // Service events
   for (let i = 0; i < services.length; i += DESCRIBE_SERVICES_BATCH) {
@@ -128,6 +130,15 @@ export async function listAwsEcsPlatformEntries(params: {
   for (const source of dbInit) {
     await stoppedTasks(source, {
       family: `${projectName}${AWS_DB_INIT_TASK_FAMILY_SUFFIX}`,
+    });
+  }
+  for (const source of cronJobs) {
+    await stoppedTasks(source, {
+      family: buildAwsCronJobNames(
+        projectName,
+        source.service ?? '',
+        source.name,
+      ).taskFamily,
     });
   }
 

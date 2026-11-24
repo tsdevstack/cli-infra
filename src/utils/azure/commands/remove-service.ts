@@ -7,7 +7,11 @@
 
 import inquirer from 'inquirer';
 import { getContext } from '../../../context';
-import { discoverServiceResources, discoverCoupledWorkers } from '../discovery';
+import {
+  discoverServiceResources,
+  discoverCoupledWorkers,
+  discoverCoupledCronJobs,
+} from '../discovery';
 import {
   hasAnyResources,
   showResourceWarning,
@@ -123,6 +127,14 @@ export async function azureRemoveService(
     credentials,
   });
 
+  // The service's cron jobs (Container App Jobs running its image)
+  const coupledCronJobs = await discoverCoupledCronJobs({
+    serviceName: resolvedServiceName,
+    projectName,
+    targetEnv,
+    credentials,
+  });
+
   logger.newline();
 
   // Ask about dry-run in interactive mode (if not already specified)
@@ -148,6 +160,7 @@ export async function azureRemoveService(
     serviceName: resolvedServiceName,
     discovered,
     coupledWorkers,
+    coupledCronJobs,
     targetEnv,
     dryRun,
     skipExport,
@@ -242,6 +255,7 @@ export async function azureRemoveService(
     projectName,
     targetEnv,
     coupledWorkers,
+    coupledCronJobs,
     saveDatabase,
   });
 

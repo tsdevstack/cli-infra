@@ -14,3 +14,4 @@ export { invalidateCloudFrontCache } from './invalidate-cloudfront-cache';
 export { deleteCloudFrontDistribution } from './delete-cloudfront-distribution';
 export { deleteOriginAccessControl } from './delete-origin-access-control';
 export { deleteSchedulerSchedule } from './delete-scheduler-schedule';
+export { deleteEcsTaskDefinitionFamily } from './delete-ecs-task-definition-family';

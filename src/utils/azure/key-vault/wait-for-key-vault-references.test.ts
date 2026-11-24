@@ -1,9 +1,10 @@
 import { describe, it, expect, rs, beforeEach } from '@rstest/core';
 import type { MockContext } from '@tsdevstack/cli/test-utils';
 
-const { getReference, restart } = rs.hoisted(() => ({
+const { getReference, restart, refresh } = rs.hoisted(() => ({
   getReference: rs.fn(),
   restart: rs.fn(),
+  refresh: rs.fn(),
 }));
 
 rs.mock('../../../context', () => ({
@@ -20,6 +21,9 @@ rs.mock('@tsdevstack/infra-core', () => ({
   createAzureCredential: rs.fn(() => ({})),
 }));
 rs.mock('../../build-runtime', () => ({ buildRuntime: rs.fn(() => ({})) }));
+rs.mock('./refresh-key-vault-references', () => ({
+  refreshKeyVaultReferences: refresh,
+}));
 
 import { waitForKeyVaultReferences } from './wait-for-key-vault-references';
 
@@ -49,6 +53,7 @@ describe('waitForKeyVaultReferences', () => {
 
   beforeEach(() => {
     rs.clearAllMocks();
+    refresh.mockResolvedValue(undefined);
   });
 
   describe('Standard use cases', () => {
@@ -62,22 +67,34 @@ describe('waitForKeyVaultReferences', () => {
         'shop-dev-kong',
         'REDIS_PASSWORD',
       );
+      expect(refresh).not.toHaveBeenCalled();
       expect(restart).not.toHaveBeenCalled();
     });
 
-    it('should restart the app while access is still denied, then return', async () => {
+    it('should ask App Service to read the references again while access is denied, then return', async () => {
+      // As on az7: denied at the first read, App Service keeps the answer
+      // until asked again; a restart would not read it again
       statuses(
         {
-          REDIS_PASSWORD: 'AccessToKeyVaultDenied',
-          KONG_TRUST_TOKEN: 'Resolved',
+          REDIS_PASSWORD: 'Resolved',
+          KONG_TRUST_TOKEN: 'AccessToKeyVaultDenied',
+        },
+        {
+          REDIS_PASSWORD: 'Resolved',
+          KONG_TRUST_TOKEN: 'AccessToKeyVaultDenied',
         },
         { REDIS_PASSWORD: 'Resolved', KONG_TRUST_TOKEN: 'Resolved' },
       );
 
       await waitForKeyVaultReferences(options);
 
-      expect(restart).toHaveBeenCalledTimes(1);
-      expect(restart).toHaveBeenCalledWith('shop-dev-rg', 'shop-dev-kong');
+      expect(refresh).toHaveBeenCalledTimes(2);
+      expect(refresh).toHaveBeenCalledWith({
+        credentials: options.credentials,
+        resourceGroupName: 'shop-dev-rg',
+        appServiceName: 'shop-dev-kong',
+      });
+      expect(restart).not.toHaveBeenCalled();
     });
 
     it('should say when every reference has resolved', async () => {
@@ -105,6 +122,34 @@ describe('waitForKeyVaultReferences', () => {
         'shop-dev-kong: Key Vault references cannot resolve: REDIS_PASSWORD (SecretNotFound)',
       );
       expect(restart).not.toHaveBeenCalled();
+    });
+
+    it('should restart the app instead when Azure refuses the refresh, and ask only once', async () => {
+      const { logger } = (
+        globalThis as unknown as { contextMocks: MockContext }
+      ).contextMocks;
+      refresh.mockRejectedValue(new Error('HTTP 404'));
+      statuses(
+        {
+          REDIS_PASSWORD: 'AccessToKeyVaultDenied',
+          KONG_TRUST_TOKEN: 'Resolved',
+        },
+        {
+          REDIS_PASSWORD: 'AccessToKeyVaultDenied',
+          KONG_TRUST_TOKEN: 'Resolved',
+        },
+        { REDIS_PASSWORD: 'Resolved', KONG_TRUST_TOKEN: 'Resolved' },
+      );
+
+      await waitForKeyVaultReferences(options);
+
+      expect(refresh).toHaveBeenCalledTimes(1);
+      expect(restart).toHaveBeenCalledTimes(2);
+      expect(restart).toHaveBeenCalledWith('shop-dev-rg', 'shop-dev-kong');
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+      expect(logger.warn).toHaveBeenCalledWith(
+        '  Could not ask App Service to read the references again (HTTP 404); restarting the app instead',
+      );
     });
 
     it('should give up when access stays denied', async () => {

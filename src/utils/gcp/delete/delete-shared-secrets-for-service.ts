@@ -17,8 +17,7 @@
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 import type { GCPCredentials } from '@tsdevstack/cli/plugin';
 import { getContext } from '../../../context';
-import { toEnvVarPrefix } from '@tsdevstack/infra-core';
-import { toScreamingSnakeCase } from '../../string/to-screaming-snake-case';
+import { toEnvVarPrefix, toScreamingSnakeCase } from '@tsdevstack/infra-core';
 
 export interface DeleteSharedSecretsOptions {
   projectId: string;

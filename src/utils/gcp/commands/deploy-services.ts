@@ -29,6 +29,10 @@ import { buildRuntime } from '../../build-runtime';
 import { getTerraformOutput } from '../terraform';
 import type { GCPCommandContext } from './types';
 import { resolveGcpNamingScheme } from '../naming/resolve-gcp-naming-scheme';
+import { gcpDeployCronJobs } from './deploy-cron-jobs';
+import { getCronJobs } from '../../infrastructure/merge-with-defaults';
+import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
+import { getGitSha } from '../../docker';
 
 export interface DeployServicesOptions {
   /** Specific service to deploy (optional, deploys all if not specified) */
@@ -305,6 +309,24 @@ export async function gcpDeployServices(
       );
     }
     logger.newline();
+  }
+
+  // Deploy the cron jobs of the deployed NestJS services: their image, this tag
+  if (dockerServices.length > 0) {
+    const cronJobs = getCronJobs(loadInfrastructureConfig(), targetEnv).filter(
+      (job) =>
+        dockerServices.some(
+          (s) => s.name === job.targetService && s.type === 'nestjs',
+        ),
+    );
+    if (cronJobs.length > 0) {
+      await gcpDeployCronJobs(ctx, config, cronJobs, {
+        naming,
+        imageTag: options.tag ?? getGitSha(),
+        commandName: 'infra:deploy-services',
+      });
+      logger.newline();
+    }
   }
 
   // Deploy SPA services (build + upload to Cloud Storage)

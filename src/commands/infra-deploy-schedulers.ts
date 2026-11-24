@@ -1,7 +1,8 @@
 /**
  * infra:deploy-schedulers Command
  *
- * Deploys all scheduled jobs (Cloud Scheduler on GCP, EventBridge on AWS).
+ * Deploys all scheduled jobs (Cloud Scheduler on GCP, EventBridge Scheduler
+ * on AWS, Container App Jobs on Azure).
  */
 
 import { getContext } from '../context';
@@ -19,7 +20,7 @@ interface InfraDeploySchedulersOptions {
 }
 
 /**
- * Deploy all scheduled jobs to Cloud Scheduler
+ * Deploy all scheduled jobs
  */
 export async function infraDeploySchedulers(
   options: InfraDeploySchedulersOptions,

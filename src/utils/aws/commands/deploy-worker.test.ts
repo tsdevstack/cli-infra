@@ -96,7 +96,22 @@ describe('awsDeployWorker', () => {
     );
   });
 
-  it('should inject no secrets into the worker', async () => {
+  it("should inject the base service's DATABASE_URL when the service has a database", async () => {
+    await awsDeployWorker({
+      ...mockParams,
+      baseService: { ...mockParams.baseService, hasDatabase: true },
+    });
+
+    const options = rs.mocked(deployEcsServiceWithSecrets).mock.calls[0][1];
+    // Not the worker's own name: hasDatabase would build auth-worker's secret
+    expect(options.hasDatabase).toBe(false);
+    expect(options.additionalSecrets).toEqual({
+      DATABASE_URL:
+        'arn:aws:secretsmanager:us-east-1:123456789012:secret:my-app-auth-service-DATABASE_URL',
+    });
+  });
+
+  it('should inject no secrets when the base service has no database', async () => {
     await awsDeployWorker(mockParams);
 
     const options = rs.mocked(deployEcsServiceWithSecrets).mock.calls[0][1];

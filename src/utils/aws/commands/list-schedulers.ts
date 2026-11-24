@@ -1,28 +1,35 @@
 /**
  * AWS List Schedulers Handler
  *
- * Lists scheduled jobs and their deployment status.
- * Cross-references infrastructure config with EventBridge Scheduler API.
+ * Lists the environment's scheduled jobs, both kinds, with their schedule's
+ * state in EventBridge Scheduler, and a cron job's last run: the end line of
+ * its newest log stream (A6; ECS forgets stopped tasks after about an hour).
+ * A trigger's runs are in the job invoker's log (infra:logs).
  */
 
 import {
   SchedulerClient,
   ListSchedulesCommand,
 } from '@aws-sdk/client-scheduler';
+import { isCronJob } from '@tsdevstack/infra-core';
 import { getContext } from '../../../context';
+import { AWS_SCHEDULE_GROUP } from '../../../constants';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
 import { getScheduledJobs } from '../../infrastructure/merge-with-defaults';
 import { buildAWSClientConfig } from '../build-aws-client-config';
+import { buildAwsCronJobNames } from '../build-aws-cron-job-names';
 import { buildScheduledJobKey } from './build-scheduled-job-key';
+import { readAwsCronJobLastRun } from './read-aws-cron-job-last-run';
 import type { AWSCommandContext } from './types';
 
 interface JobStatus {
   name: string;
+  kind: 'trigger' | 'cron';
   schedule: string;
-  targetService: string;
-  endpoint: string;
+  target: string;
   status: 'DEPLOYED' | 'NOT_FOUND';
   cloudState?: string;
+  lastRun: string;
 }
 
 /**
@@ -33,7 +40,7 @@ export async function awsListSchedulers(ctx: AWSCommandContext): Promise<void> {
 
   const { targetEnv, projectName, credentials } = ctx;
 
-  // Load infrastructure config and get scheduled jobs
+  // Load infrastructure config and get scheduled jobs, both kinds
   const infraConfig = loadInfrastructureConfig();
   const scheduledJobs = getScheduledJobs(infraConfig, targetEnv);
 
@@ -61,7 +68,7 @@ export async function awsListSchedulers(ctx: AWSCommandContext): Promise<void> {
       const response = await scheduler.send(
         new ListSchedulesCommand({
           NamePrefix: prefix,
-          GroupName: 'default',
+          GroupName: AWS_SCHEDULE_GROUP,
           NextToken: nextToken,
         }),
       );
@@ -86,70 +93,89 @@ export async function awsListSchedulers(ctx: AWSCommandContext): Promise<void> {
     );
   }
 
-  // Build status for each configured job
-  const jobStatuses: JobStatus[] = scheduledJobs.map((job) => {
-    const jobKey = buildScheduledJobKey(job.targetService, job.name);
-    const scheduleName = `${projectName}-${jobKey}`;
+  // Build status for each configured job (both kinds' schedules are
+  // {project}-{service}-{name})
+  const jobStatuses: JobStatus[] = [];
+  for (const job of scheduledJobs) {
+    const cron = isCronJob(job);
+    const scheduleName = `${projectName}-${buildScheduledJobKey(job.targetService, job.name)}`;
     const deployed = deployedSchedules.get(scheduleName);
+    const base = {
+      name: job.name,
+      kind: cron ? ('cron' as const) : ('trigger' as const),
+      schedule: job.schedule,
+      target: cron ? job.targetService : `${job.targetService}${job.endpoint}`,
+    };
 
-    if (deployed) {
-      return {
-        name: job.name,
-        schedule: job.schedule,
-        targetService: job.targetService,
-        endpoint: job.endpoint,
-        status: 'DEPLOYED' as const,
-        cloudState: deployed.state,
-      };
+    if (!deployed) {
+      jobStatuses.push({ ...base, status: 'NOT_FOUND', lastRun: '-' });
+      continue;
     }
 
-    return {
-      name: job.name,
-      schedule: job.schedule,
-      targetService: job.targetService,
-      endpoint: job.endpoint,
-      status: 'NOT_FOUND' as const,
-    };
-  });
+    let lastRun = '-';
+    if (cron) {
+      try {
+        lastRun = await readAwsCronJobLastRun(
+          credentials,
+          buildAwsCronJobNames(projectName, job.targetService, job.name)
+            .logGroupName,
+        );
+      } catch {
+        lastRun = '? (log not readable)';
+      }
+    }
+    jobStatuses.push({
+      ...base,
+      status: 'DEPLOYED',
+      cloudState: deployed.state,
+      lastRun,
+    });
+  }
 
   // Print table
-  const maxNameLen = Math.max(...jobStatuses.map((j) => j.name.length), 8);
-  const maxScheduleLen = Math.max(
-    ...jobStatuses.map((j) => j.schedule.length),
+  const width = (values: string[], min: number): number =>
+    Math.max(...values.map((v) => v.length), min);
+  const nameWidth = width(
+    jobStatuses.map((j) => j.name),
     8,
   );
-  const maxTargetLen = Math.max(
-    ...jobStatuses.map((j) => `${j.targetService}${j.endpoint}`.length),
+  const kindWidth = width(
+    jobStatuses.map((j) => j.kind),
+    4,
+  );
+  const scheduleWidth = width(
+    jobStatuses.map((j) => j.schedule),
+    8,
+  );
+  const targetWidth = width(
+    jobStatuses.map((j) => j.target),
     6,
   );
 
-  // Header
   const header = [
-    'Job Name'.padEnd(maxNameLen),
-    'Schedule'.padEnd(maxScheduleLen),
-    'Target'.padEnd(maxTargetLen),
-    'Status',
+    'Job Name'.padEnd(nameWidth),
+    'Kind'.padEnd(kindWidth),
+    'Schedule'.padEnd(scheduleWidth),
+    'Target'.padEnd(targetWidth),
+    'Status'.padEnd(10),
+    'Last run',
   ].join(' | ');
 
-  const separator = '-'.repeat(header.length);
-
   logger.info(header);
-  logger.info(separator);
+  logger.info('-'.repeat(header.length));
 
-  // Rows
   for (const job of jobStatuses) {
-    const target = `${job.targetService}${job.endpoint}`;
-    const statusIcon = job.status === 'DEPLOYED' ? '✓' : '✗';
     const statusText =
       job.status === 'DEPLOYED'
-        ? `${statusIcon} ${job.cloudState || 'ENABLED'}`
-        : `${statusIcon} NOT FOUND`;
-
+        ? `✓ ${job.cloudState || 'ENABLED'}`
+        : '✗ NOT FOUND';
     const row = [
-      job.name.padEnd(maxNameLen),
-      job.schedule.padEnd(maxScheduleLen),
-      target.padEnd(maxTargetLen),
-      statusText,
+      job.name.padEnd(nameWidth),
+      job.kind.padEnd(kindWidth),
+      job.schedule.padEnd(scheduleWidth),
+      job.target.padEnd(targetWidth),
+      statusText.padEnd(10),
+      job.lastRun,
     ].join(' | ');
 
     if (job.status === 'DEPLOYED') {
@@ -165,9 +191,7 @@ export async function awsListSchedulers(ctx: AWSCommandContext): Promise<void> {
   const deployedCount = jobStatuses.filter(
     (j) => j.status === 'DEPLOYED',
   ).length;
-  const notFoundCount = jobStatuses.filter(
-    (j) => j.status === 'NOT_FOUND',
-  ).length;
+  const notFoundCount = jobStatuses.length - deployedCount;
 
   if (notFoundCount > 0) {
     logger.warn(`${notFoundCount} job(s) not deployed. Run:`);

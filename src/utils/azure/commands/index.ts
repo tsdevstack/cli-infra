@@ -22,6 +22,10 @@ export {
   type DeploySchedulersOptions,
 } from './deploy-schedulers';
 export { azureListSchedulers } from './list-schedulers';
+export { azureRunCron } from './run-cron';
+export { azureDeployCronJobs } from './deploy-cron-jobs';
+export { azureDeployCronJob } from './deploy-cron-job';
+export { buildAzureScheduledJobResourceName } from './build-azure-scheduled-job-resource-name';
 export { azureRemoveScheduler } from './remove-scheduler';
 export {
   azureDeployServices,

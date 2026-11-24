@@ -2,11 +2,12 @@
  * Delete Environment Container Resources
  *
  * Deletes what deploys create with the SDK in an environment's Container Apps
- * environment: every Container App (services and workers) and the database
- * migration jobs. Terraform does not manage them, and Azure refuses to delete
- * a managed environment that still holds Container Apps, so infra:destroy
- * runs this before Terraform. The scheduled jobs belong to Terraform and are
- * left to it. Deletes run in parallel; a failure is reported, not thrown.
+ * environment: every Container App (services and workers), the database
+ * migration jobs and the cron jobs (tagged AZURE_CRON_JOB_SERVICE_TAG).
+ * Terraform does not manage them, and Azure refuses to delete a managed
+ * environment that still holds Container Apps, so infra:destroy runs this
+ * before Terraform. The triggers belong to Terraform and are left to it.
+ * Deletes run in parallel; a failure is reported, not thrown.
  */
 
 import { ContainerAppsAPIClient } from '@azure/arm-appcontainers';
@@ -14,6 +15,7 @@ import { createAzureCredential } from '@tsdevstack/infra-core';
 import type { AzureCredentials } from '@tsdevstack/cli/plugin';
 import { buildRuntime } from '../../build-runtime';
 import {
+  AZURE_CRON_JOB_SERVICE_TAG,
   AZURE_DB_INIT_JOB_NAME,
   AZURE_MIGRATION_JOB_PREFIX,
 } from '../../../constants';
@@ -66,8 +68,10 @@ export async function deleteEnvironmentContainerResources(
     )) {
       const name = job.name;
       if (
-        (name?.startsWith(AZURE_MIGRATION_JOB_PREFIX) ||
-          name === AZURE_DB_INIT_JOB_NAME) &&
+        name &&
+        (name.startsWith(AZURE_MIGRATION_JOB_PREFIX) ||
+          name === AZURE_DB_INIT_JOB_NAME ||
+          job.tags?.[AZURE_CRON_JOB_SERVICE_TAG] !== undefined) &&
         inEnvironment(job.environmentId)
       ) {
         targets.push({

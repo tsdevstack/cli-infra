@@ -39,6 +39,11 @@ rs.mock('node:fs', () => ({
 
 rs.mock('../delete', () => ({
   deleteCloudWatchLogGroup: rs.fn(),
+  deleteEcsTaskDefinitionFamily: rs.fn(),
+}));
+
+rs.mock('../discovery/discover-aws-cron-jobs', () => ({
+  discoverAwsCronJobs: rs.fn(),
 }));
 
 rs.mock('inquirer', () => ({
@@ -54,7 +59,11 @@ import { executeTerraform } from '../terraform';
 import { buildAwsTerraformEnv } from '@tsdevstack/infra-core';
 import { disableDeletionProtection } from '../disable-deletion-protection';
 import { disableAlbDeletionProtection } from '../disable-alb-deletion-protection';
-import { deleteCloudWatchLogGroup } from '../delete';
+import {
+  deleteCloudWatchLogGroup,
+  deleteEcsTaskDefinitionFamily,
+} from '../delete';
+import { discoverAwsCronJobs } from '../discovery/discover-aws-cron-jobs';
 
 describe('awsDestroy', () => {
   const mockCtx = {
@@ -87,6 +96,67 @@ describe('awsDestroy', () => {
     rs.mocked(inquirer.prompt).mockResolvedValue({ confirm: true });
     rs.mocked(disableAlbDeletionProtection).mockResolvedValue({
       success: true,
+    });
+    rs.mocked(discoverAwsCronJobs).mockResolvedValue([]);
+    rs.mocked(deleteEcsTaskDefinitionFamily).mockResolvedValue({
+      success: true,
+      deleted: true,
+    });
+  });
+
+  describe("Cron jobs' task definitions", () => {
+    const usageReport = {
+      name: 'usage-report',
+      serviceName: 'auth-service',
+      taskFamily: 'my-app-cron-usage-report',
+      containerName: 'cron-usage-report',
+      logGroupName: '/ecs/my-app/cron-usage-report',
+      scheduleName: 'my-app-auth-service-usage-report',
+    };
+
+    it('should delete the revisions deploys registered, found by tag, after Terraform', async () => {
+      rs.mocked(discoverAwsCronJobs).mockResolvedValue([usageReport]);
+      const order: string[] = [];
+      rs.mocked(executeTerraform).mockImplementation(async (command) => {
+        order.push(command);
+        return { success: true, output: '' };
+      });
+      rs.mocked(deleteEcsTaskDefinitionFamily).mockImplementation(async () => {
+        order.push('task definitions');
+        return { success: true, deleted: true };
+      });
+
+      await awsDestroy(mockCtx, { autoApprove: true });
+
+      expect(deleteEcsTaskDefinitionFamily).toHaveBeenCalledWith({
+        family: 'my-app-cron-usage-report',
+        credentials: mockCtx.credentials,
+      });
+      expect(order).toEqual(['init', 'destroy', 'task definitions']);
+    });
+
+    it('should only warn when they cannot be listed or deleted', async () => {
+      rs.mocked(discoverAwsCronJobs).mockRejectedValueOnce(
+        new Error('AccessDenied'),
+      );
+      await awsDestroy(mockCtx, { autoApprove: true });
+      expect(mocks.logger.warn).toHaveBeenCalledWith(
+        "Could not list the cron jobs' task definitions: AccessDenied",
+      );
+
+      rs.mocked(discoverAwsCronJobs).mockResolvedValueOnce([usageReport]);
+      rs.mocked(deleteEcsTaskDefinitionFamily).mockResolvedValueOnce({
+        success: false,
+        deleted: false,
+        error: 'Throttled',
+      });
+      await awsDestroy(mockCtx, { autoApprove: true });
+      expect(mocks.logger.warn).toHaveBeenCalledWith(
+        'Could not delete my-app-cron-usage-report: Throttled',
+      );
+      expect(mocks.logger.success).toHaveBeenCalledWith(
+        'Infrastructure destroyed successfully!',
+      );
     });
   });
 

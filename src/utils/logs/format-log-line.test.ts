@@ -45,6 +45,27 @@ describe('formatLogLine', () => {
       );
     });
 
+    it("should show how a cron job's run ended on its last line", () => {
+      const line = formatLogLine(
+        entry({
+          source: 'usage-report',
+          message: 'cron job finished',
+          fields: {
+            context: 'Cron',
+            cronJob: 'usage-report',
+            outcome: 'failed',
+            exitCode: 1,
+            durationMs: 3,
+          },
+        }),
+        12,
+        false,
+      );
+      expect(line).toBe(
+        '2026-10-30 12:00:01.123  usage-report  app       INFO   [Cron] cron job finished (failed, exit code 1, 3 ms)',
+      );
+    });
+
     it('should show a dash for lines without a level', () => {
       const line = formatLogLine(
         entry({
@@ -78,6 +99,31 @@ describe('formatLogLine', () => {
       expect(line.startsWith('\u001b[2m2026-10-30 12:00:01.123\u001b[0m')).toBe(
         true,
       );
+    });
+
+    it('should show only what a finished line carries', () => {
+      const format = (fields: Record<string, unknown>): string =>
+        formatLogLine(
+          entry({ message: 'cron job finished', fields }),
+          12,
+          false,
+        ).split('INFO   ')[1];
+
+      expect(format({ outcome: 'stopped', durationMs: 68648 })).toBe(
+        'cron job finished (stopped, 1 min 9 s)',
+      );
+      expect(format({ outcome: 'skipped', exitCode: 0 })).toBe(
+        'cron job finished (skipped, exit code 0)',
+      );
+      // Not the runner's line: another message, or no outcome
+      expect(format({ exitCode: 1 })).toBe('cron job finished');
+      expect(
+        formatLogLine(
+          entry({ message: 'done', fields: { outcome: 'failed' } }),
+          12,
+          false,
+        ).split('INFO   ')[1],
+      ).toBe('done');
     });
 
     it('should not fail on an error field without a message', () => {

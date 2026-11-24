@@ -14,6 +14,7 @@ import { AZURE_JOB_START_MARGIN_SECONDS } from '../../../constants';
 import {
   createAzureCredential,
   buildAcrAuthConfig,
+  toKebabCase,
 } from '@tsdevstack/infra-core';
 import type { AzureCredentials } from '@tsdevstack/cli/plugin';
 
@@ -45,6 +46,13 @@ export interface ExecuteContainerJobOptions {
   cpu?: number;
   /** Memory allocation (default: '2Gi') */
   memory?: string;
+  /**
+   * Times Azure may start the run again after a failed start (default: 0).
+   * Only for a run that is safe twice at once: a run Azure counted as
+   * failed before its container started can still run afterwards
+   * (AZURE_REPEATABLE_JOB_RETRIES).
+   */
+  retries?: number;
 }
 
 export interface ExecuteContainerJobResult {
@@ -94,6 +102,7 @@ export async function executeContainerJob(
     secretsIdentityId,
     acrLoginServer,
     timeoutSeconds = 300,
+    retries = 0,
   } = options;
 
   if (keyVaultEnvVars.length > 0 && !secretsIdentityId) {
@@ -118,7 +127,7 @@ export async function executeContainerJob(
   const keyVaultSecrets = keyVaultEnvVars.map((e) => ({
     envName: e.name,
     secret: {
-      name: e.name.toLowerCase().replace(/_/g, '-'),
+      name: toKebabCase(e.name),
       keyVaultUrl: e.keyVaultUrl,
       identity: secretsIdentityId,
     },
@@ -154,7 +163,7 @@ export async function executeContainerJob(
     configuration: {
       triggerType: 'Manual' as const,
       replicaTimeout: timeoutSeconds,
-      replicaRetryLimit: 0,
+      replicaRetryLimit: retries,
       secrets,
       registries,
       // Container Apps reads the Key Vault secrets with it; the code in the

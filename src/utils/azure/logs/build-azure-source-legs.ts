@@ -6,9 +6,10 @@
  *   (ContainerAppConsoleLogs, app) and the platform's events
  *   (ContainerAppSystemLogs, platform)
  * - Migrations (Container Apps job `migrate-{service}`), the database setup
- *   job (`db-init`) and scheduled jobs (job `{project}-{name}`): the same
- *   tables. A scheduled job's output is a platform line, like its runs on
- *   the other providers.
+ *   job (`db-init`), triggers (job `{project}-{name}`) and cron jobs (job
+ *   `{project}-cron-{name}`): the same tables. A trigger's output (curl) is
+ *   a platform line, like its runs on the other providers; a cron job's is
+ *   the service's JSON lines, app.
  * - Kong and Next.js (App Service `{project}-{env}-{name}`): output
  *   (AppServiceConsoleLogs, app), container events (AppServicePlatformLogs)
  *   and requests (AppServiceHTTPLogs), platform. With `appServiceLive`
@@ -36,6 +37,7 @@ import {
   buildAzureResourceName,
   buildAzureStorageContainerName,
 } from '@tsdevstack/infra-core';
+import { buildAzureCronJobName } from '../naming/build-azure-cron-job-name';
 
 /** pino labels at or above each level (pino's trace counts as debug) */
 const PINO_LABELS: Record<LogLevel, string[]> = {
@@ -85,13 +87,16 @@ export function buildAzureSourceLegs(
     }
     case 'migration':
     case 'db-init':
-    case 'job': {
+    case 'job':
+    case 'cron': {
       const job =
         source.type === 'job'
           ? `${projectName}-${name}`
-          : source.type === 'db-init'
-            ? AZURE_DB_INIT_JOB_NAME
-            : name;
+          : source.type === 'cron'
+            ? buildAzureCronJobName(projectName, name)
+            : source.type === 'db-init'
+              ? AZURE_DB_INIT_JOB_NAME
+              : name;
       // A job's executions are named {job}-{suffix}
       const match = `(ContainerAppName == "${job}" or JobName == "${job}" or JobName matches regex "^${job}-[a-z0-9]+$")`;
       const outputKind: LogKind = source.type === 'job' ? 'platform' : 'app';

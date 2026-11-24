@@ -1,5 +1,6 @@
 import { describe, it, expect } from '@rstest/core';
 import { getScheduledJobs } from './get-scheduled-jobs';
+import type { TriggerJobConfig } from './types';
 
 describe('getScheduledJobs', () => {
   describe('no config', () => {
@@ -104,8 +105,8 @@ describe('getScheduledJobs', () => {
         },
       };
       const result = getScheduledJobs(config, 'dev');
-      expect(result[0].method).toBe('GET');
-      expect(result[0].httpTimeout).toBe(600);
+      expect((result[0] as TriggerJobConfig).method).toBe('GET');
+      expect((result[0] as TriggerJobConfig).httpTimeout).toBe(600);
       expect(result[0].timezone).toBe('America/New_York');
     });
   });

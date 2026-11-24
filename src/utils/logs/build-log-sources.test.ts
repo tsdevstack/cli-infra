@@ -84,4 +84,32 @@ describe('buildLogSources', () => {
       ]);
     });
   });
+  describe('Cron jobs', () => {
+    it('should list a cron job as a cron source, next to the triggers', () => {
+      const sources = buildLogSources(
+        [],
+        [
+          {
+            name: 'cleanup-tokens',
+            schedule: '0 3 * * *',
+            targetService: 'auth-service',
+            endpoint: '/auth/jobs/cleanup-tokens',
+          },
+          {
+            name: 'usage-report',
+            type: 'cron',
+            schedule: '0 3 * * *',
+            targetService: 'auth-service',
+          },
+        ],
+      );
+
+      expect(sources).toEqual(
+        expect.arrayContaining([
+          { name: 'cleanup-tokens', type: 'job', service: 'auth-service' },
+          { name: 'usage-report', type: 'cron', service: 'auth-service' },
+        ]),
+      );
+    });
+  });
 });

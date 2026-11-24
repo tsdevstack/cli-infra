@@ -16,6 +16,9 @@ export {
   type DeploySchedulersOptions,
 } from './deploy-schedulers';
 export { gcpListSchedulers } from './list-schedulers';
+export { gcpRunCron } from './run-cron';
+export { gcpDeployCronJobs } from './deploy-cron-jobs';
+export { gcpDeployCronJob } from './deploy-cron-job';
 export { gcpGenerateCiWorkflows } from './generate-ci-workflows';
 export { gcpInitCi } from './init-ci';
 export { gcpDbMigratePlan } from './db-migrate-plan';

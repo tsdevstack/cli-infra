@@ -36,6 +36,7 @@ rs.mock('@tsdevstack/infra-core', () => ({
     generateRoute53Tf: rs.fn(() => '# route53.tf'),
     generateS3SpaTf: rs.fn(() => '# s3-spa.tf'),
     generateEventbridgeTf: rs.fn(() => '# eventbridge.tf'),
+    generateCronJobsTf: rs.fn(() => '# cron-jobs.tf'),
     generateJobInvokerLambdaCode: rs.fn(() => '// job-invoker'),
     generateNextjsCloudfrontTf: rs.fn(() => '# nextjs-cloudfront.tf'),
     generateResponseHeadersPolicyTf: rs.fn(() => '# response-headers.tf'),
@@ -55,6 +56,9 @@ rs.mock('@tsdevstack/infra-core', () => ({
     totalInstances: 6,
   })),
   getTotalWorkerMaxInstances: rs.fn(() => 3),
+  CRON_JOB_TIMEOUT: { aws: { min: 1, max: 86400, default: 600 } },
+  CRON_JOB_NAME_PREFIX: 'cron-',
+  DEFAULT_SCHEDULED_JOB_TIMEZONE: 'UTC',
   generateDbInit: rs.fn(() => ({
     dockerfile: 'FROM node',
     packageJson: '{}',
@@ -79,7 +83,8 @@ rs.mock('../../infrastructure/merge-with-defaults', () => ({
     minInstances: 1,
     maxInstances: 3,
   })),
-  getScheduledJobs: rs.fn(() => []),
+  getTriggerJobs: rs.fn(() => []),
+  getCronJobs: rs.fn(() => []),
   getDatabaseConfig: rs.fn(() => ({
     tier: 'db.t3.micro',
     diskSize: 20,
@@ -120,8 +125,10 @@ rs.mock('node:child_process', () => ({
 import { generateTerraformFiles } from './generate-terraform-files';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
 import type { ResolvedServiceConfig } from '../../infrastructure/types';
+import { aws } from '@tsdevstack/infra-core';
 import {
-  getScheduledJobs,
+  getTriggerJobs,
+  getCronJobs,
   getServiceConfig,
   getKongConfig,
   getDatabaseConfig,
@@ -159,7 +166,8 @@ describe('generateTerraformFiles', () => {
     mocks.writeTextFile.mockReturnValue(undefined);
 
     rs.mocked(loadInfrastructureConfig).mockReturnValue(null);
-    rs.mocked(getScheduledJobs).mockReturnValue([]);
+    rs.mocked(getTriggerJobs).mockReturnValue([]);
+    rs.mocked(getCronJobs).mockReturnValue([]);
   });
 
   it('should return output directory', () => {
@@ -390,7 +398,7 @@ describe('generateTerraformFiles', () => {
   });
 
   it('should handle scheduled jobs', () => {
-    rs.mocked(getScheduledJobs).mockReturnValue([
+    rs.mocked(getTriggerJobs).mockReturnValue([
       {
         name: 'cleanup',
         schedule: '0 0 * * *',
@@ -404,6 +412,89 @@ describe('generateTerraformFiles', () => {
     expect(result.generateConfig.scheduledJobs).toHaveProperty(
       'auth-service-cleanup',
     );
+  });
+
+  describe('Cron jobs', () => {
+    const cronJob = {
+      name: 'usage-report',
+      type: 'cron' as const,
+      schedule: '0 3 * * *',
+      targetService: 'auth-service',
+    };
+
+    it("should give Terraform each cron job with the migration job's defaults, the pool size and the service's log level", () => {
+      rs.mocked(getCronJobs).mockReturnValue([cronJob]);
+      rs.mocked(getServiceConfig).mockReturnValue({
+        cpu: '256',
+        memory: '512',
+        minInstances: 1,
+        maxInstances: 3,
+        logLevel: 'debug',
+      } as ResolvedServiceConfig);
+
+      const result = generateTerraformFiles(mockCtx, 'infra:generate');
+
+      expect(result.generateConfig.cronJobs).toEqual({
+        'usage-report': {
+          service: 'auth-service',
+          schedule: 'cron(0 3 * * *)',
+          timezone: 'UTC',
+          cpu: 1024,
+          memory: '2048',
+          timeout: 600,
+          dbPoolMax: 15,
+          logLevel: 'debug',
+        },
+      });
+    });
+
+    it("should take the entry's timeout, cpu, memory and time zone", () => {
+      rs.mocked(getCronJobs).mockReturnValue([
+        {
+          ...cronJob,
+          timeout: 1800,
+          cpu: '2048',
+          memory: '4096',
+          timezone: 'Europe/Budapest',
+        },
+      ]);
+
+      const result = generateTerraformFiles(mockCtx, 'infra:generate');
+
+      expect(result.generateConfig.cronJobs?.['usage-report']).toMatchObject({
+        cpu: 2048,
+        memory: '4096',
+        timeout: 1800,
+        timezone: 'Europe/Budapest',
+      });
+    });
+
+    it("should always write cron-jobs.tf and add the cron jobs' logs to the dashboard", () => {
+      rs.mocked(getCronJobs).mockReturnValue([cronJob]);
+
+      generateTerraformFiles(mockCtx, 'infra:generate');
+
+      const written = mocks.writeTextFile.mock.calls.map((call: unknown[]) =>
+        (call[0] as string).split('/').pop(),
+      );
+      expect(written).toContain('cron-jobs.tf');
+      expect(aws.generateDashboardTf).toHaveBeenCalledWith(
+        expect.objectContaining({ cronJobNames: ['usage-report'] }),
+      );
+    });
+
+    it('should stop on a schedule name longer than EventBridge takes', () => {
+      rs.mocked(getCronJobs).mockReturnValue([
+        { ...cronJob, name: 'a'.repeat(40) },
+      ]);
+
+      expect(() =>
+        generateTerraformFiles(
+          { ...mockCtx, projectName: 'p'.repeat(20) },
+          'infra:generate',
+        ),
+      ).toThrow('AWS takes at most 64');
+    });
   });
 
   it('should generate redirect when configured', () => {

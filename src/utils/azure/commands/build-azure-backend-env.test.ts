@@ -300,4 +300,21 @@ describe('buildAzureBackendEnv', () => {
       );
     });
   });
+  describe('Cron jobs', () => {
+    it("should pass the cron job's name and timeout to the shared env builder", () => {
+      mockBuildBackendEnvVars.mockReturnValue({});
+      buildAzureBackendEnv({
+        ...baseConfig,
+        hasDatabase: false,
+        cronJob: { name: 'usage-report', timeoutSeconds: 1800 },
+      });
+
+      expect(mockBuildBackendEnvVars).toHaveBeenCalledWith(
+        expect.objectContaining({
+          provider: 'azure',
+          cronJob: { name: 'usage-report', timeoutSeconds: 1800 },
+        }),
+      );
+    });
+  });
 });

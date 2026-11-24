@@ -46,6 +46,19 @@ rs.mock('../discovery', () => ({
   discoverDeployedServices: rs.fn(),
 }));
 
+rs.mock('./deploy-cron-jobs', () => ({
+  gcpDeployCronJobs: rs.fn(),
+}));
+rs.mock('../../infrastructure/merge-with-defaults', () => ({
+  getCronJobs: rs.fn(() => []),
+}));
+rs.mock('../../infrastructure/load-infrastructure-config', () => ({
+  loadInfrastructureConfig: rs.fn(() => null),
+}));
+rs.mock('../../docker', () => ({
+  getGitSha: rs.fn(() => 'sha'),
+}));
+
 const mockConfigureDockerAuth = rs.fn();
 rs.mock('@tsdevstack/infra-core', () => ({
   buildGcpTerraformEnv: rs.fn(() => ({ GOOGLE_PROJECT: 'my-gcp-project' })),

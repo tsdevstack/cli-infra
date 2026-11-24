@@ -240,4 +240,28 @@ describe('buildGcpLogSourceFilter', () => {
       ).toBeUndefined();
     });
   });
+  describe('Cron jobs', () => {
+    it("should read a cron job's Cloud Run Job in both naming schemes", () => {
+      expect(
+        buildGcpLogSourceFilter(
+          { name: 'usage-report', type: 'cron', service: 'auth-service' },
+          'shop',
+          'legacy',
+          {},
+        ),
+      ).toBe(
+        '(resource.type="cloud_run_job" AND resource.labels.job_name="cron-usage-report")',
+      );
+      expect(
+        buildGcpLogSourceFilter(
+          { name: 'usage-report', type: 'cron', service: 'auth-service' },
+          'shop',
+          'unique',
+          {},
+        ),
+      ).toBe(
+        '(resource.type="cloud_run_job" AND resource.labels.job_name="shop-cron-usage-report")',
+      );
+    });
+  });
 });

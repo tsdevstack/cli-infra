@@ -9,7 +9,7 @@ import {
   API_KEY_USAGE_SYNC_JOB_PATH,
   API_KEY_USAGE_SYNC_JOB_SCHEDULE,
 } from '../../constants';
-import { getScheduledJobs } from './get-scheduled-jobs';
+import { getTriggerJobs } from './get-trigger-jobs';
 import type { InfrastructureConfig } from './types';
 
 export interface WarnMissingApiKeyUsageJobOptions {
@@ -46,7 +46,7 @@ export function warnMissingApiKeyUsageJob(
   if (!authService) return false;
 
   const endpoint = `/${resolveGlobalPrefix(authService)}${API_KEY_USAGE_SYNC_JOB_PATH}`;
-  const jobs = getScheduledJobs(
+  const jobs = getTriggerJobs(
     infraConfig as { [env: string]: unknown } | null,
     environment,
   );

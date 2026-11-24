@@ -9,6 +9,7 @@ import { getContext } from '../../context';
 import {
   buildGcpTerraformEnv,
   uploadSpaToCloudStorage,
+  toTerraformId,
 } from '@tsdevstack/infra-core';
 import { getTerraformOutput } from './terraform';
 import { buildRuntime } from '../build-runtime';
@@ -55,7 +56,7 @@ export async function deploySpaService(
 
   // Get bucket name from terraform output
   // Terraform output key format: {service_name}_spa_bucket (underscores)
-  const outputKey = `${service.name.replace(/-/g, '_')}_spa_bucket`;
+  const outputKey = `${toTerraformId(service.name)}_spa_bucket`;
   let bucketName: string;
 
   try {

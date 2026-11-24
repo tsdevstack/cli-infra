@@ -15,6 +15,10 @@ import { deployContainerAppServices } from './deploy-container-app-services';
 import { deployNextjsAppServices } from './deploy-nextjs-app-services';
 import { deploySpaServices } from './deploy-spa-services';
 import { deployCoupledWorkers } from './deploy-coupled-workers';
+import { azureDeployCronJobs } from './deploy-cron-jobs';
+import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
+import { getCronJobs } from '../../infrastructure/merge-with-defaults';
+import { getGitSha } from '../../docker';
 import { discoverDeployedServices } from '../discovery';
 import {
   checkTopologyDrift,
@@ -155,6 +159,17 @@ export async function azureDeployServices(
     (s) => s.name,
   );
   await deployCoupledWorkers(ctx, config, dockerServiceNames, options.tag);
+
+  // Deploy the cron jobs of the deployed NestJS services: their image, this tag
+  const cronJobs = getCronJobs(loadInfrastructureConfig(), targetEnv).filter(
+    (job) => nestjsServices.some((s) => s.name === job.targetService),
+  );
+  if (cronJobs.length > 0) {
+    await azureDeployCronJobs(ctx, config, cronJobs, {
+      imageTag: options.tag ?? getGitSha(),
+      commandName: 'infra:deploy-services',
+    });
+  }
 
   // Deploy SPA services to Blob Storage
   if (spaServices.length > 0) {

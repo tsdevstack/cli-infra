@@ -12,7 +12,14 @@ import {
   REDIS_CONSTRAINTS,
   VALID_SCHEDULED_JOB_METHODS,
 } from '../../constants';
-import { SCHEDULED_JOB_HTTP_TIMEOUT } from '@tsdevstack/infra-core';
+import {
+  CRON_JOB_NAME_MAX_LENGTH,
+  CRON_JOB_NAME_PATTERN,
+  CRON_JOB_TIMEOUT,
+  CRON_JOB_TYPE,
+  SCHEDULED_JOB_HTTP_TIMEOUT,
+  TRIGGER_JOB_TYPE,
+} from '@tsdevstack/infra-core';
 import {
   getProviderSchemaConfig,
   type SchemaProvider,
@@ -313,6 +320,21 @@ export function generateInfrastructureSchema(
 ): string {
   const providerConfig = getProviderSchemaConfig(provider);
 
+  // Both kinds of scheduled job run their schedule in a time zone
+  const scheduledJobTimezone =
+    provider === 'azure'
+      ? {
+          type: 'string',
+          enum: ['UTC', 'Etc/UTC'],
+          description:
+            'Azure Container Apps jobs run their schedule in UTC only',
+        }
+      : {
+          type: 'string',
+          description:
+            'IANA time zone the schedule runs in, e.g. Europe/Budapest (default: UTC)',
+        };
+
   const schema = {
     $schema: 'http://json-schema.org/draft-07/schema#',
     title: 'tsdevstack Infrastructure Configuration',
@@ -609,13 +631,27 @@ export function generateInfrastructureSchema(
       },
       ...buildWafSchemaDefinitions(provider),
       ScheduledJobConfig: {
-        type: 'object',
         description: providerConfig.scheduledJobDescription,
+        oneOf: [
+          { $ref: '#/definitions/TriggerJobConfig' },
+          { $ref: '#/definitions/CronJobConfig' },
+        ],
+      },
+      TriggerJobConfig: {
+        type: 'object',
+        description:
+          'A trigger: the schedule calls an endpoint of the service (an entry with an endpoint; "type" may be left out)',
         required: ['name', 'schedule', 'targetService', 'endpoint'],
         properties: {
           name: {
             type: 'string',
-            description: 'Job name (e.g., "cleanup-tokens")',
+            description:
+              'Job name (e.g., "cleanup-tokens"); unique across the project, both kinds',
+          },
+          type: {
+            type: 'string',
+            enum: [TRIGGER_JOB_TYPE],
+            description: 'Optional: an entry with an endpoint is a trigger',
           },
           schedule: {
             type: 'string',
@@ -640,19 +676,53 @@ export function generateInfrastructureSchema(
             maximum: SCHEDULED_JOB_HTTP_TIMEOUT[provider].max,
             description: `Seconds to wait for the response (default: ${SCHEDULED_JOB_HTTP_TIMEOUT[provider].default})`,
           },
-          timezone:
-            provider === 'azure'
-              ? {
-                  type: 'string',
-                  enum: ['UTC', 'Etc/UTC'],
-                  description:
-                    'Azure Container Apps jobs run their schedule in UTC only',
-                }
-              : {
-                  type: 'string',
-                  description:
-                    'IANA time zone the schedule runs in, e.g. Europe/Budapest (default: UTC)',
-                },
+          timezone: scheduledJobTimezone,
+        },
+        additionalProperties: false,
+      },
+      CronJobConfig: {
+        type: 'object',
+        description:
+          "A cron job: the schedule runs the service's image as node dist/cron.js <name>, one task to completion (npx tsdevstack register-cron writes the handler)",
+        required: ['name', 'type', 'schedule', 'targetService'],
+        properties: {
+          name: {
+            type: 'string',
+            pattern: CRON_JOB_NAME_PATTERN.source,
+            maxLength: CRON_JOB_NAME_MAX_LENGTH,
+            description:
+              'Job name (e.g., "usage-report"), kebab-case: the handler in src/cron/{name}.cron.ts; unique across the project, both kinds',
+          },
+          type: {
+            type: 'string',
+            enum: [CRON_JOB_TYPE],
+            description: 'A cron job runs code; a trigger calls an endpoint',
+          },
+          schedule: {
+            type: 'string',
+            description: 'Cron schedule (e.g., "0 3 * * *" for daily at 03:00)',
+          },
+          targetService: {
+            type: 'string',
+            description: 'The NestJS service whose image runs the job',
+          },
+          timeout: {
+            type: 'integer',
+            minimum: CRON_JOB_TIMEOUT[provider].min,
+            maximum: CRON_JOB_TIMEOUT[provider].max,
+            description: `Seconds a run may take before it is stopped (default: ${CRON_JOB_TIMEOUT[provider].default})`,
+          },
+          cpu: {
+            type: 'string',
+            enum: [...providerConfig.migrationJobCpuValues],
+            description: `CPU of the run; ${providerConfig.migrationJobCpuDescription}`,
+          },
+          memory: {
+            type: 'string',
+            enum: [...providerConfig.migrationJobMemoryValues],
+            description: `Memory of the run; ${providerConfig.migrationJobMemoryDescription}`,
+          },
+          timezone: scheduledJobTimezone,
         },
         additionalProperties: false,
       },

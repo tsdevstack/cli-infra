@@ -198,4 +198,28 @@ describe('deleteEnvironmentContainerResources', () => {
       });
     });
   });
+  describe('Cron jobs', () => {
+    it('should delete the cron jobs (tagged) and leave the triggers alone', async () => {
+      listApps.mockReturnValue(items([]));
+      listJobs.mockReturnValue(
+        items([
+          {
+            name: 'app-cron-usage-report',
+            environmentId: ENV_ID,
+            tags: { 'tsdevstack-cron-service': 'auth-service' },
+          },
+          { name: 'app-cleanup-tokens', environmentId: ENV_ID },
+        ]),
+      );
+
+      const result = await deleteEnvironmentContainerResources(options);
+
+      expect(deleteJob).toHaveBeenCalledTimes(1);
+      expect(deleteJob).toHaveBeenCalledWith(
+        'app-dev-rg',
+        'app-cron-usage-report',
+      );
+      expect(result.deleted).toEqual(['app-cron-usage-report']);
+    });
+  });
 });

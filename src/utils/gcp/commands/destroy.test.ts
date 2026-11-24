@@ -62,6 +62,11 @@ rs.mock('../terraform', () => ({
 
 const mockDeleteEnvironmentCloudRunResources = rs.fn();
 const mockGetEnvironmentCloudRunNames = rs.fn();
+const mockDiscoverCronJobs = rs.fn();
+rs.mock('../discovery/discover-cron-jobs', () => ({
+  discoverCronJobs: (...args: unknown[]) => mockDiscoverCronJobs(...args),
+}));
+
 rs.mock('../delete', () => ({
   deleteEnvironmentCloudRunResources: (...args: unknown[]) =>
     mockDeleteEnvironmentCloudRunResources(...args),
@@ -112,6 +117,7 @@ describe('gcpDestroy', () => {
       notFound: [],
       failed: [],
     });
+    mockDiscoverCronJobs.mockResolvedValue([]);
   });
 
   describe('Cloud Run services and jobs', () => {
@@ -167,6 +173,49 @@ describe('gcpDestroy', () => {
         'my-app',
         'legacy',
       );
+    });
+
+    it("should delete the cron jobs' Cloud Run Jobs found by their labels", async () => {
+      // Found in the cloud, whether infrastructure.json still has the entry or not
+      mockDiscoverCronJobs.mockResolvedValue([
+        {
+          name: 'usage-report',
+          serviceName: 'auth-service',
+          cloudRunJobName: 'cron-usage-report',
+          schedulerJobName: 'usage-report',
+        },
+      ]);
+
+      await gcpDestroy(mockContext, { autoApprove: true });
+
+      expect(mockDiscoverCronJobs).toHaveBeenCalledWith({
+        projectName: 'my-app',
+        naming: 'legacy',
+        credentials: mockContext.credentials,
+      });
+      expect(mockDeleteEnvironmentCloudRunResources).toHaveBeenCalledWith(
+        expect.objectContaining({
+          names: {
+            services: ['auth-service', 'my-app-kong'],
+            jobs: ['migrate-auth-service', 'cron-usage-report'],
+          },
+        }),
+      );
+    });
+
+    it("should stop before deleting anything when the cron jobs can't be listed", async () => {
+      mockDiscoverCronJobs.mockRejectedValue(
+        new Error('7 PERMISSION_DENIED: run.jobs.list'),
+      );
+
+      await expect(
+        gcpDestroy(mockContext, { autoApprove: true }),
+      ).rejects.toMatchObject({
+        message: "Could not list the cron jobs' Cloud Run Jobs",
+        hint: '7 PERMISSION_DENIED: run.jobs.list. Run infra:destroy again; nothing was deleted yet.',
+      });
+      expect(mockDeleteEnvironmentCloudRunResources).not.toHaveBeenCalled();
+      expect(mockExecuteTerraform).not.toHaveBeenCalled();
     });
 
     it('should log each deleted resource', async () => {

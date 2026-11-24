@@ -1,26 +1,29 @@
 /**
  * GCP List Schedulers Handler
  *
- * Lists scheduled jobs and their deployment status.
- * Cross-references infrastructure config with Cloud Scheduler API.
+ * Lists the environment's scheduled jobs, both kinds, with their schedule's
+ * state in Cloud Scheduler and their last run: a trigger's last attempt, a
+ * cron job's newest Cloud Run Job execution (A6).
  */
 
 import { CloudSchedulerClient } from '@google-cloud/scheduler';
+import { ExecutionsClient } from '@google-cloud/run';
 import { getContext } from '../../../context';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
 import { getScheduledJobs } from '../../infrastructure/merge-with-defaults';
 import type { GCPCommandContext } from './types';
-import { buildGcpCloudRunName } from '@tsdevstack/infra-core';
+import { buildGcpCloudRunName, isCronJob } from '@tsdevstack/infra-core';
 import { resolveGcpNamingScheme } from '../naming/resolve-gcp-naming-scheme';
+import { buildGcpCronJobName } from '../build-gcp-cron-job-name';
 
 interface JobStatus {
   name: string;
+  kind: 'trigger' | 'cron';
   schedule: string;
-  targetService: string;
-  endpoint: string;
-  status: 'DEPLOYED' | 'NOT_FOUND' | 'ERROR';
+  target: string;
+  status: 'DEPLOYED' | 'NOT_FOUND';
   cloudState?: string;
-  lastRunTime?: string;
+  lastRun: string;
 }
 
 /**
@@ -31,7 +34,7 @@ export async function gcpListSchedulers(ctx: GCPCommandContext): Promise<void> {
 
   const { targetEnv, credentials } = ctx;
 
-  // Load infrastructure config and get scheduled jobs
+  // Load infrastructure config and get scheduled jobs, both kinds
   const infraConfig = loadInfrastructureConfig();
   const scheduledJobs = getScheduledJobs(infraConfig, targetEnv);
 
@@ -45,10 +48,9 @@ export async function gcpListSchedulers(ctx: GCPCommandContext): Promise<void> {
   logger.info(`Checking ${scheduledJobs.length} configured jobs...`);
   logger.newline();
 
-  // Initialize Cloud Scheduler client
-  const schedulerClient = new CloudSchedulerClient(
-    buildGCPClientOptions(credentials),
-  );
+  const clientOptions = buildGCPClientOptions(credentials);
+  const schedulerClient = new CloudSchedulerClient(clientOptions);
+  const parent = `projects/${credentials.project_id}/locations/${credentials.region}`;
 
   // Get deployed jobs from Cloud Scheduler
   const deployedJobs = new Map<
@@ -57,11 +59,9 @@ export async function gcpListSchedulers(ctx: GCPCommandContext): Promise<void> {
   >();
 
   try {
-    const parent = `projects/${credentials.project_id}/locations/${credentials.region}`;
     const [jobs] = await schedulerClient.listJobs({ parent });
 
     for (const job of jobs) {
-      // Extract job name from full path (projects/xxx/locations/xxx/jobs/job-name)
       const jobName = job.name?.split('/').pop();
       if (jobName) {
         deployedJobs.set(jobName, {
@@ -84,72 +84,117 @@ export async function gcpListSchedulers(ctx: GCPCommandContext): Promise<void> {
 
   // Build status for each configured job (by its Cloud Scheduler name)
   const naming = await resolveGcpNamingScheme(ctx, 'infra:list-schedulers');
-  const jobStatuses: JobStatus[] = scheduledJobs.map((job) => {
+  const executionsClient = new ExecutionsClient(clientOptions);
+  const jobStatuses: JobStatus[] = [];
+  for (const job of scheduledJobs) {
     const deployed = deployedJobs.get(
       buildGcpCloudRunName(ctx.projectName, job.name, naming),
     );
+    const cron = isCronJob(job);
+    const target = cron
+      ? job.targetService
+      : `${job.targetService}${job.endpoint}`;
 
-    if (deployed) {
-      return {
+    if (!deployed) {
+      jobStatuses.push({
         name: job.name,
+        kind: cron ? 'cron' : 'trigger',
         schedule: job.schedule,
-        targetService: job.targetService,
-        endpoint: job.endpoint,
-        status: 'DEPLOYED',
-        cloudState: deployed.state,
-        lastRunTime: deployed.lastAttemptTime,
-      };
+        target,
+        status: 'NOT_FOUND',
+        lastRun: '-',
+      });
+      continue;
     }
 
-    return {
+    let lastRun = deployed.lastAttemptTime ?? 'never ran';
+    if (cron) {
+      // The newest execution of the Cloud Run Job: its state and start
+      const cloudRunJob = `${parent}/jobs/${buildGcpCronJobName(ctx.projectName, job.name, naming)}`;
+      try {
+        const [executions] = await executionsClient.listExecutions({
+          parent: cloudRunJob,
+        });
+        const latest = [...executions].sort(
+          (a, b) =>
+            Number(b.createTime?.seconds ?? 0) -
+            Number(a.createTime?.seconds ?? 0),
+        )[0];
+        if (!latest) {
+          lastRun = 'never ran';
+        } else {
+          const state = !latest.completionTime
+            ? 'Running'
+            : latest.succeededCount === 1
+              ? 'Succeeded'
+              : latest.failedCount === 1
+                ? 'Failed'
+                : 'Ended';
+          const started = latest.createTime?.seconds
+            ? new Date(Number(latest.createTime.seconds) * 1000).toISOString()
+            : '';
+          lastRun = `${state}${started ? ` ${started}` : ''}`;
+        }
+      } catch {
+        lastRun = '? (executions not readable)';
+      }
+    }
+
+    jobStatuses.push({
       name: job.name,
+      kind: cron ? 'cron' : 'trigger',
       schedule: job.schedule,
-      targetService: job.targetService,
-      endpoint: job.endpoint,
-      status: 'NOT_FOUND',
-    };
-  });
+      target,
+      status: 'DEPLOYED',
+      cloudState: deployed.state,
+      lastRun,
+    });
+  }
 
   // Print table
-  const maxNameLen = Math.max(...jobStatuses.map((j) => j.name.length), 8);
-  const maxScheduleLen = Math.max(
-    ...jobStatuses.map((j) => j.schedule.length),
+  const width = (values: string[], min: number): number =>
+    Math.max(...values.map((v) => v.length), min);
+  const nameWidth = width(
+    jobStatuses.map((j) => j.name),
     8,
   );
-  const maxTargetLen = Math.max(
-    ...jobStatuses.map((j) => `${j.targetService}${j.endpoint}`.length),
+  const kindWidth = width(
+    jobStatuses.map((j) => j.kind),
+    4,
+  );
+  const scheduleWidth = width(
+    jobStatuses.map((j) => j.schedule),
+    8,
+  );
+  const targetWidth = width(
+    jobStatuses.map((j) => j.target),
     6,
   );
 
-  // Header
   const header = [
-    'Job Name'.padEnd(maxNameLen),
-    'Schedule'.padEnd(maxScheduleLen),
-    'Target'.padEnd(maxTargetLen),
+    'Job Name'.padEnd(nameWidth),
+    'Kind'.padEnd(kindWidth),
+    'Schedule'.padEnd(scheduleWidth),
+    'Target'.padEnd(targetWidth),
     'Status'.padEnd(10),
-    'Last Run',
+    'Last run',
   ].join(' | ');
 
-  const separator = '-'.repeat(header.length);
-
   logger.info(header);
-  logger.info(separator);
+  logger.info('-'.repeat(header.length));
 
-  // Rows
   for (const job of jobStatuses) {
-    const target = `${job.targetService}${job.endpoint}`;
-    const statusIcon = job.status === 'DEPLOYED' ? '✓' : '✗';
     const statusText =
       job.status === 'DEPLOYED'
-        ? `${statusIcon} ${job.cloudState || 'ENABLED'}`
-        : `${statusIcon} NOT FOUND`;
-
+        ? `✓ ${job.cloudState || 'ENABLED'}`
+        : '✗ NOT FOUND';
     const row = [
-      job.name.padEnd(maxNameLen),
-      job.schedule.padEnd(maxScheduleLen),
-      target.padEnd(maxTargetLen),
+      job.name.padEnd(nameWidth),
+      job.kind.padEnd(kindWidth),
+      job.schedule.padEnd(scheduleWidth),
+      job.target.padEnd(targetWidth),
       statusText.padEnd(10),
-      job.lastRunTime || '-',
+      job.lastRun,
     ].join(' | ');
 
     if (job.status === 'DEPLOYED') {
@@ -165,9 +210,7 @@ export async function gcpListSchedulers(ctx: GCPCommandContext): Promise<void> {
   const deployedCount = jobStatuses.filter(
     (j) => j.status === 'DEPLOYED',
   ).length;
-  const notFoundCount = jobStatuses.filter(
-    (j) => j.status === 'NOT_FOUND',
-  ).length;
+  const notFoundCount = jobStatuses.length - deployedCount;
 
   if (notFoundCount > 0) {
     logger.warn(`${notFoundCount} job(s) not deployed. Run:`);

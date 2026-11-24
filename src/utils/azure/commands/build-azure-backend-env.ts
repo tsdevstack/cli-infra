@@ -32,6 +32,8 @@ interface BuildAzureBackendEnvConfig {
   logLevel?: string;
   /** A worker's own name, for its log lines (serviceName stays the base service) */
   workerName?: string;
+  /** A cron job's run: its name and the timeout the runner stops it at */
+  cronJob?: { name: string; timeoutSeconds: number };
   /** TRACE_SAMPLE_RATE (tracing.sampleRate of the environment) */
   traceSampleRate?: number;
   /** Where spans go (tracing.tf's otlp_traces_url); none: no spans sent */
@@ -72,6 +74,7 @@ export function buildAzureBackendEnv(
     poolMax,
     logLevel: config.logLevel,
     workerName: config.workerName,
+    cronJob: config.cronJob,
     traceSampleRate: config.traceSampleRate,
   });
 

@@ -1,8 +1,9 @@
 /**
  * Azure Deploy Scheduler Handler
  *
- * Deploys a single scheduled job using targeted Terraform apply on
- * azurerm_container_app_job resources.
+ * Deploys a single scheduled job: a trigger with a targeted Terraform apply
+ * on its azurerm_container_app_job resource, a cron job with the SDK (the
+ * image its service runs).
  */
 
 import path from 'node:path';
@@ -11,7 +12,11 @@ import inquirer from 'inquirer';
 import { getContext } from '../../../context';
 import { buildRuntime } from '../../build-runtime';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
-import { getScheduledJobs } from '../../infrastructure/merge-with-defaults';
+import {
+  getCronJobs,
+  getTriggerJobs,
+} from '../../infrastructure/merge-with-defaults';
+import { azureDeployCronJobs } from './deploy-cron-jobs';
 import { executeTerraform } from '../terraform';
 import {
   buildAzureTerraformEnv,
@@ -32,16 +37,30 @@ export async function azureDeployScheduler(
   ctx: AzureCommandContext,
   options: DeploySchedulerOptions,
 ): Promise<void> {
-  const { logger, CliError, isCIEnv } = getContext();
+  const { logger, CliError, isCIEnv, loadFrameworkConfig } = getContext();
   const runtime = buildRuntime();
-
-  checkTerraformInstalled(runtime);
 
   const { projectRoot, targetEnv, credentials } = ctx;
 
-  // Load infrastructure config and get scheduled jobs
+  // Load infrastructure config and get scheduled jobs, both kinds
   const infraConfig = loadInfrastructureConfig();
-  const scheduledJobs = getScheduledJobs(infraConfig, targetEnv);
+  const scheduledJobs = getTriggerJobs(infraConfig, targetEnv);
+  const cronJobs = getCronJobs(infraConfig, targetEnv);
+
+  // A cron job named with --job: the SDK path, no Terraform
+  const cronJob = cronJobs.find((job) => job.name === options.job);
+  if (cronJob) {
+    logger.info(`Environment: ${targetEnv}`);
+    logger.info(
+      `Cron job: ${cronJob.name} (${cronJob.schedule}) → ${cronJob.targetService}`,
+    );
+    await azureDeployCronJobs(ctx, loadFrameworkConfig(), [cronJob], {
+      commandName: 'infra:deploy-scheduler',
+    });
+    return;
+  }
+
+  checkTerraformInstalled(runtime);
 
   if (scheduledJobs.length === 0) {
     throw new CliError(
@@ -84,7 +103,7 @@ export async function azureDeployScheduler(
     throw new CliError(
       `Scheduled job '${jobName}' not found in config`,
       'infra:deploy-scheduler',
-      `Available jobs: ${scheduledJobs.map((j) => j.name).join(', ')}`,
+      `Available jobs: ${[...scheduledJobs, ...cronJobs].map((j) => j.name).join(', ')}`,
     );
   }
 

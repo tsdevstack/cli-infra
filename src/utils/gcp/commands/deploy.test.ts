@@ -49,7 +49,15 @@ const mockBuildGcpTerraformEnv = rs.fn(
     };
   },
 );
+const mockSetSchedulerInvokerBindings = rs.fn();
 rs.mock('@tsdevstack/infra-core', () => ({
+  buildGcpCloudRunName: (project: string, name: string, naming: string) =>
+    naming === 'unique' ? `${project}-${name}` : name,
+  isTriggerJob: (job: { type?: string }) => job.type !== 'cron',
+  setSchedulerInvokerBindings: (...args: unknown[]) =>
+    mockSetSchedulerInvokerBindings(...args),
+  toTfVarSuffix: (name: string) =>
+    name.replace(/-service$/, '').replace(/-/g, '_'),
   generateDbInit: rs.fn(() => ({
     dockerfile: 'FROM node',
     packageJson: '{}',
@@ -59,6 +67,9 @@ rs.mock('@tsdevstack/infra-core', () => ({
     mockCheckTerraformInstalled(...args),
   buildGcpTerraformEnv: (runtime: unknown, credentials: unknown) =>
     mockBuildGcpTerraformEnv(runtime, credentials),
+  toScreamingSnakeCase: rs.fn((name: string) =>
+    name.toUpperCase().replace(/-/g, '_'),
+  ),
   gcp: {
     generateMainTf: rs.fn(() => '# main.tf'),
     generateVariablesTf: rs.fn(() => '# variables.tf'),
@@ -121,6 +132,7 @@ rs.mock('../../infrastructure/load-infrastructure-config', () => ({
   loadInfrastructureConfig: rs.fn(() => null),
 }));
 
+const mockGetScheduledJobs = rs.fn((..._args: unknown[]): unknown[] => []);
 rs.mock('../../infrastructure/merge-with-defaults', () => ({
   getDatabaseConfig: rs.fn(() => ({
     tier: 'db-f1-micro',
@@ -130,7 +142,9 @@ rs.mock('../../infrastructure/merge-with-defaults', () => ({
     backup: false,
   })),
   getRedisConfig: rs.fn(() => ({ tier: 'BASIC', memoryGb: 1 })),
-  getScheduledJobs: rs.fn(() => []),
+  getScheduledJobs: (...args: unknown[]) => mockGetScheduledJobs(...args),
+  getTriggerJobs: rs.fn(() => []),
+  getCronJobs: rs.fn(() => []),
 }));
 
 const mockInquirer = {
@@ -363,6 +377,74 @@ describe('gcpDeploy', () => {
       expect(mocks.logger.warn).toHaveBeenCalledWith(
         expect.stringContaining('cancelled'),
       );
+    });
+  });
+
+  describe("scheduler account's run.invoker", () => {
+    beforeEach(() => {
+      mocks.loadFrameworkConfig.mockReturnValue({
+        project: { name: 'my-app' },
+        cloud: { provider: 'gcp' },
+        services: [
+          { name: 'auth-service', hasDatabase: true },
+          { name: 'bff-service' },
+        ],
+      });
+    });
+
+    it("should be set on the triggers' services only after the services are deployed", async () => {
+      mockGetScheduledJobs.mockReturnValue([
+        {
+          name: 'cleanup-tokens',
+          schedule: '0 3 * * *',
+          targetService: 'auth-service',
+          endpoint: '/auth/jobs/cleanup-tokens',
+        },
+        // A cron job: its Cloud Run Job got the grant as Phase 2 deployed it
+        {
+          name: 'usage-report',
+          type: 'cron',
+          schedule: '0 4 * * *',
+          targetService: 'bff-service',
+        },
+      ]);
+      const order: string[] = [];
+      mockInfraDeployServices.mockImplementation(async () => {
+        order.push('services');
+      });
+      mockSetSchedulerInvokerBindings.mockImplementation(async () => {
+        order.push('bindings');
+      });
+
+      await gcpDeploy(mockContext, { autoApprove: true });
+
+      expect(mockSetSchedulerInvokerBindings).toHaveBeenCalledTimes(1);
+      expect(mockSetSchedulerInvokerBindings).toHaveBeenCalledWith(
+        {},
+        {
+          projectId: 'gcp-project-123',
+          projectName: 'my-app',
+          region: 'us-central1',
+          targetServices: ['auth-service'],
+          credentials: mockContext.credentials,
+        },
+      );
+      expect(order).toEqual(['services', 'bindings']);
+    });
+
+    it('should set nothing here with cron jobs only', async () => {
+      mockGetScheduledJobs.mockReturnValue([
+        {
+          name: 'usage-report',
+          type: 'cron',
+          schedule: '0 4 * * *',
+          targetService: 'bff-service',
+        },
+      ]);
+
+      await gcpDeploy(mockContext, { autoApprove: true });
+
+      expect(mockSetSchedulerInvokerBindings).not.toHaveBeenCalled();
     });
   });
 

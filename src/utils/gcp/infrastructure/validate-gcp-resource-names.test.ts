@@ -76,4 +76,26 @@ describe('validateGcpResourceNames', () => {
       ).toThrow('GCS takes at most 63');
     });
   });
+  describe('Cron jobs', () => {
+    it("should stop on a cron job's Cloud Run Job name over 49 characters, in both schemes", () => {
+      // 'myapp-cron-' is 11 characters: a 39-character name makes 50
+      expect(() =>
+        validateGcpResourceNames(options({ cronJobNames: ['a'.repeat(39)] })),
+      ).toThrow(
+        `Cloud Run Job name "myapp-cron-${'a'.repeat(39)}" is 50 characters; Cloud Run takes at most 49`,
+      );
+      // 'cron-' is 5: a legacy environment is checked too, since the job is new
+      expect(() =>
+        validateGcpResourceNames(
+          options({ naming: 'legacy', cronJobNames: ['a'.repeat(45)] }),
+        ),
+      ).toThrow('is 50 characters');
+    });
+
+    it('should accept a cron job name that fits', () => {
+      expect(() =>
+        validateGcpResourceNames(options({ cronJobNames: ['a'.repeat(38)] })),
+      ).not.toThrow();
+    });
+  });
 });

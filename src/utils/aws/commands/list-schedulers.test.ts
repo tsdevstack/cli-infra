@@ -35,6 +35,16 @@ rs.mock('../build-aws-client-config', () => ({
   buildAWSClientConfig: rs.fn(() => ({ region: 'us-east-1' })),
 }));
 
+rs.mock('@tsdevstack/infra-core', () => ({
+  isCronJob: (job: { type?: string }) => job.type === 'cron',
+  CRON_JOB_NAME_PREFIX: 'cron-',
+}));
+
+const mockReadLastRun = rs.fn();
+rs.mock('./read-aws-cron-job-last-run', () => ({
+  readAwsCronJobLastRun: (...args: unknown[]) => mockReadLastRun(...args),
+}));
+
 import { awsListSchedulers } from './list-schedulers';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
 import { getScheduledJobs } from '../../infrastructure/merge-with-defaults';
@@ -168,6 +178,67 @@ describe('awsListSchedulers', () => {
     expect(mocks.logger.info).toHaveBeenCalledWith(
       expect.stringContaining('infra:deploy-schedulers'),
     );
+  });
+
+  describe('Cron jobs', () => {
+    const cronJob = {
+      name: 'usage-report',
+      type: 'cron' as const,
+      schedule: '0 3 * * *',
+      targetService: 'auth-service',
+    };
+
+    it("should show a cron job's kind and its last run from its log group", async () => {
+      rs.mocked(getScheduledJobs).mockReturnValue([mockJobs[0], cronJob]);
+      mockSend.mockResolvedValue({
+        Schedules: [
+          { Name: 'my-app-auth-service-cleanup-tokens', State: 'ENABLED' },
+          { Name: 'my-app-auth-service-usage-report', State: 'ENABLED' },
+        ],
+      });
+      mockReadLastRun.mockResolvedValue('Succeeded 2026-11-20T03:00:41.000Z');
+
+      await awsListSchedulers(mockCtx);
+
+      expect(mockReadLastRun).toHaveBeenCalledWith(
+        mockCtx.credentials,
+        '/ecs/my-app/cron-usage-report',
+      );
+      const rows = rs
+        .mocked(mocks.logger.success)
+        .mock.calls.map(([line]) => String(line));
+      expect(rows.find((row) => row.startsWith('usage-report'))).toMatch(
+        /^usage-report +\| cron +\| 0 3 \* \* \* +\| auth-service +\| ✓ ENABLED +\| Succeeded 2026-11-20T03:00:41.000Z$/,
+      );
+      expect(rows.find((row) => row.startsWith('cleanup-tokens'))).toMatch(
+        /\| trigger \|.*\| -$/,
+      );
+    });
+
+    it("should say when a cron job's log can't be read", async () => {
+      rs.mocked(getScheduledJobs).mockReturnValue([cronJob]);
+      mockSend.mockResolvedValue({
+        Schedules: [
+          { Name: 'my-app-auth-service-usage-report', State: 'ENABLED' },
+        ],
+      });
+      mockReadLastRun.mockRejectedValue(new Error('AccessDenied'));
+
+      await awsListSchedulers(mockCtx);
+
+      expect(mocks.logger.success).toHaveBeenCalledWith(
+        expect.stringContaining('? (log not readable)'),
+      );
+    });
+
+    it('should read no log for a cron job whose schedule is not deployed', async () => {
+      rs.mocked(getScheduledJobs).mockReturnValue([cronJob]);
+      mockSend.mockResolvedValue({ Schedules: [] });
+
+      await awsListSchedulers(mockCtx);
+
+      expect(mockReadLastRun).not.toHaveBeenCalled();
+    });
   });
 
   it('should use NamePrefix to filter schedules', async () => {

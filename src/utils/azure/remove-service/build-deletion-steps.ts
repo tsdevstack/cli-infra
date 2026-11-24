@@ -4,6 +4,7 @@
  * Build deletion steps based on discovered resources.
  *
  * Order is critical:
+ * 0. Cron jobs (Container App Jobs running the service's image)
  * 1. Coupled workers (Container Apps)
  * 2. Container App (stop traffic)
  * 3. SPA Storage Account
@@ -20,7 +21,11 @@
 
 import type { DeletionStep, DeletionStepResult } from './types';
 import type { AzureCommandContext } from '../commands/types';
-import type { DiscoveredResources, CoupledWorkerInfo } from '../discovery';
+import type {
+  DiscoveredResources,
+  CoupledWorkerInfo,
+  CoupledCronJobInfo,
+} from '../discovery';
 import {
   deleteContainerApp,
   deleteContainerAppJob,
@@ -40,6 +45,8 @@ export interface BuildDeletionStepsOptions {
   projectName: string;
   targetEnv: string;
   coupledWorkers: CoupledWorkerInfo[];
+  /** The service's cron jobs (Container App Jobs tagged with the service) */
+  coupledCronJobs?: CoupledCronJobInfo[];
   /** Saves the database before it is dropped (left out: --skip-export) */
   saveDatabase?: () => Promise<DeletionStepResult>;
 }
@@ -57,12 +64,28 @@ export function buildDeletionSteps(
     projectName,
     targetEnv,
     coupledWorkers,
+    coupledCronJobs = [],
     saveDatabase,
   } = options;
   const { credentials } = ctx;
   const resourceGroupName = `${projectName}-${targetEnv}-rg`;
   const { vaultName } = discovered;
   const steps: DeletionStep[] = [];
+
+  // 0. Delete the service's cron jobs: they run its image with its identity
+  for (const cronJob of coupledCronJobs) {
+    steps.push({
+      name: 'Cron job',
+      label: `Deleting cron job ${cronJob.name}`,
+      resource: cronJob.name,
+      execute: () =>
+        deleteContainerAppJob({
+          credentials,
+          resourceGroupName,
+          jobName: cronJob.jobName,
+        }),
+    });
+  }
 
   // 0. Delete coupled workers first
   for (const worker of coupledWorkers) {

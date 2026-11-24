@@ -41,3 +41,11 @@ export const GCP_TERRAFORM_STATE_FILE = 'default.tfstate';
  * `{url}/b/{bucket}/o/{object}?alt=media`
  */
 export const GCS_JSON_API_URL = 'https://storage.googleapis.com/storage/v1';
+
+/**
+ * Labels on the Cloud Run Jobs deploys create for cron jobs
+ * (`{project}-cron-{job}`): the service whose image runs, and the job's
+ * config name. remove-service finds a service's cron jobs by them.
+ */
+export const GCP_CRON_JOB_SERVICE_LABEL = 'tsdevstack-cron-service';
+export const GCP_CRON_JOB_NAME_LABEL = 'tsdevstack-cron-job';

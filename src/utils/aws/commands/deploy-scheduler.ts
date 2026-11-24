@@ -1,7 +1,11 @@
 /**
  * AWS Deploy Scheduler Handler
  *
- * Deploys a single scheduled job to EventBridge Scheduler using targeted Terraform apply.
+ * Deploys a single scheduled job to EventBridge Scheduler using targeted
+ * Terraform apply. For a cron job, the apply also creates its task
+ * definition, log group and the scheduler role; then its task definition
+ * gets a revision with the image the service runs and the schedule is
+ * pointed at it (awsDeployCronJobs).
  */
 
 import path from 'node:path';
@@ -9,14 +13,19 @@ import fs from 'node:fs';
 import inquirer from 'inquirer';
 import { getContext } from '../../../context';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
-import { getScheduledJobs } from '../../infrastructure/merge-with-defaults';
+import {
+  getCronJobs,
+  getTriggerJobs,
+} from '../../infrastructure/merge-with-defaults';
 import { executeTerraform } from '../terraform';
 import {
   buildAwsTerraformEnv,
   checkTerraformInstalled,
+  isCronJob,
 } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
-import { buildScheduledJobKey } from './build-scheduled-job-key';
+import { buildAwsScheduleTarget } from './build-aws-schedule-target';
+import { awsDeployCronJobs } from './deploy-cron-jobs';
 import type { AWSCommandContext } from './types';
 
 export interface DeploySchedulerOptions {
@@ -31,16 +40,19 @@ export async function awsDeployScheduler(
   ctx: AWSCommandContext,
   options: DeploySchedulerOptions,
 ): Promise<void> {
-  const { logger, CliError, isCIEnv } = getContext();
+  const { logger, CliError, isCIEnv, loadFrameworkConfig } = getContext();
 
   const runtime = buildRuntime();
   checkTerraformInstalled(runtime);
 
   const { projectRoot, targetEnv, credentials } = ctx;
 
-  // Load infrastructure config and get scheduled jobs
+  // Load infrastructure config and get scheduled jobs, both kinds
   const infraConfig = loadInfrastructureConfig();
-  const scheduledJobs = getScheduledJobs(infraConfig, targetEnv);
+  const scheduledJobs = [
+    ...getTriggerJobs(infraConfig, targetEnv),
+    ...getCronJobs(infraConfig, targetEnv),
+  ];
 
   if (scheduledJobs.length === 0) {
     throw new CliError(
@@ -69,7 +81,9 @@ export async function awsDeployScheduler(
         name: 'selectedJob',
         message: 'Select scheduled job to deploy:',
         choices: scheduledJobs.map((j) => ({
-          name: `${j.name} (${j.schedule}) → ${j.targetService}${j.endpoint}`,
+          name: isCronJob(j)
+            ? `${j.name} (${j.schedule}) → ${j.targetService} (cron job)`
+            : `${j.name} (${j.schedule}) → ${j.targetService}${j.endpoint}`,
           value: j.name,
         })),
       },
@@ -102,11 +116,11 @@ export async function awsDeployScheduler(
     );
   }
 
-  // Check if eventbridge.tf exists
-  const eventbridgeTfPath = path.join(terraformDir, 'eventbridge.tf');
-  if (!fs.existsSync(eventbridgeTfPath)) {
+  // The schedule's file comes from infra:generate
+  const tfFile = isCronJob(jobConfig) ? 'cron-jobs.tf' : 'eventbridge.tf';
+  if (!fs.existsSync(path.join(terraformDir, tfFile))) {
     throw new CliError(
-      'eventbridge.tf not found',
+      `${tfFile} not found`,
       'infra:deploy-scheduler',
       `Run npx tsdevstack infra:generate --env ${targetEnv} first`,
     );
@@ -116,7 +130,11 @@ export async function awsDeployScheduler(
   logger.info(`Environment: ${targetEnv}`);
   logger.info(`Job: ${jobConfig.name}`);
   logger.info(`Schedule: ${jobConfig.schedule}`);
-  logger.info(`Target: ${jobConfig.targetService}${jobConfig.endpoint}`);
+  logger.info(
+    isCronJob(jobConfig)
+      ? `Target: ${jobConfig.targetService} (cron job)`
+      : `Target: ${jobConfig.targetService}${jobConfig.endpoint}`,
+  );
   logger.newline();
 
   // Build Terraform environment
@@ -143,13 +161,12 @@ export async function awsDeployScheduler(
   logger.info(`Deploying ${jobConfig.name}...`);
   logger.newline();
 
-  const jobKey = buildScheduledJobKey(jobConfig.targetService, jobConfig.name);
   const tfVarsFile = path.join(terraformDir, 'terraform.tfvars');
   const applyResult = await executeTerraform('apply', {
     workDir: terraformDir,
     env: tfEnv,
     autoApprove: options.autoApprove ?? isCIEnv(),
-    target: `aws_scheduler_schedule.job["${jobKey}"]`,
+    target: buildAwsScheduleTarget(jobConfig),
     varFile: tfVarsFile,
   });
 
@@ -159,6 +176,14 @@ export async function awsDeployScheduler(
       'infra:deploy-scheduler',
       applyResult.error || 'Check the output above for details',
     );
+  }
+
+  // A cron job: a revision with the image the service runs, the schedule
+  // pointed at it
+  if (isCronJob(jobConfig)) {
+    await awsDeployCronJobs(ctx, loadFrameworkConfig(), [jobConfig], {
+      commandName: 'infra:deploy-scheduler',
+    });
   }
 
   logger.newline();

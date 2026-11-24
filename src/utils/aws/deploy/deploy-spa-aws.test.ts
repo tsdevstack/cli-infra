@@ -28,6 +28,7 @@ rs.mock('@tsdevstack/infra-core', () => ({
   buildAwsTerraformEnv: rs.fn(() => ({ AWS_REGION: 'eu-central-1' })),
   uploadSpaToS3: rs.fn(),
   invalidateCloudfront: rs.fn(),
+  toTerraformId: rs.fn((name: string) => name.replace(/-/g, '_')),
 }));
 
 rs.mock('node:fs', () => ({

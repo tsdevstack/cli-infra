@@ -18,6 +18,7 @@ import {
   createAzureCredential,
   parseServiceFilter,
   uploadSpaToAzureStorage,
+  toTerraformId,
 } from '@tsdevstack/infra-core';
 import type { AzureCommandContext } from './types';
 
@@ -80,7 +81,7 @@ export async function deploySpaServices(
     const secrets = fetchServiceSecrets(service.name, config, targetEnv);
 
     // Get storage account name from Terraform outputs
-    const tfId = service.name.replace(/-/g, '_');
+    const tfId = toTerraformId(service.name);
     let storageAccountName: string;
 
     try {

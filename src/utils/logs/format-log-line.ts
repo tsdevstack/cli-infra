@@ -1,10 +1,13 @@
 /**
  * Format one line for the terminal: time (UTC), source, kind, level, then
- * the message. The app's context, error and correlation ID join the message;
- * every other field is in --json.
+ * the message. The app's context, error and correlation ID join the message,
+ * and a cron job's last line ("cron job finished") shows how the run ended:
+ * its outcome, exit code and duration. Every other field is in --json.
  */
 
+import { CRON_FINISHED_MESSAGE } from '@tsdevstack/infra-core';
 import { LOG_COLORS } from '../../constants';
+import { formatRunDuration } from './format-run-duration';
 import type { LogEntry } from './types';
 
 const KIND_WIDTH = 8;
@@ -32,6 +35,20 @@ export function formatLogLine(
 
   const fields = entry.fields ?? {};
   let message = entry.message;
+  // A cron job's last line: (failed, exit code 1, 3 ms)
+  if (
+    entry.message === CRON_FINISHED_MESSAGE &&
+    typeof fields.outcome === 'string'
+  ) {
+    const ending = [fields.outcome];
+    if (typeof fields.exitCode === 'number') {
+      ending.push(`exit code ${fields.exitCode}`);
+    }
+    if (typeof fields.durationMs === 'number') {
+      ending.push(formatRunDuration(fields.durationMs));
+    }
+    message += ` (${ending.join(', ')})`;
+  }
   if (typeof fields.context === 'string') {
     message = `[${fields.context}] ${message}`;
   }

@@ -15,7 +15,12 @@ rs.mock('../../infrastructure/load-infrastructure-config', () => ({
 }));
 
 rs.mock('../../infrastructure/merge-with-defaults', () => ({
-  getScheduledJobs: rs.fn(),
+  getTriggerJobs: rs.fn(),
+  getCronJobs: rs.fn(),
+}));
+
+rs.mock('./deploy-cron-jobs', () => ({
+  awsDeployCronJobs: rs.fn(),
 }));
 
 rs.mock('../terraform', () => ({
@@ -25,6 +30,7 @@ rs.mock('../terraform', () => ({
 rs.mock('@tsdevstack/infra-core', () => ({
   checkTerraformInstalled: rs.fn(),
   buildAwsTerraformEnv: rs.fn(),
+  isCronJob: (job: { type?: string }) => job.type === 'cron',
 }));
 
 rs.mock('../../build-runtime', () => ({
@@ -40,7 +46,11 @@ rs.mock('node:fs', () => ({
 import fs from 'node:fs';
 import { awsDeploySchedulers } from './deploy-schedulers';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
-import { getScheduledJobs } from '../../infrastructure/merge-with-defaults';
+import {
+  getCronJobs,
+  getTriggerJobs,
+} from '../../infrastructure/merge-with-defaults';
+import { awsDeployCronJobs } from './deploy-cron-jobs';
 import { executeTerraform } from '../terraform';
 import { buildAwsTerraformEnv } from '@tsdevstack/infra-core';
 
@@ -76,7 +86,8 @@ describe('awsDeploySchedulers', () => {
   beforeEach(() => {
     rs.resetAllMocks();
     rs.mocked(loadInfrastructureConfig).mockReturnValue({ version: '1' });
-    rs.mocked(getScheduledJobs).mockReturnValue(mockJobs);
+    rs.mocked(getTriggerJobs).mockReturnValue(mockJobs);
+    rs.mocked(getCronJobs).mockReturnValue([]);
     rs.mocked(fs.existsSync).mockReturnValue(true);
     rs.mocked(buildAwsTerraformEnv).mockReturnValue({
       AWS_REGION: 'us-east-1',
@@ -88,7 +99,7 @@ describe('awsDeploySchedulers', () => {
   });
 
   it('should throw when no scheduled jobs configured', async () => {
-    rs.mocked(getScheduledJobs).mockReturnValue([]);
+    rs.mocked(getTriggerJobs).mockReturnValue([]);
 
     await expect(
       awsDeploySchedulers(mockCtx, { autoApprove: true }),
@@ -113,6 +124,75 @@ describe('awsDeploySchedulers', () => {
         target: 'aws_scheduler_schedule.job["offers-service-sync-prices"]',
       }),
     );
+  });
+
+  describe('Cron jobs', () => {
+    const cronJob = {
+      name: 'usage-report',
+      type: 'cron' as const,
+      schedule: '0 3 * * *',
+      targetService: 'auth-service',
+    };
+
+    it("should apply every schedule, then register the cron jobs' revisions with the image the services run", async () => {
+      rs.mocked(getCronJobs).mockReturnValue([cronJob]);
+      const order: string[] = [];
+      rs.mocked(executeTerraform).mockImplementation(
+        async (command, options) => {
+          order.push(
+            `${command} ${(options as { target?: string }).target ?? ''}`.trim(),
+          );
+          return { success: true, output: '' };
+        },
+      );
+      rs.mocked(awsDeployCronJobs).mockImplementation(async () => {
+        order.push('cron jobs');
+        return { deployed: ['usage-report'], skipped: [] };
+      });
+
+      await awsDeploySchedulers(mockCtx, { autoApprove: true });
+
+      expect(order).toEqual([
+        'init',
+        'apply aws_scheduler_schedule.job["auth-service-cleanup-tokens"]',
+        'apply aws_scheduler_schedule.job["offers-service-sync-prices"]',
+        'apply aws_scheduler_schedule.cron_job["usage-report"]',
+        'cron jobs',
+      ]);
+      expect(awsDeployCronJobs).toHaveBeenCalledWith(
+        mockCtx,
+        undefined,
+        [cronJob],
+        { commandName: 'infra:deploy-schedulers' },
+      );
+    });
+
+    it('should deploy cron jobs without any trigger', async () => {
+      rs.mocked(getTriggerJobs).mockReturnValue([]);
+      rs.mocked(getCronJobs).mockReturnValue([cronJob]);
+
+      await awsDeploySchedulers(mockCtx, { autoApprove: true });
+
+      expect(awsDeployCronJobs).toHaveBeenCalled();
+    });
+
+    it('should need cron-jobs.tf when there are cron jobs', async () => {
+      rs.mocked(getCronJobs).mockReturnValue([cronJob]);
+      rs.mocked(fs.existsSync).mockImplementation(
+        (p) => !String(p).endsWith('cron-jobs.tf'),
+      );
+
+      await expect(
+        awsDeploySchedulers(mockCtx, { autoApprove: true }),
+      ).rejects.toMatchObject({ message: 'cron-jobs.tf not found' });
+      expect(executeTerraform).not.toHaveBeenCalled();
+    });
+
+    it('should deploy no cron jobs without any', async () => {
+      await awsDeploySchedulers(mockCtx, { autoApprove: true });
+
+      expect(awsDeployCronJobs).not.toHaveBeenCalled();
+    });
   });
 
   it('should run terraform init once before deploying', async () => {

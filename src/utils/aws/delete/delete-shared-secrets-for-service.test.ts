@@ -35,9 +35,6 @@ rs.mock('@tsdevstack/infra-core', () => ({
       .toUpperCase()
       .replace(/-/g, '_'),
   ),
-}));
-
-rs.mock('../../string/to-screaming-snake-case', () => ({
   toScreamingSnakeCase: rs.fn((name: string) =>
     name.toUpperCase().replace(/-/g, '_'),
   ),

@@ -13,7 +13,9 @@ import {
   buildGcpCloudRunName,
   buildGcpTerraformEnv,
   checkTerraformInstalled,
+  isTriggerJob,
   setSchedulerInvokerBindings,
+  toScreamingSnakeCase,
 } from '@tsdevstack/infra-core';
 import {
   executeTerraform,
@@ -106,7 +108,9 @@ export async function gcpDeploy(
 
   // Generate all Terraform files using shared function.
   // cloud-scheduler.tf is included when scheduled jobs are configured.
-  // IAM bindings for schedulers are handled by deploy-schedulers (via SDK).
+  // The scheduler account's run.invoker is set with the SDK, not Terraform:
+  // on the triggers' services after Phase 2 below, on each cron job's Cloud
+  // Run Job as Phase 2 deploys it (gcpDeployCronJobs).
   // Names follow the scheme the environment was first deployed with
   const naming = await resolveGcpNamingScheme(ctx, 'infra:deploy');
   const { outputDir, servicesWithDatabase, scheduledJobs } =
@@ -300,7 +304,7 @@ export async function gcpDeploy(
       >(outputDir, 'storage_buckets', tfEnv);
 
       for (const bucket of frameworkConfig.storage.buckets) {
-        const secretKey = `STORAGE_BUCKET_${bucket.replace(/-/g, '_').toUpperCase()}`;
+        const secretKey = `STORAGE_BUCKET_${toScreamingSnakeCase(bucket)}`;
         const bucketName = storageBuckets[bucket].name;
         setSecretViaCli(secretKey, bucketName, ctx.targetEnv);
         logger.success(`  ✓ ${secretKey}`);
@@ -340,7 +344,7 @@ export async function gcpDeploy(
 
     for (const service of frameworkConfig.services) {
       if (!service.port) continue;
-      const urlKey = `${service.name.replace(/-/g, '_').toUpperCase()}_URL`;
+      const urlKey = `${toScreamingSnakeCase(service.name)}_URL`;
       const url = buildGcpCloudRunUrl(
         buildGcpCloudRunName(ctx.projectName, service.name, naming),
         projectNumber,
@@ -398,10 +402,12 @@ export async function gcpDeploy(
 
   await infraDeployServices({ env: ctx.targetEnv, tag: options.tag });
 
-  // Set scheduler IAM bindings (services now exist)
-  if (scheduledJobs.length > 0) {
+  // Let the scheduler account call the triggers' services (services now
+  // exist). The cron jobs' Cloud Run Jobs got theirs as they were deployed.
+  const triggerJobs = scheduledJobs.filter(isTriggerJob);
+  if (triggerJobs.length > 0) {
     const targetServices = Array.from(
-      new Set(scheduledJobs.map((j) => j.targetService)),
+      new Set(triggerJobs.map((j) => j.targetService)),
     ).map((name) => buildGcpCloudRunName(ctx.projectName, name, naming));
     logger.newline();
     logger.info('Setting scheduler IAM bindings...');

@@ -300,6 +300,43 @@ describe('validateInfrastructureConfig', () => {
       );
     });
 
+    it('should refuse a cron job whose targetService is not a NestJS service', () => {
+      mocks.loadFrameworkConfig.mockReturnValue({
+        project: { name: 'test-project' },
+        cloud: { provider: 'gcp' },
+        services: [
+          { name: 'auth-service', type: 'nestjs' },
+          { name: 'frontend', type: 'nextjs' },
+        ],
+      });
+
+      const withTarget = (targetService: string) => ({
+        version: '1.0.0',
+        dev: {
+          scheduledJobs: [
+            {
+              name: 'usage-report',
+              type: 'cron' as const,
+              schedule: '0 3 * * *',
+              targetService,
+            },
+          ],
+        },
+      });
+
+      expect(() =>
+        validateInfrastructureConfig(withTarget('auth-service')),
+      ).not.toThrow();
+      expect(() =>
+        validateInfrastructureConfig(withTarget('frontend')),
+      ).toThrow(
+        'dev.scheduledJobs.usage-report.targetService: "frontend" is a nextjs service',
+      );
+      expect(() => validateInfrastructureConfig(withTarget('nope'))).toThrow(
+        'is not a service in config.json',
+      );
+    });
+
     it('should reject Azure-invalid memory when provider is azure', () => {
       mocks.loadFrameworkConfig.mockReturnValue({
         project: { name: 'test-project' },

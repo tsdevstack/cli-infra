@@ -38,24 +38,17 @@ export {
 export type InfraProvider = 'gcp' | 'aws' | 'azure';
 
 /**
- * Scheduled job configuration for Cloud Scheduler
+ * Scheduled job configuration: a trigger (an endpoint the schedule calls) or
+ * a cron job (`type: "cron"`, a run of the service's image). One definition,
+ * infra-core's, for the generators and the CLI alike.
  */
-export interface ScheduledJobConfig {
-  /** Job name (e.g., "cleanup-tokens") */
-  name: string;
-  /** Cron schedule (e.g., "0 0 * * *" for daily) */
-  schedule: string;
-  /** Target service name (e.g., "auth-service") */
-  targetService: string;
-  /** Endpoint path (e.g., "/jobs/cleanup-tokens") */
-  endpoint: string;
-  /** HTTP method (default: POST) */
-  method?: string;
-  /** HTTP timeout in seconds - how long scheduler waits for response (default: 300) */
-  httpTimeout?: number;
-  /** Timezone (default: UTC) */
-  timezone?: string;
-}
+export type {
+  ScheduledJobConfig,
+  ScheduledJobBase,
+  TriggerJobConfig,
+  CronJobConfig,
+} from '@tsdevstack/infra-core';
+import type { ScheduledJobConfig } from '@tsdevstack/infra-core';
 
 /**
  * Migration job resource configuration

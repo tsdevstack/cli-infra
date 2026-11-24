@@ -79,6 +79,31 @@ describe('buildAwsLogGroupReads', () => {
     });
   });
 
+  describe('Cron jobs', () => {
+    it("should read a cron job's own log group as app lines, with the level filter", () => {
+      const source: LogSource = {
+        name: 'usage-report',
+        type: 'cron',
+        service: 'auth-service',
+      };
+      expect(
+        buildAwsLogGroupReads([source], { ...PARAMS, level: 'error' }),
+      ).toEqual([
+        {
+          source,
+          logGroupName: '/ecs/shop/cron-usage-report',
+          region: 'eu-west-1',
+          kind: 'app',
+          format: 'app',
+          filterPattern: '{ $.level = "error" || $.level = "fatal" }',
+        },
+      ]);
+      expect(
+        buildAwsLogGroupReads([source], { ...PARAMS, kind: 'platform' }),
+      ).toEqual([]);
+    });
+  });
+
   describe('Edge cases', () => {
     it('should keep only the reads of the requested kind', () => {
       expect(

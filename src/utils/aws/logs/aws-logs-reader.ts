@@ -199,6 +199,7 @@ export class AwsLogsReader implements LogsReader {
       ...AWS_ECS_SERVICE_LOG_SOURCE_TYPES,
       'migration',
       'db-init',
+      'cron',
     ]);
     const platformSources = query.sources.filter((source) =>
       ecsTypes.has(source.type),

@@ -36,6 +36,7 @@ rs.mock('@tsdevstack/infra-core', () => ({
           .filter(Boolean)
       : undefined,
   ),
+  toTerraformId: rs.fn((name: string) => name.replace(/-/g, '_')),
 }));
 
 rs.mock('node:fs', () => ({

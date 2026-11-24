@@ -1,26 +1,30 @@
 /**
  * Azure List Schedulers Handler
  *
- * Lists scheduled jobs and their deployment status.
- * Cross-references infrastructure config with Container App Jobs API.
+ * Lists the environment's scheduled jobs, both kinds, with their deployment
+ * state and last run. Triggers are the Container App Jobs `{project}-{name}`
+ * (Terraform), cron jobs the Container App Jobs `{project}-cron-{name}`
+ * (SDK). The last run is the job's newest execution: its state and start.
  */
 
 import { ContainerAppsAPIClient } from '@azure/arm-appcontainers';
 import { getContext } from '../../../context';
-import { createAzureCredential } from '@tsdevstack/infra-core';
+import { createAzureCredential, isCronJob } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
 import { getScheduledJobs } from '../../infrastructure/merge-with-defaults';
-import { buildScheduledJobKey } from './build-scheduled-job-key';
+import { buildAzureScheduledJobResourceName } from './build-azure-scheduled-job-resource-name';
+import { findLatestJobExecution } from './find-latest-job-execution';
 import type { AzureCommandContext } from './types';
 
 interface JobStatus {
   name: string;
+  kind: 'trigger' | 'cron';
   schedule: string;
-  targetService: string;
-  endpoint: string;
+  target: string;
   status: 'DEPLOYED' | 'NOT_FOUND';
   cloudState?: string;
+  lastRun: string;
 }
 
 /**
@@ -33,7 +37,7 @@ export async function azureListSchedulers(
 
   const { targetEnv, projectName, credentials } = ctx;
 
-  // Load infrastructure config and get scheduled jobs
+  // Load infrastructure config and get scheduled jobs, both kinds
   const infraConfig = loadInfrastructureConfig();
   const scheduledJobs = getScheduledJobs(infraConfig, targetEnv);
 
@@ -64,9 +68,15 @@ export async function azureListSchedulers(
       resourceGroupName,
     )) {
       if (job.name) {
+        // The schedule's state, as AWS and GCP show theirs (ENABLED): the
+        // job's running state (Ready, Suspended). A deploy that did not
+        // succeed shows that instead: "Succeeded" read like a run's result.
         const provisioningState = job.provisioningState ?? 'Unknown';
         deployedJobs.set(job.name, {
-          state: provisioningState,
+          state:
+            provisioningState === 'Succeeded'
+              ? (job.runningState ?? 'Deployed')
+              : provisioningState,
         });
       }
     }
@@ -80,70 +90,105 @@ export async function azureListSchedulers(
     );
   }
 
-  // Build status for each configured job
-  const jobStatuses: JobStatus[] = scheduledJobs.map((job) => {
-    const jobKey = buildScheduledJobKey(job.targetService, job.name);
-    const jobName = `${projectName}-${jobKey}`;
-    const deployed = deployedJobs.get(jobName);
+  // Build status for each configured job, with its last run
+  const jobStatuses: JobStatus[] = [];
+  for (const job of scheduledJobs) {
+    const resourceName = buildAzureScheduledJobResourceName(projectName, job);
+    const deployed = deployedJobs.get(resourceName);
+    const kind = isCronJob(job) ? 'cron' : 'trigger';
+    const target = isCronJob(job)
+      ? job.targetService
+      : `${job.targetService}${job.endpoint}`;
 
-    if (deployed) {
-      return {
+    if (!deployed) {
+      jobStatuses.push({
         name: job.name,
+        kind,
         schedule: job.schedule,
-        targetService: job.targetService,
-        endpoint: job.endpoint,
-        status: 'DEPLOYED' as const,
-        cloudState: deployed.state,
-      };
+        target,
+        status: 'NOT_FOUND',
+        lastRun: '-',
+      });
+      continue;
     }
 
-    return {
+    let lastRun = 'never ran';
+    try {
+      const latest = await findLatestJobExecution(
+        client,
+        resourceGroupName,
+        resourceName,
+      );
+      if (latest) {
+        lastRun = `${latest.status ?? 'Unknown'}${latest.startTime ? ` ${latest.startTime.toISOString()}` : ''}`;
+      }
+    } catch {
+      lastRun = '? (executions not readable)';
+    }
+
+    jobStatuses.push({
       name: job.name,
+      kind,
       schedule: job.schedule,
-      targetService: job.targetService,
-      endpoint: job.endpoint,
-      status: 'NOT_FOUND' as const,
-    };
-  });
+      target,
+      status: 'DEPLOYED',
+      cloudState: deployed.state,
+      lastRun,
+    });
+  }
 
   // Print table
-  const maxNameLen = Math.max(...jobStatuses.map((j) => j.name.length), 8);
-  const maxScheduleLen = Math.max(
-    ...jobStatuses.map((j) => j.schedule.length),
+  const width = (values: string[], min: number): number =>
+    Math.max(...values.map((v) => v.length), min);
+  const nameWidth = width(
+    jobStatuses.map((j) => j.name),
     8,
   );
-  const maxTargetLen = Math.max(
-    ...jobStatuses.map((j) => `${j.targetService}${j.endpoint}`.length),
+  const kindWidth = width(
+    jobStatuses.map((j) => j.kind),
+    4,
+  );
+  const scheduleWidth = width(
+    jobStatuses.map((j) => j.schedule),
+    8,
+  );
+  const targetWidth = width(
+    jobStatuses.map((j) => j.target),
+    6,
+  );
+  const statusWidth = width(
+    jobStatuses.map((j) =>
+      j.status === 'DEPLOYED'
+        ? `✓ ${j.cloudState || 'Deployed'}`
+        : '✗ NOT FOUND',
+    ),
     6,
   );
 
-  // Header
   const header = [
-    'Job Name'.padEnd(maxNameLen),
-    'Schedule'.padEnd(maxScheduleLen),
-    'Target'.padEnd(maxTargetLen),
-    'Status',
+    'Job Name'.padEnd(nameWidth),
+    'Kind'.padEnd(kindWidth),
+    'Schedule'.padEnd(scheduleWidth),
+    'Target'.padEnd(targetWidth),
+    'Status'.padEnd(statusWidth),
+    'Last run',
   ].join(' | ');
 
-  const separator = '-'.repeat(header.length);
-
   logger.info(header);
-  logger.info(separator);
+  logger.info('-'.repeat(header.length));
 
-  // Rows
   for (const job of jobStatuses) {
-    const target = `${job.targetService}${job.endpoint}`;
-    const statusIcon = job.status === 'DEPLOYED' ? '✓' : '✗';
     const statusText =
       job.status === 'DEPLOYED'
-        ? `${statusIcon} ${job.cloudState || 'Succeeded'}`
-        : `${statusIcon} NOT FOUND`;
-
+        ? `✓ ${job.cloudState || 'Deployed'}`
+        : '✗ NOT FOUND';
     const row = [
-      job.name.padEnd(maxNameLen),
-      job.schedule.padEnd(maxScheduleLen),
-      target.padEnd(maxTargetLen),
-      statusText,
+      job.name.padEnd(nameWidth),
+      job.kind.padEnd(kindWidth),
+      job.schedule.padEnd(scheduleWidth),
+      job.target.padEnd(targetWidth),
+      statusText.padEnd(statusWidth),
+      job.lastRun,
     ].join(' | ');
 
     if (job.status === 'DEPLOYED') {
@@ -159,9 +204,7 @@ export async function azureListSchedulers(
   const deployedCount = jobStatuses.filter(
     (j) => j.status === 'DEPLOYED',
   ).length;
-  const notFoundCount = jobStatuses.filter(
-    (j) => j.status === 'NOT_FOUND',
-  ).length;
+  const notFoundCount = jobStatuses.length - deployedCount;
 
   if (notFoundCount > 0) {
     logger.warn(`${notFoundCount} job(s) not deployed. Run:`);

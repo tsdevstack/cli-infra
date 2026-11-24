@@ -50,3 +50,6 @@ export type {
 
 export { discoverCoupledWorkers } from './discover-coupled-workers';
 export type { CoupledWorkerInfo } from './discover-coupled-workers';
+
+export { discoverCoupledCronJobs } from './discover-coupled-cron-jobs';
+export type { CoupledCronJobInfo } from './discover-coupled-cron-jobs';

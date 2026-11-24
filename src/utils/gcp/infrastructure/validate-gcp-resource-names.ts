@@ -12,13 +12,15 @@ import {
 } from '@tsdevstack/infra-core';
 import { getContext } from '../../../context';
 import { getEnvironmentCloudRunNames } from '../delete/get-environment-cloud-run-names';
+import { buildGcpCronJobName } from '../build-gcp-cron-job-name';
 
 /**
  * Stop before anything deploys when a name is too long: Cloud Run takes
  * names under 50 characters, GCS bucket names at most 63. The unique scheme
  * adds the project to Cloud Run names and a suffix to bucket names, so a
  * project and service that fit before may not. A legacy environment keeps
- * the names it already has, so they are not checked again.
+ * the names it already has, so they are not checked again; a cron job's
+ * Cloud Run Job is new in both schemes, so it is always checked.
  *
  * @throws CliError naming the first name too long, its length and the limit
  */
@@ -29,10 +31,23 @@ export function validateGcpResourceNames(options: {
   naming: NamingScheme;
   services: FrameworkService[];
   storageBuckets: string[];
+  /** The environment's cron jobs (infrastructure.json) */
+  cronJobNames?: string[];
   commandName: string;
 }): void {
   const { CliError } = getContext();
   const { projectName, naming, commandName } = options;
+
+  for (const jobName of options.cronJobNames ?? []) {
+    const name = buildGcpCronJobName(projectName, jobName, naming);
+    if (name.length > GCP_CLOUD_RUN_NAME_MAX_LENGTH) {
+      throw new CliError(
+        `Cloud Run Job name "${name}" is ${name.length} characters; Cloud Run takes at most ${GCP_CLOUD_RUN_NAME_MAX_LENGTH}`,
+        commandName,
+        `A cron job's Cloud Run Job is ${naming === 'unique' ? '{project}-cron-{name}' : 'cron-{name}'}. Shorten the cron job's name (register-cron with the new name, move the handler's code over, remove the old handler file and its entry)${naming === 'unique' ? ' or the project name' : ''}.`,
+      );
+    }
+  }
 
   if (naming === 'legacy') {
     return;

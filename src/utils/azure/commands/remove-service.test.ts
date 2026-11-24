@@ -17,6 +17,7 @@ rs.mock('inquirer', () => ({
 rs.mock('../discovery', () => ({
   discoverServiceResources: rs.fn(),
   discoverCoupledWorkers: rs.fn(),
+  discoverCoupledCronJobs: rs.fn(async () => []),
 }));
 
 rs.mock('../remove-service', () => ({

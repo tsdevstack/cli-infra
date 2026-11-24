@@ -4,6 +4,8 @@
  * Build deletion steps based on discovered resources.
  *
  * Order is critical:
+ * 0. The service's cron jobs (schedule, task definition, log group), then
+ *    its workers
  * 1. ECS Service (stop traffic)
  * 2. Cloud Map service instance
  * 3. The service's CloudFront distributions (disable, wait, delete), then
@@ -20,7 +22,7 @@
 
 import type { DeletionStep, DeletionStepResult } from './types';
 import type { AWSCommandContext } from '../commands/types';
-import type { DiscoveredResources } from '../discovery';
+import type { AwsCronJobInfo, DiscoveredResources } from '../discovery';
 import {
   deleteEcsService,
   deleteS3Bucket,
@@ -30,6 +32,8 @@ import {
   deleteCloudWatchLogGroup,
   deleteCloudFrontDistribution,
   deleteOriginAccessControl,
+  deleteSchedulerSchedule,
+  deleteEcsTaskDefinitionFamily,
 } from '../delete';
 import {
   ECSClient,
@@ -50,6 +54,8 @@ export interface BuildDeletionStepsOptions {
   projectName: string;
   targetEnv: string;
   coupledWorkers: string[];
+  /** The service's cron jobs (found by their task definitions' tags) */
+  coupledCronJobs?: AwsCronJobInfo[];
   hasDatabase: boolean;
   /**
    * Saves the database before it is dropped (left out: no saved database,
@@ -71,12 +77,49 @@ export function buildDeletionSteps(
     projectName,
     targetEnv: _targetEnv, // unused on AWS (kept for cross-provider interface parity)
     coupledWorkers,
+    coupledCronJobs = [],
     hasDatabase,
     saveDatabase,
   } = options;
   const { credentials } = ctx;
   const clusterName = `${projectName}-cluster`;
   const steps: DeletionStep[] = [];
+
+  // 0. The service's cron jobs: the schedule first (nothing starts a task
+  // any more), then the task definition (it runs with the service's role),
+  // then its log group
+  for (const cronJob of coupledCronJobs) {
+    steps.push({
+      name: 'Cron job schedule',
+      label: `Deleting the schedule of cron job ${cronJob.name}`,
+      resource: cronJob.scheduleName,
+      execute: () =>
+        deleteSchedulerSchedule({
+          scheduleName: cronJob.scheduleName,
+          credentials,
+        }),
+    });
+    steps.push({
+      name: 'Cron job',
+      label: `Deleting the task definition of cron job ${cronJob.name}`,
+      resource: cronJob.taskFamily,
+      execute: () =>
+        deleteEcsTaskDefinitionFamily({
+          family: cronJob.taskFamily,
+          credentials,
+        }),
+    });
+    steps.push({
+      name: 'Cron job log group',
+      label: `Deleting the log group of cron job ${cronJob.name}`,
+      resource: cronJob.logGroupName,
+      execute: () =>
+        deleteCloudWatchLogGroup({
+          logGroupName: cronJob.logGroupName,
+          credentials,
+        }),
+    });
+  }
 
   // 0. Delete coupled workers first
   for (const workerName of coupledWorkers) {

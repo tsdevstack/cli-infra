@@ -17,6 +17,7 @@ rs.mock('../../build-runtime', () => ({ buildRuntime: () => ({}) }));
 rs.mock('@tsdevstack/infra-core', () => ({
   createAzureCredential: rs.fn(() => ({})),
   buildAcrAuthConfig: (...args: unknown[]) => mockBuildAcrAuthConfig(...args),
+  toKebabCase: rs.fn((name: string) => name.toLowerCase().replace(/_/g, '-')),
 }));
 
 // Mock Azure Container Apps client
@@ -121,6 +122,18 @@ describe('executeContainerJob', () => {
           }),
         }),
       );
+    });
+
+    it('should let Azure start the run again only when asked to', async () => {
+      mockBeginCreateOrUpdateAndWait.mockResolvedValue({});
+      mockPollUntilDone.mockResolvedValue({ name: 'exec-1' });
+
+      await executeContainerJob({ ...baseOptions, retries: 1 });
+
+      expect(
+        mockBeginCreateOrUpdateAndWait.mock.calls[0][2].configuration
+          .replicaRetryLimit,
+      ).toBe(1);
     });
 
     it('should start the job after creating it, then wait for it', async () => {

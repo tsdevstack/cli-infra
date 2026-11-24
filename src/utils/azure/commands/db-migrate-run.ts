@@ -6,7 +6,10 @@
 
 import path from 'node:path';
 import { getContext } from '../../../context';
-import { AZURE_MIGRATION_JOB_PREFIX } from '../../../constants';
+import {
+  AZURE_MIGRATION_JOB_PREFIX,
+  AZURE_REPEATABLE_JOB_RETRIES,
+} from '../../../constants';
 import { resolveAzureMigrationJobAccess } from '../resolve-azure-migration-job-access';
 import { getAcrIdentityOutputs, getTerraformOutput } from '../terraform';
 import { buildAzureTerraformEnv } from '@tsdevstack/infra-core';
@@ -124,6 +127,8 @@ export async function azureDbMigrateRun(
     acrManagedIdentityId,
     cpu: parseFloat(migrationJob.cpu),
     memory: migrationJob.memory,
+    // Safe twice at once: Prisma locks the migrations table
+    retries: AZURE_REPEATABLE_JOB_RETRIES,
   });
 
   logger.newline();

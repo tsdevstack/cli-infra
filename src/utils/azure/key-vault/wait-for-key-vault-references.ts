@@ -12,13 +12,18 @@ import {
   AZURE_KEY_VAULT_REFERENCE_FATAL_STATUSES,
   AZURE_KEY_VAULT_REFERENCE_WAIT,
 } from '../../../constants';
+import { refreshKeyVaultReferences } from './refresh-key-vault-references';
 
 /**
- * App Service resolves Key Vault references when the app starts; an
- * unresolved one leaves the app with the reference text instead of the
- * secret. A role assignment made just before can take minutes to apply, so
- * while a reference is denied the app is restarted and checked again, until
- * every reference resolves or the time runs out.
+ * App Service reads an app's Key Vault references when its settings change
+ * (the deploy's change) and keeps what it got; an unresolved one leaves the
+ * app with the reference text instead of the secret. A role assignment made
+ * just before can take minutes to apply, so a reference read too early comes
+ * back denied, and App Service keeps that answer: a restart does not read it
+ * again. While a reference is denied, App Service is asked to read the
+ * references again (refreshKeyVaultReferences) and they are checked again,
+ * until every one resolves or the time runs out. Should Azure refuse that
+ * call, the app is restarted instead, as before.
  *
  * @param options.credentials - Azure credentials of the environment
  * @param options.resourceGroupName - Resource group of the app
@@ -52,6 +57,7 @@ export async function waitForKeyVaultReferences(options: {
   );
   const fatal: readonly string[] = AZURE_KEY_VAULT_REFERENCE_FATAL_STATUSES;
   const deadline = Date.now() + timeoutMs;
+  let refreshRefused = false;
 
   for (;;) {
     const references = await Promise.all(
@@ -93,7 +99,21 @@ export async function waitForKeyVaultReferences(options: {
 
     logger.info(`  Waiting for Key Vault access: ${describe(pending)}`);
     await sleep(intervalMs);
-    // References resolve when the app starts
+    if (!refreshRefused) {
+      try {
+        await refreshKeyVaultReferences({
+          credentials,
+          resourceGroupName,
+          appServiceName,
+        });
+        continue;
+      } catch (error) {
+        refreshRefused = true;
+        logger.warn(
+          `  Could not ask App Service to read the references again (${error instanceof Error ? error.message : String(error)}); restarting the app instead`,
+        );
+      }
+    }
     await client.webApps.restart(resourceGroupName, appServiceName);
   }
 }

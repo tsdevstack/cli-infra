@@ -1,7 +1,12 @@
 /**
  * GCP Deploy Scheduler Handler
  *
- * Deploys a single scheduled job to Cloud Scheduler using targeted Terraform apply.
+ * Deploys a single scheduled job to Cloud Scheduler using targeted Terraform
+ * apply; the apply creates the scheduler account when it doesn't exist yet.
+ * After it, the account gets run.invoker on what the schedule calls: a
+ * trigger's service (SDK, as deploy-schedulers does), or, for a cron job,
+ * its Cloud Run Job, created or updated after the schedule (SDK, the image
+ * its service runs) with the grant (gcpDeployCronJobs).
  */
 
 import path from 'node:path';
@@ -9,12 +14,19 @@ import fs from 'node:fs';
 import inquirer from 'inquirer';
 import { getContext } from '../../../context';
 import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
-import { getScheduledJobs } from '../../infrastructure/merge-with-defaults';
 import {
+  getCronJobs,
+  getTriggerJobs,
+} from '../../infrastructure/merge-with-defaults';
+import {
+  buildGcpCloudRunName,
   buildGcpTerraformEnv,
   checkTerraformInstalled,
   gcp,
+  isCronJob,
+  setSchedulerInvokerBindings,
 } from '@tsdevstack/infra-core';
+import { gcpDeployCronJobs } from './deploy-cron-jobs';
 import { executeTerraform } from '../terraform';
 import { buildRuntime } from '../../build-runtime';
 import { toTerraformId } from '../../terraform';
@@ -33,18 +45,20 @@ export async function gcpDeployScheduler(
   ctx: GCPCommandContext,
   options: DeploySchedulerOptions,
 ): Promise<void> {
-  const { logger, CliError, isCIEnv } = getContext();
+  const { logger, CliError, isCIEnv, loadFrameworkConfig } = getContext();
   const runtime = buildRuntime();
 
   checkTerraformInstalled(runtime);
 
   const { projectRoot, targetEnv, credentials } = ctx;
 
-  // Load infrastructure config and get scheduled jobs
+  // Load infrastructure config and get scheduled jobs, both kinds
   const infraConfig = loadInfrastructureConfig();
-  const scheduledJobs = getScheduledJobs(infraConfig, targetEnv);
+  const scheduledJobs = getTriggerJobs(infraConfig, targetEnv);
+  const cronJobs = getCronJobs(infraConfig, targetEnv);
+  const allJobs = [...scheduledJobs, ...cronJobs];
 
-  if (scheduledJobs.length === 0) {
+  if (allJobs.length === 0) {
     throw new CliError(
       `No scheduled jobs configured for environment '${targetEnv}'`,
       'infra:deploy-scheduler',
@@ -71,8 +85,10 @@ export async function gcpDeployScheduler(
         type: 'select',
         name: 'selectedJob',
         message: 'Select scheduled job to deploy:',
-        choices: scheduledJobs.map((j) => ({
-          name: `${j.name} (${j.schedule}) → ${j.targetService}${j.endpoint}`,
+        choices: allJobs.map((j) => ({
+          name: isCronJob(j)
+            ? `${j.name} (${j.schedule}) → ${j.targetService} (cron job)`
+            : `${j.name} (${j.schedule}) → ${j.targetService}${j.endpoint}`,
           value: j.name,
         })),
       },
@@ -81,12 +97,12 @@ export async function gcpDeployScheduler(
   }
 
   // Find the job config
-  const jobConfig = scheduledJobs.find((j) => j.name === jobName);
+  const jobConfig = allJobs.find((j) => j.name === jobName);
   if (!jobConfig) {
     throw new CliError(
       `Scheduled job '${jobName}' not found in config`,
       'infra:deploy-scheduler',
-      `Available jobs: ${scheduledJobs.map((j) => j.name).join(', ')}`,
+      `Available jobs: ${allJobs.map((j) => j.name).join(', ')}`,
     );
   }
 
@@ -111,17 +127,25 @@ export async function gcpDeployScheduler(
   const naming = await resolveGcpNamingScheme(ctx, 'infra:deploy-scheduler');
   writeTextFile(
     schedulerTfPath,
-    gcp.generateCloudSchedulerTf(scheduledJobs, {
-      projectName: ctx.projectName,
-      naming,
-    }),
+    gcp.generateCloudSchedulerTf(
+      scheduledJobs,
+      {
+        projectName: ctx.projectName,
+        naming,
+      },
+      cronJobs,
+    ),
   );
 
   // Log deployment info
   logger.info(`Environment: ${targetEnv}`);
   logger.info(`Job: ${jobConfig.name}`);
   logger.info(`Schedule: ${jobConfig.schedule}`);
-  logger.info(`Target: ${jobConfig.targetService}${jobConfig.endpoint}`);
+  logger.info(
+    isCronJob(jobConfig)
+      ? `Target: ${jobConfig.targetService} (cron job)`
+      : `Target: ${jobConfig.targetService}${jobConfig.endpoint}`,
+  );
   logger.newline();
 
   // Build Terraform environment
@@ -164,6 +188,27 @@ export async function gcpDeployScheduler(
       'infra:deploy-scheduler',
       applyResult.error || 'Check the output above for details',
     );
+  }
+
+  // A cron job: its Cloud Run Job, with the scheduler account's run.invoker.
+  // A trigger: the scheduler account calls its service (SDK, not Terraform)
+  logger.newline();
+  if (isCronJob(jobConfig)) {
+    await gcpDeployCronJobs(ctx, loadFrameworkConfig(), [jobConfig], {
+      naming,
+      commandName: 'infra:deploy-scheduler',
+    });
+  } else {
+    logger.info('Setting IAM binding for scheduler...');
+    await setSchedulerInvokerBindings(runtime, {
+      projectId: credentials.project_id,
+      projectName: ctx.projectName,
+      region: credentials.region,
+      targetServices: [
+        buildGcpCloudRunName(ctx.projectName, jobConfig.targetService, naming),
+      ],
+      credentials,
+    });
   }
 
   logger.newline();

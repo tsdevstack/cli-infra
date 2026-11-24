@@ -77,6 +77,28 @@ describe('runAzureDbInit', () => {
       );
     });
 
+    it('should let Azure start the setup again after a failed start', async () => {
+      // As on az7: Azure counted a run as failed before its container started
+      await runAzureDbInit(options);
+
+      expect(mockExecuteContainerJob.mock.calls[0][0].retries).toBe(1);
+    });
+
+    it('should never start a restore, a removal or an export twice', async () => {
+      for (const mode of ['restore', 'remove', 'export'] as const) {
+        mockExecuteContainerJob.mockClear();
+        await runAzureDbInit({
+          ...options,
+          mode,
+          ...(mode !== 'remove' && {
+            exportFile: 'auth-service/2026-11-14T12-30-00Z-removed.dump',
+          }),
+        });
+
+        expect(mockExecuteContainerJob.mock.calls[0][0].retries).toBe(0);
+      }
+    });
+
     it('should give the job where everything is, and no password', async () => {
       await runAzureDbInit(options);
 

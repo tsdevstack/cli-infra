@@ -22,6 +22,19 @@ rs.mock('./deploy-spa-services', () => ({
   deploySpaServices: rs.fn(),
 }));
 
+rs.mock('./deploy-cron-jobs', () => ({
+  azureDeployCronJobs: rs.fn(),
+}));
+rs.mock('../../infrastructure/load-infrastructure-config', () => ({
+  loadInfrastructureConfig: rs.fn(() => null),
+}));
+rs.mock('../../infrastructure/merge-with-defaults', () => ({
+  getCronJobs: rs.fn(() => []),
+}));
+rs.mock('../../docker', () => ({
+  getGitSha: rs.fn(() => 'sha'),
+}));
+
 rs.mock('./deploy-coupled-workers', () => ({
   deployCoupledWorkers: rs.fn(),
 }));

@@ -22,6 +22,8 @@ export { getKongConfig } from './get-kong-config';
 
 // Scheduled Jobs
 export { getScheduledJobs } from './get-scheduled-jobs';
+export { getTriggerJobs } from './get-trigger-jobs';
+export { getCronJobs } from './get-cron-jobs';
 
 // App Service
 export { mergeAppServiceWithDefaults } from './merge-app-service-with-defaults';

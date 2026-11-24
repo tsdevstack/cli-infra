@@ -56,6 +56,9 @@ rs.mock('@tsdevstack/infra-core', () => ({
   extractLockId: rs.fn(),
   buildAwsTerraformEnv: rs.fn(),
   AWS_KONG_CLOUD_MAP_NAME: 'kong',
+  toScreamingSnakeCase: rs.fn((name: string) =>
+    name.toUpperCase().replace(/-/g, '_'),
+  ),
 }));
 
 rs.mock('../../build-runtime', () => ({

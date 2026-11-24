@@ -4,14 +4,17 @@
  * - Services, workers, frontends, Kong: `/ecs/{project}/{name}` (app lines)
  * - Migrations: `/ecs/{project}/{name}`, and `/ecs/{name}-migration`, the
  *   name before the project was in it (app lines)
- * - Scheduled jobs: the job function's group, lines starting with
+ * - Triggers: the job function's group, lines starting with
  *   `job=<name>` (platform lines: the platform runs the job)
+ * - Cron jobs: their own group, `/ecs/{project}/cron-{name}` (app lines:
+ *   the service's code)
  * - Storage buckets: the storage trail's group, the bucket's events
  *   (platform lines; their level comes from the event, so --level is left
  *   to the printer)
  * - Edge: the WAF group in us-east-1
  *
- * Platform lines of services and migrations come from ECS, not from here.
+ * Platform lines of services, migrations and cron jobs come from ECS, not
+ * from here.
  * `--level` becomes a JSON filter: lines without a JSON level don't match,
  * which leaves out plain text, as on every provider.
  */
@@ -33,6 +36,7 @@ import type { LogKind, LogLevel, LogSource } from '../../logs/types';
 import type { AwsLogGroupRead } from './types';
 import { buildAwsJobLineName } from './build-aws-job-line-name';
 import { buildAwsMigrationNames } from '../build-aws-migration-names';
+import { buildAwsCronJobNames } from '../build-aws-cron-job-names';
 
 /** pino labels at or above each level (pino's trace counts as debug) */
 const PINO_LABELS: Record<LogLevel, string[]> = {
@@ -92,6 +96,20 @@ export function buildAwsLogGroupReads(
         }
         continue;
       }
+      case 'cron':
+        read = {
+          source,
+          logGroupName: buildAwsCronJobNames(
+            projectName,
+            source.service ?? '',
+            source.name,
+          ).logGroupName,
+          region,
+          kind: 'app',
+          format: 'app',
+          ...(levelPattern && { filterPattern: levelPattern }),
+        };
+        break;
       case 'job':
         read = {
           source,

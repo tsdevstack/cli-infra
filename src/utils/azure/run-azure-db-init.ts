@@ -8,6 +8,7 @@ import { getContext } from '../../context';
 import {
   AZURE_DATABASE_ADMIN_LOGIN,
   AZURE_DB_INIT_JOB_NAME,
+  AZURE_REPEATABLE_JOB_RETRIES,
 } from '../../constants';
 import { executeContainerJob } from './commands/execute-container-job';
 import { getTerraformOutput } from './terraform';
@@ -88,6 +89,9 @@ export async function runAzureDbInit(
     // db-init waits up to 5 minutes for its new Key Vault roles to apply;
     // saving or restoring a large database takes longer
     timeoutSeconds: options.exportFile ? DB_EXPORT_JOB_TIMEOUT_SECONDS : 900,
+    // init is safe twice at once (it only adds what is missing); restore,
+    // remove and export must never run twice
+    retries: options.mode === 'init' ? AZURE_REPEATABLE_JOB_RETRIES : 0,
   });
 
   if (!result.success) {

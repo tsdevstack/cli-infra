@@ -25,6 +25,7 @@ import {
 import type { FrameworkService } from '@tsdevstack/cli/plugin';
 import type { GCPCommandContext, DestroyOptions } from './types';
 import { resolveGcpNamingScheme } from '../naming/resolve-gcp-naming-scheme';
+import { discoverCronJobs } from '../discovery/discover-cron-jobs';
 
 /**
  * Check if any service in the project has a database
@@ -146,16 +147,30 @@ export async function gcpDestroy(
     // No framework config: only Kong's name is known
   }
   logger.info('Deleting Cloud Run services and jobs...');
+  // Read before Terraform empties the state: the names it was deployed with
+  const naming = await resolveGcpNamingScheme(ctx, 'infra:destroy');
+  const names = getEnvironmentCloudRunNames(services, ctx.projectName, naming);
+  // Cron jobs by their labels: a job whose entry left infrastructure.json
+  // goes too
+  const cronJobs = await discoverCronJobs({
+    projectName: ctx.projectName,
+    naming,
+    credentials: ctx.credentials,
+  }).catch((error: unknown) => {
+    throw new CliError(
+      "Could not list the cron jobs' Cloud Run Jobs",
+      'infra:destroy',
+      `${error instanceof Error ? error.message : String(error)}. Run infra:destroy again; nothing was deleted yet.`,
+    );
+  });
   const cloudRun = await deleteEnvironmentCloudRunResources({
     credentials: ctx.credentials,
     projectId: ctx.credentials.project_id,
     region: ctx.credentials.region,
-    // Read before Terraform empties the state: the names it was deployed with
-    names: getEnvironmentCloudRunNames(
-      services,
-      ctx.projectName,
-      await resolveGcpNamingScheme(ctx, 'infra:destroy'),
-    ),
+    names: {
+      services: names.services,
+      jobs: [...names.jobs, ...cronJobs.map((job) => job.cloudRunJobName)],
+    },
   });
   for (const name of cloudRun.deleted) {
     logger.success(`  Deleted ${name}`);

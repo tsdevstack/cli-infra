@@ -41,6 +41,12 @@ rs.mock('../utils/infrastructure/warn-missing-api-key-usage-job', () => ({
     mockWarnMissingApiKeyUsageJob(...args),
 }));
 
+const mockWarnMissingCronHandlers = rs.fn();
+rs.mock('../utils/infrastructure/warn-missing-cron-handlers', () => ({
+  warnMissingCronHandlers: (...args: unknown[]) =>
+    mockWarnMissingCronHandlers(...args),
+}));
+
 import { infraGenerate } from './infra-generate';
 
 describe('infraGenerate', () => {
@@ -143,13 +149,28 @@ describe('infraGenerate', () => {
       });
     });
 
-    it('should not load infrastructure.json without the auth template', async () => {
+    it('should skip the API key check without the auth template, and read infrastructure.json once', async () => {
       mocks.hasAuthTemplate.mockReturnValue(false);
 
       await infraGenerate({});
 
-      expect(mockLoadInfrastructureConfig).not.toHaveBeenCalled();
       expect(mockWarnMissingApiKeyUsageJob).not.toHaveBeenCalled();
+      expect(mockLoadInfrastructureConfig).toHaveBeenCalledTimes(1);
+    });
+
+    it('should check every cron job entry has its code, whatever the template', async () => {
+      mocks.hasAuthTemplate.mockReturnValue(false);
+      mocks.findProjectRoot.mockReturnValue('/test/project');
+      const infraConfig = { version: '1.0.0' };
+      mockLoadInfrastructureConfig.mockReturnValue(infraConfig);
+
+      await infraGenerate({ env: 'prod' });
+
+      expect(mockWarnMissingCronHandlers).toHaveBeenCalledWith({
+        infraConfig,
+        environment: 'prod',
+        projectRoot: '/test/project',
+      });
     });
   });
 });

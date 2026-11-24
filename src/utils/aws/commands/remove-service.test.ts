@@ -13,6 +13,7 @@ rs.mock('../../../context', () => ({
 rs.mock('../discovery', () => ({
   discoverServiceResources: rs.fn(),
   discoverCoupledWorkers: rs.fn(),
+  discoverAwsCronJobs: rs.fn(async () => []),
 }));
 
 rs.mock('../remove-service', () => ({
@@ -39,9 +40,14 @@ rs.mock('../database-export/run-aws-database-job', () => ({
 }));
 
 import { awsRemoveService } from './remove-service';
-import { discoverServiceResources, discoverCoupledWorkers } from '../discovery';
+import {
+  discoverServiceResources,
+  discoverCoupledWorkers,
+  discoverAwsCronJobs,
+} from '../discovery';
 import {
   hasAnyResources,
+  showResourceWarning,
   buildDeletionSteps,
   executeSteps,
   getOtherEnvironments,
@@ -88,6 +94,7 @@ describe('awsRemoveService', () => {
     });
 
     rs.mocked(discoverCoupledWorkers).mockResolvedValue([]);
+    rs.mocked(discoverAwsCronJobs).mockResolvedValue([]);
     rs.mocked(hasAnyResources).mockReturnValue(true);
     rs.mocked(getOtherEnvironments).mockReturnValue([]);
     rs.mocked(buildDeletionSteps).mockReturnValue([]);
@@ -194,6 +201,59 @@ describe('awsRemoveService', () => {
 
     expect(buildDeletionSteps).toHaveBeenCalled();
     expect(executeSteps).toHaveBeenCalled();
+  });
+
+  it("should pass the service's cron jobs, found by tag, to the warning and the steps", async () => {
+    rs.mocked(discoverServiceResources).mockResolvedValue({
+      ecsService: true,
+      spaBucket: false,
+      spaBucketName: '',
+      cloudFrontDistributions: [],
+      secrets: [],
+      inferredType: 'backend',
+    });
+    const usageReport = {
+      name: 'usage-report',
+      serviceName: 'auth-service',
+      taskFamily: 'my-app-cron-usage-report',
+      containerName: 'cron-usage-report',
+      logGroupName: '/ecs/my-app/cron-usage-report',
+      scheduleName: 'my-app-auth-service-usage-report',
+    };
+    rs.mocked(discoverAwsCronJobs).mockResolvedValue([
+      usageReport,
+      { ...usageReport, name: 'other', serviceName: 'bff-service' },
+    ]);
+    rs.mocked(inquirer.prompt)
+      .mockReset()
+      .mockResolvedValueOnce({ runMode: 'delete' })
+      .mockResolvedValueOnce({ confirmation: 'auth-service' });
+
+    await awsRemoveService(mockParams);
+
+    expect(showResourceWarning).toHaveBeenCalledWith(
+      expect.objectContaining({ coupledCronJobs: [usageReport] }),
+    );
+    expect(buildDeletionSteps).toHaveBeenCalledWith(
+      expect.objectContaining({ coupledCronJobs: [usageReport] }),
+    );
+  });
+
+  it("should delete nothing when the cron jobs can't be listed", async () => {
+    rs.mocked(discoverServiceResources).mockResolvedValue({
+      ecsService: true,
+      spaBucket: false,
+      spaBucketName: '',
+      cloudFrontDistributions: [],
+      secrets: [],
+      inferredType: 'backend',
+    });
+    rs.mocked(discoverAwsCronJobs).mockRejectedValue(new Error('AccessDenied'));
+
+    await expect(awsRemoveService(mockParams)).rejects.toMatchObject({
+      message: "Could not list the cron jobs' task definitions",
+    });
+    expect(executeSteps).not.toHaveBeenCalled();
   });
 
   it('should throw when deletion step fails', async () => {

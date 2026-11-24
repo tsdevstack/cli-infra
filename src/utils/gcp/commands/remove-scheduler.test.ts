@@ -26,8 +26,15 @@ rs.mock('inquirer', () => ({
 }));
 
 const mockDeleteSchedulerJob = rs.fn();
+const mockDeleteCloudRunJob = rs.fn();
 rs.mock('../delete', () => ({
   deleteSchedulerJob: (...args: unknown[]) => mockDeleteSchedulerJob(...args),
+  deleteCloudRunJob: (...args: unknown[]) => mockDeleteCloudRunJob(...args),
+}));
+
+const mockDiscoverCronJobs = rs.fn();
+rs.mock('../discovery/discover-cron-jobs', () => ({
+  discoverCronJobs: (...args: unknown[]) => mockDiscoverCronJobs(...args),
 }));
 
 const mockListJobs = rs.fn();
@@ -38,6 +45,11 @@ rs.mock('@google-cloud/scheduler', () => {
     },
   };
 });
+
+const mockRemind = rs.fn();
+rs.mock('../../infrastructure/remind-to-remove-scheduled-job-entry', () => ({
+  remindToRemoveScheduledJobEntry: (...args: unknown[]) => mockRemind(...args),
+}));
 
 import { gcpRemoveScheduler } from './remove-scheduler';
 import { resolveGcpNamingScheme } from '../naming/resolve-gcp-naming-scheme';
@@ -61,6 +73,8 @@ describe('gcpRemoveScheduler', () => {
     rs.resetAllMocks();
     mocks.buildGCPClientOptions.mockReturnValue({ credentials: {} });
     mockDeleteSchedulerJob.mockResolvedValue({ success: true, deleted: true });
+    mockDeleteCloudRunJob.mockResolvedValue({ success: true, deleted: true });
+    mockDiscoverCronJobs.mockResolvedValue([]);
     mockInquirerPrompt.mockResolvedValue({ confirmed: true });
   });
 
@@ -239,14 +253,6 @@ describe('gcpRemoveScheduler', () => {
         expect.stringContaining('removed from prod'),
       );
     });
-
-    it('should warn about infrastructure.json cleanup', async () => {
-      await gcpRemoveScheduler(mockCtx, { job: 'cleanup-tokens' });
-
-      expect(mocks.logger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('infrastructure.json'),
-      );
-    });
   });
 
   describe('unique naming scheme', () => {
@@ -287,6 +293,100 @@ describe('gcpRemoveScheduler', () => {
       expect(mockDeleteSchedulerJob).toHaveBeenCalledWith(
         expect.objectContaining({ jobName: 'my-app-cleanup-tokens' }),
       );
+    });
+  });
+  describe('cron jobs', () => {
+    // Found by their labels: infrastructure.json is not read at all
+    const cronJobs = [
+      {
+        name: 'usage-report',
+        serviceName: 'auth-service',
+        cloudRunJobName: 'cron-usage-report',
+        schedulerJobName: 'usage-report',
+      },
+    ];
+
+    it("should delete a cron job's Cloud Run Job, found by its labels, after its schedule", async () => {
+      mockDiscoverCronJobs.mockResolvedValue(cronJobs);
+      const order: string[] = [];
+      mockDeleteSchedulerJob.mockImplementation(async () => {
+        order.push('schedule');
+        return { success: true, deleted: true };
+      });
+      mockDeleteCloudRunJob.mockImplementation(async () => {
+        order.push('job');
+        return { success: true, deleted: true };
+      });
+
+      await gcpRemoveScheduler(mockCtx, { job: 'usage-report' });
+
+      expect(mockDiscoverCronJobs).toHaveBeenCalledWith({
+        projectName: 'my-app',
+        naming: 'legacy',
+        credentials: mockCredentials,
+      });
+      expect(mockDeleteSchedulerJob).toHaveBeenCalledWith(
+        expect.objectContaining({ jobName: 'usage-report' }),
+      );
+      expect(mockDeleteCloudRunJob).toHaveBeenCalledWith({
+        jobName: 'cron-usage-report',
+        projectId: 'gcp-project-123',
+        region: 'us-central1',
+        credentials: mockCredentials,
+      });
+      expect(order).toEqual(['schedule', 'job']);
+    });
+
+    it('should delete the Cloud Run Job when the schedule is already gone', async () => {
+      mockDiscoverCronJobs.mockResolvedValue(cronJobs);
+      mockDeleteSchedulerJob.mockResolvedValue({
+        success: true,
+        deleted: false,
+      });
+
+      await gcpRemoveScheduler(mockCtx, { job: 'usage-report' });
+
+      expect(mockDeleteCloudRunJob).toHaveBeenCalledWith(
+        expect.objectContaining({ jobName: 'cron-usage-report' }),
+      );
+    });
+
+    it('should leave the Cloud Run Jobs alone for a trigger', async () => {
+      mockDiscoverCronJobs.mockResolvedValue(cronJobs);
+
+      await gcpRemoveScheduler(mockCtx, { job: 'cleanup-tokens' });
+
+      expect(mockDeleteCloudRunJob).not.toHaveBeenCalled();
+    });
+
+    it("should delete nothing when the cron jobs can't be listed", async () => {
+      mockDiscoverCronJobs.mockRejectedValue(
+        new Error('7 PERMISSION_DENIED: run.jobs.list'),
+      );
+
+      await expect(
+        gcpRemoveScheduler(mockCtx, { job: 'usage-report' }),
+      ).rejects.toMatchObject({
+        message: "Could not list the cron jobs' Cloud Run Jobs",
+        hint: '7 PERMISSION_DENIED: run.jobs.list. Nothing was deleted; run the command again.',
+      });
+      expect(mockDeleteSchedulerJob).not.toHaveBeenCalled();
+      expect(mockDeleteCloudRunJob).not.toHaveBeenCalled();
+    });
+  });
+  describe('Entry reminder', () => {
+    it("should match the entry by the job's name", async () => {
+      await gcpRemoveScheduler(mockCtx, {
+        job: 'cleanup-tokens',
+        confirm: true,
+      });
+
+      expect(mockRemind).toHaveBeenCalledWith('prod', expect.any(Function));
+      const isRemovedJob = mockRemind.mock.calls[0][1] as (entry: {
+        name: string;
+      }) => boolean;
+      expect(isRemovedJob({ name: 'cleanup-tokens' })).toBe(true);
+      expect(isRemovedJob({ name: 'usage-report' })).toBe(false);
     });
   });
 });

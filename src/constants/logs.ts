@@ -29,6 +29,31 @@ export const LOGS_FOLLOW_RECONNECT_TRIES = 3;
 /** --follow: wait between two tries to open a stream */
 export const LOGS_FOLLOW_RECONNECT_DELAY_MS = 5000;
 
+/** infra:run-cron: how many of a failed run's newest lines it prints */
+export const FAILED_RUN_LOG_LINES = 50;
+
+/**
+ * infra:run-cron: wait before each read of a failed run's lines. The clouds
+ * make a run's last lines readable some seconds after it ended, and not in
+ * order: on GCP the exit line was readable while the five lines before it
+ * (the error among them) were not yet.
+ */
+export const FAILED_RUN_LOG_WAIT_MS = 3000;
+
+/**
+ * infra:run-cron: how often a failed run's lines are read until the
+ * runner's last line ("cron job finished") is among them. A process that
+ * was killed never writes it: then the lines of the last read are shown.
+ */
+export const FAILED_RUN_LOG_READ_TRIES = 5;
+
+/**
+ * infra:run-cron: seconds added on both sides of a failed run's time
+ * window. The window comes from this machine's clock, the lines' times from
+ * the cloud's; the two can differ.
+ */
+export const FAILED_RUN_LOG_CLOCK_MARGIN_SECONDS = 60;
+
 /**
  * How far back the source list looks for each source's last line. Matches
  * the shortest default retention of the three clouds (Cloud Logging's

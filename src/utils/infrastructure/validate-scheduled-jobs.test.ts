@@ -172,7 +172,150 @@ describe('validateScheduledJobs', () => {
     it('should name a job without a name by its position', () => {
       expect(() =>
         validateScheduledJobs('dev', [{ httpTimeout: 5 }], 'gcp'),
-      ).toThrow('dev.scheduledJobs.0.httpTimeout');
+      ).toThrow('dev.scheduledJobs.0.name is missing');
+    });
+  });
+  describe('Two kinds', () => {
+    const cron = {
+      name: 'usage-report',
+      type: 'cron',
+      schedule: '0 3 * * *',
+      targetService: 'auth-service',
+      timeout: 1800,
+      cpu: '1',
+      memory: '2Gi',
+    };
+
+    it('should accept a cron job next to a trigger on every cloud', () => {
+      for (const provider of ['gcp', 'aws', 'azure'] as const) {
+        const awsCron =
+          provider === 'aws' ? { ...cron, cpu: '1024', memory: '2048' } : cron;
+        expect(() =>
+          validateScheduledJobs('dev', [job(), awsCron], provider),
+        ).not.toThrow();
+      }
+    });
+
+    it('should accept an explicit trigger type', () => {
+      expect(() =>
+        validateScheduledJobs('dev', [job({ type: 'trigger' })], 'gcp'),
+      ).not.toThrow();
+    });
+
+    it('should refuse an unknown type', () => {
+      expect(() =>
+        validateScheduledJobs('dev', [job({ type: 'container' })], 'gcp'),
+      ).toThrow();
+    });
+
+    it('should name the other kind when a field belongs to it', () => {
+      expect(
+        hintOf(() =>
+          validateScheduledJobs('dev', [{ ...cron, endpoint: '/x' }], 'gcp'),
+        ),
+      ).toContain('"endpoint" belongs to a trigger');
+      expect(() =>
+        validateScheduledJobs('dev', [{ ...cron, endpoint: '/x' }], 'gcp'),
+      ).toThrow('Unknown field "endpoint" in dev.scheduledJobs.usage-report');
+      expect(
+        hintOf(() =>
+          validateScheduledJobs('dev', [job({ timeout: 600 })], 'gcp'),
+        ),
+      ).toContain('"timeout" belongs to a cron job');
+    });
+
+    it('should refuse a repeated name, whatever the kinds', () => {
+      expect(() =>
+        validateScheduledJobs(
+          'dev',
+          [job({ name: 'report' }), { ...cron, name: 'report' }],
+          'gcp',
+        ),
+      ).toThrow('Scheduled job "report" appears twice in dev.scheduledJobs');
+      expect(() => validateScheduledJobs('dev', [job(), job()], 'gcp')).toThrow(
+        'appears twice',
+      );
+    });
+
+    it('should refuse a trigger named cron-<x> next to a cron job <x>', () => {
+      expect(() =>
+        validateScheduledJobs(
+          'dev',
+          [job({ name: 'cron-report' }), { ...cron, name: 'report' }],
+          'gcp',
+        ),
+      ).toThrow(
+        'Trigger "cron-report" and cron job "report" in dev.scheduledJobs would share a cloud resource name (...-cron-report)',
+      );
+      // Only the exact pair collides
+      expect(() =>
+        validateScheduledJobs(
+          'dev',
+          [job({ name: 'cron-report' }), { ...cron, name: 'other' }],
+          'gcp',
+        ),
+      ).not.toThrow();
+      expect(() =>
+        validateScheduledJobs('dev', [job({ name: 'cron-report' })], 'gcp'),
+      ).not.toThrow();
+    });
+
+    it('should require name, schedule and targetService of both kinds', () => {
+      expect(() =>
+        validateScheduledJobs('dev', [{ ...cron, schedule: undefined }], 'gcp'),
+      ).toThrow('dev.scheduledJobs.usage-report.schedule is missing');
+      expect(() =>
+        validateScheduledJobs('dev', [{ schedule: '0 3 * * *' }], 'gcp'),
+      ).toThrow('dev.scheduledJobs.0.name is missing');
+    });
+
+    it('should check the targetService against the services when given', () => {
+      const services = new Map([
+        ['auth-service', 'nestjs'],
+        ['frontend', 'nextjs'],
+      ]);
+      expect(() =>
+        validateScheduledJobs('dev', [job(), cron], 'gcp', services),
+      ).not.toThrow();
+      expect(() =>
+        validateScheduledJobs(
+          'dev',
+          [job({ targetService: 'nope-service' })],
+          'gcp',
+          services,
+        ),
+      ).toThrow(
+        'dev.scheduledJobs.cleanup-tokens.targetService: "nope-service" is not a service in config.json',
+      );
+      expect(() =>
+        validateScheduledJobs(
+          'dev',
+          [{ ...cron, targetService: 'frontend' }],
+          'gcp',
+          services,
+        ),
+      ).toThrow(
+        'dev.scheduledJobs.usage-report.targetService: "frontend" is a nextjs service',
+      );
+      // A trigger may call any service that is in config.json
+      expect(() =>
+        validateScheduledJobs(
+          'dev',
+          [job({ targetService: 'frontend', endpoint: '/health' })],
+          'gcp',
+          services,
+        ),
+      ).not.toThrow();
+    });
+
+    it('should apply the Azure UTC rule to cron jobs too', () => {
+      expect(() =>
+        validateScheduledJobs(
+          'dev',
+          [{ ...cron, timezone: 'Europe/Budapest' }],
+          'azure',
+        ),
+      ).toThrow('is not possible on Azure');
     });
   });
 });

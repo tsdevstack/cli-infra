@@ -1,8 +1,11 @@
 /**
  * AWS Remove Scheduler Handler
  *
- * Removes a scheduled job from EventBridge Scheduler.
- * Discovery-based: queries AWS for deployed schedules.
+ * Removes a scheduled job from EventBridge Scheduler, by its schedule's
+ * name. Discovery-based: queries AWS for deployed schedules. A cron job's
+ * task definition and log group go too: it is found by its task
+ * definition's tags (discoverAwsCronJobs), also when its entry is gone from
+ * infrastructure.json, by its schedule's name or its own.
  */
 
 import inquirer from 'inquirer';
@@ -12,8 +15,15 @@ import {
 } from '@aws-sdk/client-scheduler';
 import { getContext } from '../../../context';
 import { buildAWSClientConfig } from '../build-aws-client-config';
-import { deleteSchedulerSchedule } from '../delete/delete-scheduler-schedule';
+import {
+  deleteCloudWatchLogGroup,
+  deleteEcsTaskDefinitionFamily,
+  deleteSchedulerSchedule,
+} from '../delete';
+import { discoverAwsCronJobs } from '../discovery/discover-aws-cron-jobs';
 import type { AWSCommandContext } from './types';
+import { buildAwsJobKey } from '../build-aws-job-key';
+import { remindToRemoveScheduledJobEntry } from '../../infrastructure/remind-to-remove-scheduled-job-entry';
 
 export interface RemoveSchedulerOptions {
   job?: string;
@@ -44,6 +54,9 @@ export async function awsRemoveScheduler(
     scheduleName = await selectScheduleInteractive(ctx);
   }
 
+  // What the user gave or picked: an entry's name or a schedule's name
+  const requestedName = scheduleName;
+
   logger.info(`Schedule: ${scheduleName}`);
   logger.info(`Environment: ${targetEnv}`);
   logger.newline();
@@ -70,6 +83,26 @@ export async function awsRemoveScheduler(
     }
   }
 
+  // A cron job's task definition and log group, looked up before anything
+  // is deleted (by its schedule's name, or its own name)
+  const cronJob = (
+    await discoverAwsCronJobs({
+      projectName: ctx.projectName,
+      credentials,
+    }).catch((error: unknown) => {
+      throw new CliError(
+        "Could not list the cron jobs' task definitions",
+        'infra:remove-scheduler',
+        `${error instanceof Error ? error.message : String(error)}. Nothing was deleted; run the command again.`,
+      );
+    })
+  ).find(
+    (job) => job.scheduleName === scheduleName || job.name === scheduleName,
+  );
+  if (cronJob) {
+    scheduleName = cronJob.scheduleName;
+  }
+
   // Delete EventBridge Scheduler schedule
   logger.info('Deleting EventBridge Scheduler schedule...');
 
@@ -92,18 +125,57 @@ export async function awsRemoveScheduler(
     logger.info(`Schedule not found (already deleted): ${scheduleName}`);
   }
 
+  // A cron job: its task definition (every revision) and its log group
+  if (cronJob) {
+    logger.info(`Deleting task definition ${cronJob.taskFamily}...`);
+    const family = await deleteEcsTaskDefinitionFamily({
+      family: cronJob.taskFamily,
+      credentials,
+    });
+    if (!family.success) {
+      throw new CliError(
+        `Failed to delete the task definition ${cronJob.taskFamily}: ${family.error}`,
+        'infra:remove-scheduler',
+        'The schedule is gone; run the command again to delete the rest',
+      );
+    }
+    logger.success(
+      family.deleted
+        ? `Deleted task definition: ${cronJob.taskFamily}`
+        : `Task definition not found (already deleted): ${cronJob.taskFamily}`,
+    );
+
+    const logGroup = await deleteCloudWatchLogGroup({
+      logGroupName: cronJob.logGroupName,
+      credentials,
+    });
+    if (!logGroup.success) {
+      throw new CliError(
+        `Failed to delete the log group ${cronJob.logGroupName}: ${logGroup.error}`,
+        'infra:remove-scheduler',
+        'The schedule and the task definition are gone; delete the log group in the CloudWatch console',
+      );
+    }
+    logger.success(
+      logGroup.deleted
+        ? `Deleted log group: ${cronJob.logGroupName}`
+        : `Log group not found (already deleted): ${cronJob.logGroupName}`,
+    );
+  }
+
   logger.newline();
   logger.success(`Schedule "${scheduleName}" removed from ${targetEnv}`);
   logger.newline();
 
-  // Warning about infrastructure.json cleanup
-  logger.warn(
-    'Remember to remove this job from .tsdevstack/infrastructure.json',
+  // Only while the entry is still there: the next deploy would bring it back
+  remindToRemoveScheduledJobEntry(
+    targetEnv,
+    (entry) =>
+      entry.name === requestedName ||
+      entry.name === cronJob?.name ||
+      `${ctx.projectName}-${buildAwsJobKey(entry.targetService, entry.name)}` ===
+        scheduleName,
   );
-  logger.info(
-    'The framework does not auto-modify user-managed configuration files.',
-  );
-  logger.newline();
 }
 
 /**

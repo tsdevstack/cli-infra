@@ -1,15 +1,19 @@
 /**
  * GCP Remove Scheduler Handler
  *
- * Removes a scheduled job from Cloud Scheduler.
- * Discovery-based: queries GCP for deployed jobs.
+ * Removes a scheduled job from Cloud Scheduler, and for a cron job its
+ * Cloud Run Job too. Discovery-based: queries GCP for deployed jobs, and a
+ * cron job's Cloud Run Job is found by its labels (discoverCronJobs), also
+ * when its entry is gone from infrastructure.json.
  */
 
 import inquirer from 'inquirer';
 import { CloudSchedulerClient } from '@google-cloud/scheduler';
 import { getContext } from '../../../context';
-import { deleteSchedulerJob } from '../delete';
+import { deleteCloudRunJob, deleteSchedulerJob } from '../delete';
+import { discoverCronJobs } from '../discovery/discover-cron-jobs';
 import type { GCPCommandContext } from './types';
+import { remindToRemoveScheduledJobEntry } from '../../infrastructure/remind-to-remove-scheduled-job-entry';
 import {
   buildGcpCloudRunName,
   GCP_SCHEDULER_PROJECT_DESCRIPTION_PREFIX,
@@ -80,6 +84,21 @@ export async function gcpRemoveScheduler(
     }
   }
 
+  // A cron job's Cloud Run Job, looked up before anything is deleted
+  const cronJob = (
+    await discoverCronJobs({
+      projectName: ctx.projectName,
+      naming,
+      credentials,
+    }).catch((error: unknown) => {
+      throw new CliError(
+        "Could not list the cron jobs' Cloud Run Jobs",
+        'infra:remove-scheduler',
+        `${error instanceof Error ? error.message : String(error)}. Nothing was deleted; run the command again.`,
+      );
+    })
+  ).find((job) => job.name === jobName);
+
   // Delete Cloud Scheduler job
   logger.info('Deleting Cloud Scheduler job...');
 
@@ -104,18 +123,36 @@ export async function gcpRemoveScheduler(
     logger.info(`Job not found (already deleted): ${jobName}`);
   }
 
+  // A cron job: its Cloud Run Job goes too (the schedule started it)
+  if (cronJob) {
+    const { cloudRunJobName } = cronJob;
+    logger.info(`Deleting Cloud Run Job ${cloudRunJobName}...`);
+    const jobResult = await deleteCloudRunJob({
+      jobName: cloudRunJobName,
+      projectId: credentials.project_id,
+      region: credentials.region,
+      credentials,
+    });
+    if (!jobResult.success) {
+      throw new CliError(
+        `Failed to delete the Cloud Run Job ${cloudRunJobName}: ${jobResult.error}`,
+        'infra:remove-scheduler',
+        'The schedule is gone; delete the job in the console or run again',
+      );
+    }
+    logger.success(
+      jobResult.deleted
+        ? `Deleted Cloud Run Job: ${cloudRunJobName}`
+        : `Cloud Run Job not found (already deleted): ${cloudRunJobName}`,
+    );
+  }
+
   logger.newline();
   logger.success(`Scheduled job "${jobName}" removed from ${targetEnv}`);
   logger.newline();
 
-  // Warning about infrastructure.json cleanup
-  logger.warn(
-    'Remember to remove this job from .tsdevstack/infrastructure.json',
-  );
-  logger.info(
-    'The framework does not auto-modify user-managed configuration files.',
-  );
-  logger.newline();
+  // Only while the entry is still there: the next deploy would bring it back
+  remindToRemoveScheduledJobEntry(targetEnv, (entry) => entry.name === jobName);
 }
 
 /**

@@ -6,6 +6,8 @@
  * 2. Build Docker images
  * 3. Push images to ECR
  * 4. Update ECS services (force new deployment)
+ * 5. Their workers, then their cron jobs (a task definition revision with
+ *    this tag, the schedule pointed at it)
  *
  * Similar to GCP's infra-deploy-services but for AWS ECS.
  */
@@ -20,6 +22,9 @@ import { infraDockerPush } from '../../../commands/infra-docker-push';
 import { checkDockerInstalled, getGitSha } from '../../docker';
 import { getTerraformOutput } from '../terraform';
 import { awsDeployWorker } from './deploy-worker';
+import { awsDeployCronJobs } from './deploy-cron-jobs';
+import { loadInfrastructureConfig } from '../../infrastructure/load-infrastructure-config';
+import { getCronJobs } from '../../infrastructure/merge-with-defaults';
 
 import { awsDbMigrateRun } from './db-migrate-run';
 import {
@@ -343,8 +348,24 @@ export async function deployEcsServices(
     logger.newline();
   }
 
+  // The cron jobs of the deployed services: their image, this tag. One not
+  // set up yet (a new entry) is skipped: infra:deploy-schedulers sets it up
+  const cronJobs = getCronJobs(loadInfrastructureConfig(), targetEnv).filter(
+    (job) => services.some((s) => s.name === job.targetService),
+  );
+  let cronJobsDeployed = 0;
+  if (cronJobs.length > 0) {
+    const cronResult = await awsDeployCronJobs(ctx, config, cronJobs, {
+      imageTag,
+      commandName: 'infra:deploy-services',
+      skipNotSetUp: true,
+    });
+    cronJobsDeployed = cronResult.deployed.length;
+    logger.newline();
+  }
+
   logger.complete(
-    `All ${services.length} service(s)${workersToDeployCount > 0 ? ` and ${workersToDeployCount} worker(s)` : ''} deployed successfully!`,
+    `All ${services.length} service(s)${workersToDeployCount > 0 ? ` and ${workersToDeployCount} worker(s)` : ''}${cronJobsDeployed > 0 ? ` and ${cronJobsDeployed} cron job(s)` : ''} deployed successfully!`,
   );
   logger.newline();
 }

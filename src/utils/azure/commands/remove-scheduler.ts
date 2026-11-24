@@ -2,7 +2,8 @@
  * Azure Remove Scheduler Handler
  *
  * Removes a scheduled job (Container App Job) from Azure.
- * Discovery-based: queries Azure for deployed jobs.
+ * Discovery-based: queries Azure for deployed jobs; a cron job whose entry
+ * is gone from infrastructure.json is found by its tag.
  */
 
 import inquirer from 'inquirer';
@@ -11,7 +12,10 @@ import { getContext } from '../../../context';
 import { createAzureCredential } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
 import { deleteContainerAppJob } from '../delete';
+import { resolveAzureScheduledJobResourceName } from './resolve-azure-scheduled-job-resource-name';
 import type { AzureCommandContext } from './types';
+import { buildAzureScheduledJobResourceName } from './build-azure-scheduled-job-resource-name';
+import { remindToRemoveScheduledJobEntry } from '../../infrastructure/remind-to-remove-scheduled-job-entry';
 
 export interface RemoveSchedulerOptions {
   job?: string;
@@ -35,10 +39,25 @@ export async function azureRemoveScheduler(
   const { targetEnv, credentials, projectName } = ctx;
   const resourceGroupName = `${projectName}-${targetEnv}-rg`;
 
-  // Resolve job name
+  // Resolve the Container App Job: --job is the entry's name (a trigger's
+  // {project}-{name}, a cron job's {project}-cron-{name}), a cron job's name
+  // found by its tag when the entry is gone, or a resource name
   let jobName: string;
   if (options.job) {
-    jobName = options.job;
+    try {
+      jobName = await resolveAzureScheduledJobResourceName(
+        projectName,
+        targetEnv,
+        options.job,
+        credentials,
+      );
+    } catch (error) {
+      throw new CliError(
+        "Could not list the environment's Container App Jobs",
+        'infra:remove-scheduler',
+        `${error instanceof Error ? error.message : String(error)}. Nothing was deleted; run the command again.`,
+      );
+    }
   } else {
     jobName = await selectJobInteractive(ctx);
   }
@@ -96,14 +115,13 @@ export async function azureRemoveScheduler(
   logger.success(`Job "${jobName}" removed from ${targetEnv}`);
   logger.newline();
 
-  // Warning about infrastructure.json cleanup
-  logger.warn(
-    'Remember to remove this job from .tsdevstack/infrastructure.json',
+  // Only while the entry is still there: the next deploy would bring it back
+  remindToRemoveScheduledJobEntry(
+    targetEnv,
+    (entry) =>
+      entry.name === options.job ||
+      buildAzureScheduledJobResourceName(projectName, entry) === jobName,
   );
-  logger.info(
-    'The framework does not auto-modify user-managed configuration files.',
-  );
-  logger.newline();
 }
 
 /**

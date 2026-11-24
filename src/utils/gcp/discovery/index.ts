@@ -65,3 +65,15 @@ export type {
   DiscoverCoupledWorkersOptions,
   CoupledWorkerInfo,
 } from './discover-coupled-workers';
+
+export { discoverCronJobs } from './discover-cron-jobs';
+export type {
+  DiscoverCronJobsOptions,
+  GcpCronJobInfo,
+} from './discover-cron-jobs';
+
+export { discoverCoupledCronJobs } from './discover-coupled-cron-jobs';
+export type {
+  DiscoverCoupledCronJobsOptions,
+  CoupledCronJobInfo,
+} from './discover-coupled-cron-jobs';

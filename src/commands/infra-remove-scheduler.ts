@@ -1,14 +1,15 @@
 /**
  * infra:remove-scheduler Command
  *
- * Removes a scheduled job (Cloud Scheduler on GCP, EventBridge on AWS).
+ * Removes a scheduled job (Cloud Scheduler on GCP, EventBridge Scheduler on
+ * AWS, a Container App Job on Azure), and a cron job's job resource.
  * Discovery-based: queries cloud provider for deployed jobs.
  *
  * Interactive mode: prompts for environment and job selection.
  * CI mode: requires --env, --job, and --confirm flags.
  *
- * Note: This only removes the job from the cloud provider.
- * The infrastructure.json configuration should be cleaned up manually.
+ * Note: This only removes the job from the cloud provider. When its entry
+ * is still in infrastructure.json, the command says so: the user removes it.
  */
 
 import { getContext } from '../context';

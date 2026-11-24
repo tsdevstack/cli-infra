@@ -1,6 +1,10 @@
 import { describe, it, expect, rs, beforeEach } from '@rstest/core';
 import { buildDeletionSteps } from './build-deletion-steps';
-import { deleteServiceAccount } from '../delete';
+import {
+  deleteServiceAccount,
+  deleteSchedulerJob,
+  deleteCloudRunJob,
+} from '../delete';
 import type { DiscoveredResources, CoupledWorkerInfo } from '../discovery';
 import type { GCPCommandContext } from '../commands/types';
 
@@ -14,6 +18,9 @@ rs.mock('../delete', () => ({
     .mockResolvedValue({ success: true, deleted: true }),
   deleteBucket: rs.fn().mockResolvedValue({ success: true, deleted: true }),
   deleteCloudRunJob: rs
+    .fn()
+    .mockResolvedValue({ success: true, deleted: true }),
+  deleteSchedulerJob: rs
     .fn()
     .mockResolvedValue({ success: true, deleted: true }),
   deleteSecretsByPrefix: rs
@@ -381,5 +388,52 @@ describe('buildDeletionSteps', () => {
       'Service-scoped secrets',
       'Shared secrets for service',
     ]);
+  });
+  describe('Cron job steps', () => {
+    it("should delete each cron job's schedule, then its Cloud Run Job, before the workers", async () => {
+      const ctx = createMockContext();
+      const steps = buildDeletionSteps({
+        ctx,
+        serviceName: 'test-service',
+        discovered: createEmptyDiscovery(),
+        projectName: 'test-project',
+        coupledWorkers: [
+          { name: 'test-worker', cloudRunName: 'test-project-test-worker' },
+        ],
+        coupledCronJobs: [
+          {
+            name: 'usage-report',
+            cloudRunJobName: 'test-project-cron-usage-report',
+            schedulerJobName: 'test-project-usage-report',
+          },
+        ],
+      });
+
+      expect(steps.slice(0, 3).map((s) => [s.name, s.resource])).toEqual([
+        ['Cron job schedule', 'usage-report'],
+        ['Cron job', 'usage-report'],
+        ['Coupled worker', 'test-worker'],
+      ]);
+      // Each line names the job: a service can have several
+      expect(steps.slice(0, 2).map((s) => s.label)).toEqual([
+        'Deleting the schedule of cron job usage-report',
+        'Deleting cron job usage-report',
+      ]);
+
+      await steps[0].execute();
+      expect(deleteSchedulerJob).toHaveBeenCalledWith({
+        jobName: 'test-project-usage-report',
+        projectId: 'test-project-123',
+        region: 'us-central1',
+        credentials: ctx.credentials,
+      });
+      await steps[1].execute();
+      expect(deleteCloudRunJob).toHaveBeenCalledWith({
+        jobName: 'test-project-cron-usage-report',
+        projectId: 'test-project-123',
+        region: 'us-central1',
+        credentials: ctx.credentials,
+      });
+    });
   });
 });

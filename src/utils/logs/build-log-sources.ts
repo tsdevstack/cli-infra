@@ -1,12 +1,13 @@
 /**
  * Build the list of log sources of an environment from the project config:
  * services, workers, frontends, Kong, migration runs, the database setup
- * job (db-init), scheduled jobs, the storage buckets' access logs and the
- * edge. The names are the same on every provider. SPAs log nothing of their
+ * job (db-init), scheduled jobs (triggers and cron jobs), the storage
+ * buckets' access logs and the edge. The names are the same on every provider. SPAs log nothing of their
  * own (their requests show under edge).
  */
 
 import type { FrameworkService } from '@tsdevstack/cli/plugin';
+import { isCronJob } from '@tsdevstack/infra-core';
 import {
   BUCKET_LOG_SOURCE_PREFIX,
   DB_INIT_LOG_SOURCE,
@@ -57,7 +58,11 @@ export function buildLogSources(
   }
 
   for (const job of scheduledJobs) {
-    sources.push({ name: job.name, type: 'job', service: job.targetService });
+    sources.push({
+      name: job.name,
+      type: isCronJob(job) ? 'cron' : 'job',
+      service: job.targetService,
+    });
   }
 
   for (const bucket of storageBuckets) {

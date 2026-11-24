@@ -50,3 +50,5 @@ export type {
   DestroyOptions,
   PlanOptions,
 } from './types';
+export { awsRunCron } from './run-cron';
+export { awsDeployCronJobs } from './deploy-cron-jobs';

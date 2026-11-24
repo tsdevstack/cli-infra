@@ -91,7 +91,7 @@ export function validateInfrastructureConfig(
           validateTracingOverride(key, override);
         }
         if (itemKey === 'scheduledJobs') {
-          validateScheduledJobs(key, override, provider);
+          validateScheduledJobs(key, override, provider, serviceTypes);
         }
         // Cloud Run limits on Kong's cpu/memory (with defaults filled in)
         if (

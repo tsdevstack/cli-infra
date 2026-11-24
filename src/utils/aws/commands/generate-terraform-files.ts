@@ -11,6 +11,8 @@ import { getContext } from '../../../context';
 import {
   aws,
   calculatePoolSize,
+  CRON_JOB_TIMEOUT,
+  DEFAULT_SCHEDULED_JOB_TIMEZONE,
   generateDbInit,
   getTotalWorkerMaxInstances,
   type AWSInfraConfig,
@@ -20,15 +22,18 @@ import { getTraceSampleRate } from '../../infrastructure/get-trace-sample-rate';
 import {
   KONG_COLLECTOR_IMAGE_NAME,
   KONG_FARGATE_DEFAULT,
+  MIGRATION_JOB_DEFAULTS_AWS,
 } from '../../../constants';
 import { validateAwsMinInstances } from '../infrastructure/validate-aws-min-instances';
+import { validateAwsCronJobNames } from '../infrastructure/validate-aws-cron-job-names';
 import { validateDatabaseDiskSize } from '../../infrastructure/validate-database-disk-size';
 import { validateDatabaseHa } from '../../infrastructure/validate-database-ha';
 import { validateRedisMemoryGb } from '../../infrastructure/validate-redis-memory-gb';
 import {
   getServiceConfig,
   getKongConfig,
-  getScheduledJobs,
+  getTriggerJobs,
+  getCronJobs,
   getDatabaseConfig,
   getRedisConfig,
 } from '../../infrastructure/merge-with-defaults';
@@ -373,7 +378,7 @@ export function generateTerraformFiles(
   });
 
   // Build scheduled jobs map from infrastructure config
-  const infraScheduledJobs = getScheduledJobs(infraConfig, ctx.targetEnv);
+  const infraScheduledJobs = getTriggerJobs(infraConfig, ctx.targetEnv);
   const scheduledJobs: AWSInfraConfig['scheduledJobs'] = {};
   infraScheduledJobs.forEach((job) => {
     const jobKey = buildAwsJobKey(job.targetService, job.name);
@@ -387,6 +392,32 @@ export function generateTerraformFiles(
       timezone: job.timezone,
     };
   });
+
+  // Build the cron jobs map (cron-jobs.tf), keyed by the job's name: an ECS
+  // task with the migration job's cpu and memory defaults, the service's pool
+  // size (A7: cron jobs are not counted) and log level
+  const infraCronJobs = getCronJobs(infraConfig, ctx.targetEnv);
+  validateAwsCronJobNames(ctx.projectName, infraCronJobs, ctx.targetEnv);
+  const cronJobs: NonNullable<AWSInfraConfig['cronJobs']> = {};
+  for (const job of infraCronJobs) {
+    cronJobs[job.name] = {
+      service: job.targetService,
+      schedule: convertCronToEventBridge(job.schedule),
+      timezone: job.timezone ?? DEFAULT_SCHEDULED_JOB_TIMEZONE,
+      cpu: Number(job.cpu ?? MIGRATION_JOB_DEFAULTS_AWS.cpu),
+      memory: String(
+        parseMemoryToNumber(job.memory ?? MIGRATION_JOB_DEFAULTS_AWS.memory),
+      ),
+      timeout: job.timeout ?? CRON_JOB_TIMEOUT.aws.default,
+      dbPoolMax: computedPoolMax,
+      logLevel: getServiceConfig(
+        infraConfig,
+        job.targetService,
+        ctx.targetEnv,
+        'aws',
+      ).logLevel,
+    };
+  }
 
   const generateConfig: AWSInfraConfig = {
     provider: 'aws',
@@ -413,6 +444,7 @@ export function generateTerraformFiles(
     frontends,
     storageBuckets: frameworkConfig.storage?.buckets ?? [],
     scheduledJobs,
+    cronJobs,
     traceSampleRate: getTraceSampleRate(infraConfig, ctx.targetEnv),
   };
 
@@ -520,6 +552,7 @@ export function generateTerraformFiles(
         ...Object.keys(services).filter((name) => name !== 'kong'),
         ...Object.keys(workers),
       ],
+      cronJobNames: Object.keys(cronJobs),
     }),
   );
   logFile('dashboard.tf');
@@ -593,6 +626,10 @@ export function generateTerraformFiles(
     aws.generateEventbridgeTf(),
   );
   logFile('eventbridge.tf');
+
+  // Cron jobs: task definitions, log groups, schedules (empty without any)
+  writeTextFile(path.join(outputDir, 'cron-jobs.tf'), aws.generateCronJobsTf());
+  logFile('cron-jobs.tf');
 
   // Generate Lambda code directories
   const jobInvokerLambdaDir = path.join(outputDir, 'lambda', 'job-invoker');

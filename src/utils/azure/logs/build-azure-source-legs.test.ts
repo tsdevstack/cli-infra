@@ -212,4 +212,22 @@ describe('buildAzureSourceLegs', () => {
       expect(buildAzureSourceLegs(bucket, NAMES, { kind: 'app' })).toEqual([]);
     });
   });
+  describe('Cron jobs', () => {
+    it("should read a cron job's Container App Job as app output, with the level filter", () => {
+      const [output, system] = buildAzureSourceLegs(
+        { name: 'usage-report', type: 'cron', service: 'auth-service' },
+        NAMES,
+        { level: 'error' },
+      );
+      expect(output).toContain(
+        '(ContainerAppName == "shop-cron-usage-report" or JobName == "shop-cron-usage-report" or JobName matches regex "^shop-cron-usage-report-[a-z0-9]+$")',
+      );
+      expect(output).toContain('Kind = "app"');
+      expect(output).toContain(
+        'tostring(parse_json(Text).level) in ("error", "fatal")',
+      );
+      expect(system).toContain('ContainerAppSystemLogs');
+      expect(system).toContain('Kind = "platform"');
+    });
+  });
 });

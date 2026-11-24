@@ -41,6 +41,7 @@ rs.mock('../utils/gcp/discovery', () => ({
     mockDiscoverServiceResources(...args),
   discoverCoupledWorkers: (...args: unknown[]) =>
     mockDiscoverCoupledWorkers(...args),
+  discoverCoupledCronJobs: rs.fn(async () => []),
 }));
 
 const mockHasAnyResources = rs.fn();

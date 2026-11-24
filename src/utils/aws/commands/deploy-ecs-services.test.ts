@@ -48,6 +48,16 @@ rs.mock('./deploy-worker', () => ({
   awsDeployWorker: rs.fn(),
 }));
 
+rs.mock('./deploy-cron-jobs', () => ({
+  awsDeployCronJobs: rs.fn(),
+}));
+rs.mock('../../infrastructure/load-infrastructure-config', () => ({
+  loadInfrastructureConfig: rs.fn(() => null),
+}));
+rs.mock('../../infrastructure/merge-with-defaults', () => ({
+  getCronJobs: rs.fn(() => []),
+}));
+
 rs.mock('../../credentials/set-secret-via-cli', () => ({
   setSecretViaCli: rs.fn(),
 }));
@@ -81,6 +91,8 @@ import {
   waitForEcsStable,
 } from '@tsdevstack/infra-core';
 import { awsDeployWorker } from './deploy-worker';
+import { awsDeployCronJobs } from './deploy-cron-jobs';
+import { getCronJobs } from '../../infrastructure/merge-with-defaults';
 import { infraDockerGenerate } from '../../../commands/infra-docker-generate';
 import { infraDockerBuild } from '../../../commands/infra-docker-build';
 import { infraDockerPush } from '../../../commands/infra-docker-push';
@@ -253,6 +265,75 @@ describe('deployEcsServices', () => {
         baseService: expect.objectContaining({ name: 'auth-service' }),
       }),
     );
+  });
+
+  describe('Cron jobs', () => {
+    const cronJob = (name: string, targetService: string) => ({
+      name,
+      type: 'cron' as const,
+      schedule: '0 3 * * *',
+      targetService,
+    });
+
+    it('should deploy the cron jobs of the deployed services, with this tag, after the workers', async () => {
+      rs.mocked(getCronJobs).mockReturnValue([
+        cronJob('usage-report', 'auth-service'),
+        cronJob('elsewhere', 'billing-service'),
+      ]);
+      const order: string[] = [];
+      rs.mocked(deployEcsServiceWithSecrets).mockImplementation(async () => {
+        order.push('service');
+        return { taskDefinitionArn: 'arn:td:1' };
+      });
+      rs.mocked(awsDeployCronJobs).mockImplementation(async () => {
+        order.push('cron jobs');
+        return { deployed: ['usage-report'], skipped: [] };
+      });
+
+      await deployEcsServices(mockCtx, { tag: 'custom-tag' });
+
+      // A cron job not set up yet is skipped, not a failure of the command
+      expect(awsDeployCronJobs).toHaveBeenCalledWith(
+        mockCtx,
+        expect.objectContaining({ services: expect.any(Array) }),
+        [cronJob('usage-report', 'auth-service')],
+        {
+          imageTag: 'custom-tag',
+          commandName: 'infra:deploy-services',
+          skipNotSetUp: true,
+        },
+      );
+      expect(order.at(-1)).toBe('cron jobs');
+      expect(mocks.logger.complete).toHaveBeenCalledWith(
+        expect.stringContaining('and 1 cron job(s) deployed successfully'),
+      );
+    });
+
+    it('should count only the cron jobs it deployed', async () => {
+      rs.mocked(getCronJobs).mockReturnValue([
+        cronJob('usage-report', 'auth-service'),
+      ]);
+      rs.mocked(awsDeployCronJobs).mockResolvedValue({
+        deployed: [],
+        skipped: ['usage-report'],
+      });
+
+      await deployEcsServices(mockCtx, {});
+
+      expect(mocks.logger.complete).toHaveBeenCalledWith(
+        expect.not.stringContaining('cron job'),
+      );
+    });
+
+    it("should leave out the cron jobs of a service it doesn't deploy", async () => {
+      rs.mocked(getCronJobs).mockReturnValue([
+        cronJob('usage-report', 'auth-service'),
+      ]);
+
+      await deployEcsServices(mockCtx, { service: 'offers-service' });
+
+      expect(awsDeployCronJobs).not.toHaveBeenCalled();
+    });
   });
 
   it('should use custom image tag', async () => {

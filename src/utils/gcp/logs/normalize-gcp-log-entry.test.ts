@@ -103,6 +103,32 @@ describe('normalizeGcpLogEntry', () => {
       });
     });
 
+    it("should name a cron job's lines by the job, as the user types it, in both naming schemes", () => {
+      for (const [naming, jobName] of [
+        ['legacy', 'cron-usage-report'],
+        ['unique', 'shop-cron-usage-report'],
+      ] as const) {
+        const line = normalizeGcpLogEntry(
+          {
+            logName: 'projects/p/logs/run.googleapis.com%2Fstdout',
+            resource: {
+              type: 'cloud_run_job',
+              labels: { job_name: jobName },
+            },
+            timestamp: '2026-10-30T12:00:01Z',
+            jsonPayload: { level: 'info', msg: 'cron job finished' },
+          },
+          'shop',
+          naming,
+        );
+        expect(line).toMatchObject({
+          source: 'usage-report',
+          kind: 'app',
+          message: 'cron job finished',
+        });
+      }
+    });
+
     it('should name the database setup job db-init, as the user types it, in both naming schemes', () => {
       for (const naming of ['legacy', 'unique'] as const) {
         const line = normalizeGcpLogEntry(

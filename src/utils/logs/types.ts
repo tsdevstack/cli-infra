@@ -18,18 +18,20 @@ export type LogSourceType =
   | 'migration'
   | 'db-init'
   | 'job'
+  | 'cron'
   | 'bucket'
   | 'edge';
 
 /**
  * One place logs come from. `name` is what the user types and what every
  * line shows: auth-service, auth-worker, kong, migrate-auth-service,
- * db-init, a scheduled job's name, bucket-uploads, edge.
+ * db-init, a scheduled job's name (a trigger is `job`, a cron job `cron`),
+ * bucket-uploads, edge.
  */
 export interface LogSource {
   name: string;
   type: LogSourceType;
-  /** Scheduled jobs: the service the job calls */
+  /** Scheduled jobs: the service a trigger calls, or whose image a cron job runs */
   service?: string;
   /** Storage buckets: the bucket's name in config.json */
   bucket?: string;

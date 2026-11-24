@@ -24,10 +24,15 @@
 
 import type { DeletionStep, DeletionStepResult } from './types';
 import type { GCPCommandContext } from '../commands/types';
-import type { DiscoveredResources, CoupledWorkerInfo } from '../discovery';
+import type {
+  DiscoveredResources,
+  CoupledWorkerInfo,
+  CoupledCronJobInfo,
+} from '../discovery';
 import {
   deleteCloudRunService,
   deleteCloudRunJob,
+  deleteSchedulerJob,
   deleteBucket,
   deleteSecretsByPrefix,
   deleteSharedSecretsForService,
@@ -44,6 +49,8 @@ export interface BuildDeletionStepsOptions {
   discovered: DiscoveredResources;
   projectName: string;
   coupledWorkers: CoupledWorkerInfo[];
+  /** The service's cron jobs (Cloud Run Jobs labeled with the service) and their schedules */
+  coupledCronJobs?: CoupledCronJobInfo[];
   /**
    * Saves the database to the exports bucket (infra:restore-database brings
    * it back); left out with --skip-export
@@ -63,12 +70,42 @@ export function buildDeletionSteps(
     discovered,
     projectName,
     coupledWorkers,
+    coupledCronJobs = [],
     saveDatabase,
   } = options;
   const { credentials } = ctx;
   const projectId = credentials.project_id;
   const region = credentials.region;
   const steps: DeletionStep[] = [];
+
+  // 0. Delete the service's cron jobs: the schedule first (nothing starts
+  // the job any more), then the Cloud Run Job (it runs as the service's account)
+  for (const cronJob of coupledCronJobs) {
+    steps.push({
+      name: 'Cron job schedule',
+      label: `Deleting the schedule of cron job ${cronJob.name}`,
+      resource: cronJob.name,
+      execute: () =>
+        deleteSchedulerJob({
+          jobName: cronJob.schedulerJobName,
+          projectId,
+          region,
+          credentials,
+        }),
+    });
+    steps.push({
+      name: 'Cron job',
+      label: `Deleting cron job ${cronJob.name}`,
+      resource: cronJob.name,
+      execute: () =>
+        deleteCloudRunJob({
+          jobName: cronJob.cloudRunJobName,
+          projectId,
+          region,
+          credentials,
+        }),
+    });
+  }
 
   // 0. Delete coupled workers first (they share the service account)
   for (const worker of coupledWorkers) {

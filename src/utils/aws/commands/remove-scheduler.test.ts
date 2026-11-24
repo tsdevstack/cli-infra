@@ -27,7 +27,13 @@ rs.mock('../build-aws-client-config', () => ({
   buildAWSClientConfig: rs.fn(() => ({ region: 'us-east-1' })),
 }));
 
-rs.mock('../delete/delete-scheduler-schedule', () => ({
+rs.mock('../discovery/discover-aws-cron-jobs', () => ({
+  discoverAwsCronJobs: rs.fn(),
+}));
+
+rs.mock('../delete', () => ({
+  deleteEcsTaskDefinitionFamily: rs.fn(),
+  deleteCloudWatchLogGroup: rs.fn(),
   deleteSchedulerSchedule: rs.fn(),
 }));
 
@@ -37,8 +43,30 @@ rs.mock('inquirer', () => ({
   },
 }));
 
+const mockRemind = rs.fn();
+rs.mock('../../infrastructure/remind-to-remove-scheduled-job-entry', () => ({
+  remindToRemoveScheduledJobEntry: (...args: unknown[]) => mockRemind(...args),
+}));
+
+/** The predicate the command handed the entry reminder */
+function remindedEntry(): (entry: {
+  name: string;
+  targetService: string;
+}) => boolean {
+  expect(mockRemind).toHaveBeenCalledWith('dev', expect.any(Function));
+  return mockRemind.mock.calls[0][1] as (entry: {
+    name: string;
+    targetService: string;
+  }) => boolean;
+}
+
 import { awsRemoveScheduler } from './remove-scheduler';
-import { deleteSchedulerSchedule } from '../delete/delete-scheduler-schedule';
+import {
+  deleteCloudWatchLogGroup,
+  deleteEcsTaskDefinitionFamily,
+  deleteSchedulerSchedule,
+} from '../delete';
+import { discoverAwsCronJobs } from '../discovery/discover-aws-cron-jobs';
 import inquirer from 'inquirer';
 
 describe('awsRemoveScheduler', () => {
@@ -61,6 +89,101 @@ describe('awsRemoveScheduler', () => {
     rs.mocked(deleteSchedulerSchedule).mockResolvedValue({
       success: true,
       deleted: true,
+    });
+    rs.mocked(discoverAwsCronJobs).mockResolvedValue([]);
+    rs.mocked(deleteEcsTaskDefinitionFamily).mockResolvedValue({
+      success: true,
+      deleted: true,
+    });
+    rs.mocked(deleteCloudWatchLogGroup).mockResolvedValue({
+      success: true,
+      deleted: true,
+    });
+  });
+
+  describe('Cron jobs', () => {
+    // Found by their task definitions' tags: infrastructure.json is not read
+    const usageReport = {
+      name: 'usage-report',
+      serviceName: 'auth-service',
+      taskFamily: 'my-app-cron-usage-report',
+      containerName: 'cron-usage-report',
+      logGroupName: '/ecs/my-app/cron-usage-report',
+      scheduleName: 'my-app-auth-service-usage-report',
+    };
+
+    it("should delete a cron job's schedule, then its task definition and log group", async () => {
+      rs.mocked(discoverAwsCronJobs).mockResolvedValue([usageReport]);
+      const order: string[] = [];
+      rs.mocked(deleteSchedulerSchedule).mockImplementation(async () => {
+        order.push('schedule');
+        return { success: true, deleted: true };
+      });
+      rs.mocked(deleteEcsTaskDefinitionFamily).mockImplementation(async () => {
+        order.push('task definition');
+        return { success: true, deleted: true };
+      });
+      rs.mocked(deleteCloudWatchLogGroup).mockImplementation(async () => {
+        order.push('log group');
+        return { success: true, deleted: true };
+      });
+
+      await awsRemoveScheduler(mockCtx, {
+        job: 'my-app-auth-service-usage-report',
+        confirm: true,
+      });
+
+      expect(discoverAwsCronJobs).toHaveBeenCalledWith({
+        projectName: 'my-app',
+        credentials: mockCtx.credentials,
+      });
+      expect(deleteEcsTaskDefinitionFamily).toHaveBeenCalledWith({
+        family: 'my-app-cron-usage-report',
+        credentials: mockCtx.credentials,
+      });
+      expect(deleteCloudWatchLogGroup).toHaveBeenCalledWith({
+        logGroupName: '/ecs/my-app/cron-usage-report',
+        credentials: mockCtx.credentials,
+      });
+      expect(order).toEqual(['schedule', 'task definition', 'log group']);
+    });
+
+    it("should also take the cron job's own name", async () => {
+      rs.mocked(discoverAwsCronJobs).mockResolvedValue([usageReport]);
+
+      await awsRemoveScheduler(mockCtx, { job: 'usage-report', confirm: true });
+
+      expect(deleteSchedulerSchedule).toHaveBeenCalledWith({
+        scheduleName: 'my-app-auth-service-usage-report',
+        credentials: mockCtx.credentials,
+      });
+      expect(deleteEcsTaskDefinitionFamily).toHaveBeenCalled();
+    });
+
+    it("should leave task definitions and log groups alone for a trigger's schedule", async () => {
+      rs.mocked(discoverAwsCronJobs).mockResolvedValue([usageReport]);
+
+      await awsRemoveScheduler(mockCtx, {
+        job: 'my-app-auth-service-cleanup-tokens',
+        confirm: true,
+      });
+
+      expect(deleteEcsTaskDefinitionFamily).not.toHaveBeenCalled();
+      expect(deleteCloudWatchLogGroup).not.toHaveBeenCalled();
+    });
+
+    it("should delete nothing when the cron jobs can't be listed", async () => {
+      rs.mocked(discoverAwsCronJobs).mockRejectedValue(
+        new Error('AccessDenied'),
+      );
+
+      await expect(
+        awsRemoveScheduler(mockCtx, { job: 'usage-report', confirm: true }),
+      ).rejects.toMatchObject({
+        message: "Could not list the cron jobs' task definitions",
+        hint: 'AccessDenied. Nothing was deleted; run the command again.',
+      });
+      expect(deleteSchedulerSchedule).not.toHaveBeenCalled();
     });
   });
 
@@ -199,16 +322,41 @@ describe('awsRemoveScheduler', () => {
     });
   });
 
-  describe('infrastructure cleanup warning', () => {
-    it('should warn about infrastructure.json cleanup', async () => {
+  describe('Entry reminder', () => {
+    const cleanupTokens = {
+      name: 'cleanup-tokens',
+      targetService: 'auth-service',
+    };
+    const usageReport = { name: 'usage-report', targetService: 'auth-service' };
+
+    it("should match a trigger's entry by its schedule's name", async () => {
       await awsRemoveScheduler(mockCtx, {
         job: 'my-app-auth-service-cleanup-tokens',
         confirm: true,
       });
 
-      expect(mocks.logger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('infrastructure.json'),
-      );
+      const isRemovedJob = remindedEntry();
+      expect(isRemovedJob(cleanupTokens)).toBe(true);
+      expect(isRemovedJob(usageReport)).toBe(false);
+    });
+
+    it("should match a cron job's entry through its task definition's name", async () => {
+      rs.mocked(discoverAwsCronJobs).mockResolvedValue([
+        {
+          name: 'usage-report',
+          serviceName: 'auth-service',
+          taskFamily: 'my-app-cron-usage-report',
+          containerName: 'cron-usage-report',
+          logGroupName: '/ecs/my-app/cron-usage-report',
+          scheduleName: 'my-app-auth-service-usage-report',
+        },
+      ]);
+
+      await awsRemoveScheduler(mockCtx, { job: 'usage-report', confirm: true });
+
+      const isRemovedJob = remindedEntry();
+      expect(isRemovedJob(usageReport)).toBe(true);
+      expect(isRemovedJob(cleanupTokens)).toBe(false);
     });
   });
 });

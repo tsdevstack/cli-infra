@@ -3,7 +3,9 @@
  *
  * Deploys a worker service to ECS.
  * Workers share the same Docker image as their base service but run
- * a different entrypoint and have CPU always allocated.
+ * a different entrypoint and have CPU always allocated. A worker of a
+ * service with a database gets the service's DATABASE_URL, as on GCP and
+ * Azure: Prisma needs it in the environment at start.
  */
 
 import path from 'node:path';
@@ -15,6 +17,7 @@ import {
   waitForEcsStable,
 } from '@tsdevstack/infra-core';
 import { buildRuntime } from '../../build-runtime';
+import { buildAwsDatabaseUrlSecretArn } from '../build-aws-database-url-secret-arn';
 import type { AWSCredentials, FrameworkService } from '@tsdevstack/cli/plugin';
 
 interface AwsDeployWorkerParams {
@@ -84,8 +87,9 @@ export async function awsDeployWorker(
   // Register a task definition with this image and move the service to it,
   // as the backends do. Terraform's definition names the base service's
   // `:latest` image: forcing a new deployment of that would keep the worker
-  // on whatever was pushed last instead of this tag. The worker's definition
-  // injects no secrets (it reads them at runtime), so none are added.
+  // on whatever was pushed last instead of this tag. The base service's
+  // DATABASE_URL is injected here (hasDatabase would name the worker's own
+  // secret, which doesn't exist); the other secrets are read at runtime.
   try {
     logger.info('Registering task definition and updating ECS service...');
     const result = await deployEcsServiceWithSecrets(runtime, {
@@ -95,6 +99,15 @@ export async function awsDeployWorker(
       serviceName: worker.name,
       imageUri,
       hasDatabase: false,
+      additionalSecrets: baseService.hasDatabase
+        ? {
+            DATABASE_URL: buildAwsDatabaseUrlSecretArn(
+              credentials,
+              projectName,
+              baseService.name,
+            ),
+          }
+        : undefined,
     });
 
     logger.info(`Task definition: ${result.taskDefinitionArn}`);

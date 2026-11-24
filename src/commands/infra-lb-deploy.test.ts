@@ -54,6 +54,8 @@ rs.mock('../utils/build-runtime', () => ({
 const mockBuildGcpTerraformEnv = rs.fn();
 const mockGenerateLoadBalancerTf = rs.fn();
 rs.mock('@tsdevstack/infra-core', () => ({
+  toTfVarSuffix: (name: string) =>
+    name.replace(/-service$/, '').replace(/-/g, '_'),
   buildGcpTerraformEnv: (...args: unknown[]) =>
     mockBuildGcpTerraformEnv(...args),
   gcp: {

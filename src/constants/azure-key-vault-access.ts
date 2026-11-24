@@ -10,6 +10,12 @@ export const AZURE_KEY_VAULT_SECRETS_USER_ROLE_ID =
 export const AZURE_ROLE_ASSIGNMENTS_API_VERSION = '2022-04-01';
 
 /**
+ * ARM API version of App Service's call that reads an app's Key Vault
+ * references again (config/configreferences/appsettings/refresh)
+ */
+export const AZURE_KEY_VAULT_REFERENCES_REFRESH_API_VERSION = '2022-03-01';
+
+/**
  * How long a deploy waits for App Service to resolve Key Vault references: a
  * new role assignment can take minutes to apply
  */

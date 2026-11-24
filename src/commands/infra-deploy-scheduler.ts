@@ -1,7 +1,8 @@
 /**
  * infra:deploy-scheduler Command
  *
- * Deploys a single scheduled job via Terraform (Cloud Scheduler on GCP, EventBridge on AWS).
+ * Deploys a single scheduled job (Cloud Scheduler on GCP, EventBridge Scheduler
+ * on AWS, a Container App Job on Azure).
  */
 
 import { getContext } from '../context';
@@ -20,7 +21,7 @@ interface InfraDeploySchedulerOptions {
 }
 
 /**
- * Deploy a single scheduled job to Cloud Scheduler
+ * Deploy a single scheduled job
  */
 export async function infraDeployScheduler(
   options: InfraDeploySchedulerOptions,
